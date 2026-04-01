@@ -143,7 +143,8 @@ export function CompaniesPage({ onNavigate, addToast }: Props) {
               <div className="space-y-3">
                 <button onClick={() => setShowAddContact(!showAddContact)} className="text-ems-accent text-sm hover:underline">+ Add Contact</button>
                 {showAddContact && <AddContactForm onSave={(ct) => {
-                  setContacts([...contacts, { ...ct, id: `ct-${Date.now()}`, companyId: selectedCompany.id, status: 'Active' }]);
+                  const newContact: Contact = { id: `ct-${Date.now()}`, companyId: selectedCompany.id, status: 'Active', firstName: ct.firstName || '', lastName: ct.lastName || '', title: ct.title || '', email: ct.email || '', phone: ct.phone || '', roles: ct.roles || [] };
+                  setContacts([...contacts, newContact]);
                   setShowAddContact(false);
                   addToast('Contact added', 'success');
                 }} onCancel={() => setShowAddContact(false)} />}
