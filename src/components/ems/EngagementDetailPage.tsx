@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { COMPANIES, TOURS, ATTRACTIONS, USERS, CONTACTS, formatCurrency, formatDate, getWorkflowDotColor } from '@/data/constants';
+import { formatCurrency, formatDate } from '@/data/constants';
 import { StatusBadge, Avatar, TabBar, Modal, ProgressBar, Drawer } from './Primitives';
 import type { Engagement } from '@/data/constants';
 
@@ -9,19 +9,25 @@ interface Props {
   onNavigate: (view: string, data?: any) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onUpdateEngagement: (eng: Engagement) => void;
+  onDeleteEngagement: (engagementId: string) => void;
+  companies: { id: string; tradeName: string; city: string; state: string; venueProfile?: any }[];
+  tours: { id: string; name: string; attractionId: string; contacts?: { contactId: string; role: string }[] }[];
+  attractions: { id: string; name: string }[];
+  users: { id: string; name: string; email: string }[];
+  contacts: { id: string; firstName: string; lastName: string; title: string; email: string; phone: string; companyId: string }[];
 }
 
-export function EngagementDetailPage({ engagement, engagements, onNavigate, addToast, onUpdateEngagement }: Props) {
+export function EngagementDetailPage({ engagement, engagements, onNavigate, addToast, onUpdateEngagement, onDeleteEngagement, companies, tours, attractions, users, contacts }: Props) {
   const [tab, setTab] = useState('Overview');
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [openWorkflow, setOpenWorkflow] = useState<string | null>(null);
   const [showSettlement, setShowSettlement] = useState(false);
 
-  const venue = COMPANIES.find(c => c.id === engagement.venueId);
-  const tour = TOURS.find(t => t.id === engagement.tourId);
-  const attr = tour ? ATTRACTIONS.find(a => a.id === tour.attractionId) : null;
-  const booker = USERS.find(u => u.id === engagement.bookerId);
+  const venue = companies.find(c => c.id === engagement.venueId);
+  const tour = tours.find(t => t.id === engagement.tourId);
+  const attr = tour ? attractions.find(a => a.id === tour.attractionId) : null;
+  const booker = users.find(u => u.id === engagement.bookerId);
 
   const workflowKeys = ['marketing', 'production', 'eventBusiness', 'creative', 'sales', 'finance'] as const;
   const workflowLabels: Record<string, string> = { marketing: '🎯 Marketing', production: '🔧 Production', eventBusiness: '📋 Event Business', creative: '🎨 Creative', sales: '📊 Sales', finance: '💰 Finance' };
@@ -73,6 +79,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
               )}
             </div>
             <button onClick={() => setShowCancelModal(true)} className="text-ems-coral text-xs hover:underline">Cancel Engagement</button>
+            <button onClick={() => { onDeleteEngagement(engagement.id); addToast('Engagement deleted', 'warning'); onNavigate('engagements'); }} className="text-ems-coral text-xs hover:underline">Delete</button>
           </div>
         </div>
 
@@ -143,7 +150,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                 <div>Config: {engagement.configName} · {venue?.venueProfile?.configurations.find(c => c.name === engagement.configName)?.totalCap?.toLocaleString()} cap</div>
                 {venue?.venueProfile && <>
                   <div>Audio: {venue.venueProfile.inHouseAudio ? '✓' : '✗'} · Lighting: {venue.venueProfile.inHouseLighting ? '✓' : '✗'}</div>
-                  {venue.venueProfile.exclusiveTicketingId && <div>Ticketing: {COMPANIES.find(c => c.id === venue.venueProfile?.exclusiveTicketingId)?.tradeName}</div>}
+                  {venue.venueProfile.exclusiveTicketingId && <div>Ticketing: {companies.find(c => c.id === venue.venueProfile?.exclusiveTicketingId)?.tradeName}</div>}
                 </>}
               </div>
             </div>
@@ -160,7 +167,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         <div className="grid grid-cols-2 gap-4">
           {workflowKeys.map(key => {
             const wf = engagement.workflows[key];
-            const assignee = USERS.find(u => u.id === wf.assigneeId);
+            const assignee = users.find(u => u.id === wf.assigneeId);
             const milestones = workflowMilestones[key];
             const pct = wf.milestonesTotal > 0 ? Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100) : 0;
             return (
@@ -190,9 +197,9 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
       {tab === 'Contacts' && (
         <div className="space-y-4">
           {[
-            { title: 'Attraction-Tour Contacts', contacts: (tour?.contacts || []).map(tc => CONTACTS.find(c => c.id === tc.contactId)).filter(Boolean) },
-            { title: 'Venue Contacts', contacts: CONTACTS.filter(c => c.companyId === engagement.venueId) },
-            { title: 'IAE Internal', contacts: workflowKeys.map(k => USERS.find(u => u.id === engagement.workflows[k].assigneeId)).filter(Boolean) },
+            { title: 'Attraction-Tour Contacts', contacts: (tour?.contacts || []).map(tc => contacts.find(c => c.id === tc.contactId)).filter(Boolean) },
+            { title: 'Venue Contacts', contacts: contacts.filter(c => c.companyId === engagement.venueId) },
+            { title: 'IAE Internal', contacts: workflowKeys.map(k => users.find(u => u.id === engagement.workflows[k].assigneeId)).filter(Boolean) },
           ].map((section, si) => (
             <div key={si}>
               <h3 className="text-sm font-medium text-text-primary mb-2">{section.title}</h3>
@@ -285,6 +292,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             onToggleMilestone={toggleMilestone}
             onShowSettlement={() => setShowSettlement(true)}
             addToast={addToast}
+            users={users}
           />
         </Drawer>
       )}
@@ -303,22 +311,23 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
 
       {/* Settlement */}
       {showSettlement && (
-        <SettlementModal engagement={engagement} onClose={() => setShowSettlement(false)} addToast={addToast} />
+        <SettlementModal engagement={engagement} onClose={() => setShowSettlement(false)} addToast={addToast} companies={companies} />
       )}
     </div>
   );
 }
 
-function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone, onShowSettlement, addToast }: {
+function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone, onShowSettlement, addToast, users }: {
   workflowKey: string;
   engagement: Engagement;
   onClose: () => void;
   onToggleMilestone: (key: string, idx: number) => void;
   onShowSettlement: () => void;
   addToast: (msg: string, type: any) => void;
+  users: { id: string; name: string }[];
 }) {
   const wf = engagement.workflows[workflowKey as keyof typeof engagement.workflows];
-  const assignee = USERS.find(u => u.id === wf.assigneeId);
+  const assignee = users.find(u => u.id === wf.assigneeId);
   const labels: Record<string, string> = { marketing: 'Marketing', production: 'Production', eventBusiness: 'Event Business', creative: 'Creative', sales: 'Sales', finance: 'Finance' };
 
   return (
@@ -488,8 +497,8 @@ function CancelEngagementModal({ engagement, onConfirm, onClose }: { engagement:
   );
 }
 
-function SettlementModal({ engagement, onClose, addToast }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void }) {
-  const venue = COMPANIES.find(c => c.id === engagement.venueId);
+function SettlementModal({ engagement, onClose, addToast, companies }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void; companies: { id: string; tradeName: string }[] }) {
+  const venue = companies.find(c => c.id === engagement.venueId);
   return (
     <Modal title={`Settlement Worksheet — ${engagement.id.toUpperCase()}`} onClose={onClose} width={600}>
       <div className="space-y-3 text-sm">

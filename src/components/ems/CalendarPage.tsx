@@ -163,7 +163,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
       {/* Add Hold */}
       {showAddHold && (
         <Modal title="Add Hold" onClose={() => setShowAddHold(false)} width={500}>
-          <AddHoldForm onSave={(entry) => { setCustomHolds([...customHolds, entry]); setShowAddHold(false); addToast('Hold added to calendar', 'success'); }} onCancel={() => setShowAddHold(false)} />
+          <AddHoldForm onSave={(entry) => { setCustomHolds([entry, ...customHolds]); setShowAddHold(false); addToast('Hold added to calendar', 'success'); }} onCancel={() => setShowAddHold(false)} />
         </Modal>
       )}
     </div>

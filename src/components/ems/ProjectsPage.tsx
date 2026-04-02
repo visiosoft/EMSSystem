@@ -6,16 +6,24 @@ import type { Project, Offer, Engagement } from '@/data/constants';
 interface Props {
   projects: Project[];
   engagements: Engagement[];
+  tours?: typeof TOURS;
+  attractions?: typeof ATTRACTIONS;
+  companies?: typeof COMPANIES;
+  contacts?: typeof CONTACTS;
+  dmas?: typeof DMAS;
+  users?: typeof USERS;
   onNavigate: (view: string, data?: any) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info', action?: { label: string; onClick: () => void }) => void;
   onCreateEngagement: (offer: Offer, project: Project) => string;
   onUpdateProjects: (projects: Project[]) => void;
+  onDeleteProject?: (projectId: string) => void;
 }
 
-export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects }: Props) {
+export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects, onDeleteProject }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+  const [editProject, setEditProject] = useState<Project | null>(null);
 
   const filtered = projects.filter(p => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -43,6 +51,7 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
             <th className="text-left py-2.5 px-3">Offers</th>
             <th className="text-left py-2.5 px-3">Target On-Sale</th>
             <th className="text-left py-2.5 px-3">Status</th>
+            <th />
           </tr></thead>
           <tbody>
             {filtered.map(p => {
@@ -61,6 +70,20 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
                   <td className="py-2.5 px-3 text-xs">{submitted > 0 && <span className="text-ems-blue">{submitted} Submitted</span>}{accepted > 0 && <span className="text-ems-green ml-1">{accepted} Accepted</span>}{p.offers.length === 0 && <span className="text-text-muted">—</span>}</td>
                   <td className="py-2.5 px-3 font-mono text-xs">{formatDate(p.targetOnSale)}</td>
                   <td className="py-2.5 px-3"><StatusBadge status={p.status} /></td>
+                  <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
+                    <ActionMenu items={[
+                      { label: 'Edit', onClick: () => setEditProject(p) },
+                      {
+                        label: 'Delete',
+                        onClick: () => {
+                          if (onDeleteProject) onDeleteProject(p.id);
+                          else onUpdateProjects(projects.filter(x => x.id !== p.id));
+                          addToast('Project deleted', 'warning');
+                        },
+                        danger: true,
+                      },
+                    ]} />
+                  </td>
                 </tr>
               );
             })}
@@ -69,11 +92,20 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
       </div>
       {showCreateWizard && (
         <CreateProjectWizard onClose={() => setShowCreateWizard(false)} onSave={(proj) => {
-          onUpdateProjects([...projects, proj]);
+          onUpdateProjects([proj, ...projects]);
           setShowCreateWizard(false);
           addToast('Project created successfully', 'success');
           onNavigate('project-detail', { projectId: proj.id });
         }} />
+      )}
+      {editProject && (
+        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600}>
+          <EditProjectForm project={editProject} onSave={(next) => {
+            onUpdateProjects(projects.map(p => p.id === next.id ? next : p));
+            setEditProject(null);
+            addToast('Project updated', 'success');
+          }} onCancel={() => setEditProject(null)} />
+        </Modal>
       )}
     </div>
   );
@@ -84,6 +116,12 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
   project: Project;
   projects: Project[];
   engagements: Engagement[];
+  tours?: typeof TOURS;
+  attractions?: typeof ATTRACTIONS;
+  companies?: typeof COMPANIES;
+  contacts?: typeof CONTACTS;
+  dmas?: typeof DMAS;
+  users?: typeof USERS;
   onNavigate: (view: string, data?: any) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info', action?: { label: string; onClick: () => void }) => void;
   onCreateEngagement: (offer: Offer, project: Project) => string;
@@ -91,6 +129,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
 }) {
   const [showRecordResponse, setShowRecordResponse] = useState<string | null>(null);
   const [showAddVenue, setShowAddVenue] = useState(false);
+  const [editOfferId, setEditOfferId] = useState<string | null>(null);
 
   const tour = TOURS.find(t => t.id === project.tourId);
   const attr = tour ? ATTRACTIONS.find(a => a.id === tour.attractionId) : null;
@@ -174,6 +213,12 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                   </div>
                   {offer.responseNotes && <div className="text-xs text-text-secondary mt-2 italic">"{offer.responseNotes}"</div>}
                   <div className="flex gap-2 mt-3 justify-end">
+                    <button onClick={() => setEditOfferId(offer.id)} className="bg-elevated text-text-primary text-xs px-3 py-1 rounded border border-border hover:bg-hover">Edit</button>
+                    <button onClick={() => {
+                      const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: p.offers.filter(o => o.id !== offer.id) } : p);
+                      onUpdateProjects(updatedProjects);
+                      addToast('Offer deleted', 'warning');
+                    }} className="bg-elevated text-ems-coral text-xs px-3 py-1 rounded border border-border hover:bg-hover">Delete</button>
                     {offer.status === 'Submitted' && (
                       <button onClick={() => setShowRecordResponse(offer.id)} className="bg-elevated text-text-primary text-xs px-3 py-1 rounded border border-border hover:bg-hover">Record Response ▾</button>
                     )}
@@ -260,13 +305,60 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
       {showAddVenue && (
         <Modal title="Add Venue to Project" onClose={() => setShowAddVenue(false)} width={500}>
           <AddVenueForm project={project} onSave={(offer) => {
-            const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: [...p.offers, offer] } : p);
+            const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: [offer, ...p.offers] } : p);
             onUpdateProjects(updatedProjects);
             setShowAddVenue(false);
             addToast('Venue added to project', 'success');
           }} onCancel={() => setShowAddVenue(false)} />
         </Modal>
       )}
+
+      {editOfferId && (
+        <Modal title="Edit Offer" onClose={() => setEditOfferId(null)} width={500}>
+          <EditOfferForm
+            offer={project.offers.find(o => o.id === editOfferId)!}
+            onSave={(offer) => {
+              const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: p.offers.map(o => o.id === offer.id ? offer : o) } : p);
+              onUpdateProjects(updatedProjects);
+              setEditOfferId(null);
+              addToast('Offer updated', 'success');
+            }}
+            onCancel={() => setEditOfferId(null)}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function EditProjectForm({ project, onSave, onCancel }: { project: Project; onSave: (p: Project) => void; onCancel: () => void }) {
+  const [name, setName] = useState(project.name);
+  const [status, setStatus] = useState(project.status);
+  const [targetOnSale, setTargetOnSale] = useState(project.targetOnSale || '');
+  const [notes, setNotes] = useState(project.notes);
+  return (
+    <div className="space-y-3">
+      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      <FormField label="Target On-Sale"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={targetOnSale} onChange={e => setTargetOnSale(e.target.value)} /></FormField>
+      <FormField label="Notes"><textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} /></FormField>
+      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...project, name, status, targetOnSale: targetOnSale || null, notes })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+    </div>
+  );
+}
+
+function EditOfferForm({ offer, onSave, onCancel }: { offer: Offer; onSave: (o: Offer) => void; onCancel: () => void }) {
+  const [status, setStatus] = useState(offer.status);
+  const [date, setDate] = useState(offer.proposedDates[0] || '');
+  const [time, setTime] = useState(offer.showTime);
+  const [guarantee, setGuarantee] = useState(String(offer.guarantee));
+  return (
+    <div className="space-y-3">
+      <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Draft', 'Submitted', 'Accepted', 'Declined', 'Countered'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      <FormField label="Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} /></FormField>
+      <FormField label="Show Time"><input type="time" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={time} onChange={e => setTime(e.target.value)} /></FormField>
+      <FormField label="Guarantee"><input type="number" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
+      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...offer, status, proposedDates: [date], showTime: time, guarantee: Number(guarantee) || 0 })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
     </div>
   );
 }

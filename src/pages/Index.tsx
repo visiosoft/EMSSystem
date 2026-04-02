@@ -10,15 +10,21 @@ import { EngagementsPage } from '@/components/ems/EngagementsPage';
 import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
 import { AnalyticsPage } from '@/components/ems/AnalyticsPage';
 import { SettingsPage } from '@/components/ems/SettingsPage';
-import { PROJECTS_INIT, ENGAGEMENTS_INIT, TOURS, ATTRACTIONS, COMPANIES } from '@/data/constants';
+import { PROJECTS_INIT, ENGAGEMENTS_INIT, TOURS, ATTRACTIONS, COMPANIES, CONTACTS, USERS, DMAS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
-import type { Project, Engagement, Offer } from '@/data/constants';
+import type { Project, Engagement, Offer, Company, Contact, Attraction, Tour } from '@/data/constants';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [viewData, setViewData] = useState<any>({});
   const [projects, setProjects] = useState<Project[]>(PROJECTS_INIT);
   const [engagements, setEngagements] = useState<Engagement[]>(ENGAGEMENTS_INIT);
+  const [companies, setCompanies] = useState<Company[]>(COMPANIES);
+  const [contacts, setContacts] = useState<Contact[]>(CONTACTS);
+  const [attractions, setAttractions] = useState<Attraction[]>(ATTRACTIONS);
+  const [tours, setTours] = useState<Tour[]>(TOURS);
+  const [users, setUsers] = useState(USERS);
+  const [dmas, setDmas] = useState(DMAS);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const navigate = useCallback((view: string, data?: any) => {
@@ -36,9 +42,9 @@ const Index = () => {
   }, []);
 
   const createEngagement = useCallback((offer: Offer, project: Project): string => {
-    const tour = TOURS.find(t => t.id === project.tourId);
-    const attr = tour ? ATTRACTIONS.find(a => a.id === tour.attractionId) : null;
-    const venue = COMPANIES.find(c => c.id === offer.venueId);
+    const tour = tours.find(t => t.id === project.tourId);
+    const attr = tour ? attractions.find(a => a.id === tour.attractionId) : null;
+    const venue = companies.find(c => c.id === offer.venueId);
     const id = `eng-${Date.now().toString().slice(-4)}`;
     const newEng: Engagement = {
       id, name: `${attr?.name} — ${tour?.name} @ ${venue?.tradeName}`,
@@ -57,13 +63,32 @@ const Index = () => {
         finance: { status: 'NotStarted', assigneeId: 'usr-08', notes: '', milestonesComplete: 0, milestonesTotal: 5 },
       },
     };
-    setEngagements(prev => [...prev, newEng]);
+    setEngagements(prev => [newEng, ...prev]);
     return id;
-  }, []);
+  }, [attractions, companies, tours]);
 
   const updateEngagement = useCallback((eng: Engagement) => {
     setEngagements(prev => prev.map(e => e.id === eng.id ? eng : e));
   }, []);
+
+  const createManualEngagement = useCallback((eng: Engagement) => {
+    setEngagements(prev => [eng, ...prev]);
+  }, []);
+
+  const deleteEngagement = useCallback((engagementId: string) => {
+    setEngagements(prev => prev.filter(e => e.id !== engagementId));
+    setProjects(prev => prev.map(p => ({
+      ...p,
+      offers: p.offers.map(o => o.engagementId === engagementId ? { ...o, engagementId: undefined } : o),
+    })));
+  }, []);
+
+  const deleteProject = useCallback((projectId: string) => {
+    const toDelete = engagements.filter(e => e.projectId === projectId).map(e => e.id);
+    setEngagements(prev => prev.filter(e => e.projectId !== projectId));
+    setProjects(prev => prev.filter(p => p.id !== projectId));
+    if (toDelete.length > 0) addToast(`Deleted project and ${toDelete.length} linked engagement(s)`, 'warning');
+  }, [addToast, engagements]);
 
   const getBreadcrumb = () => {
     const map: Record<string, string[]> = {
@@ -90,21 +115,102 @@ const Index = () => {
         <Header breadcrumb={getBreadcrumb()} />
         <main className="p-6">
           {currentView === 'dashboard' && <DashboardPage engagements={engagements} onNavigate={navigate} />}
-          {currentView === 'companies' && <CompaniesPage onNavigate={navigate} addToast={addToast} />}
-          {currentView === 'attraction-tours' && <AttractionToursPage onNavigate={navigate} addToast={addToast} />}
+          {currentView === 'companies' && (
+            <CompaniesPage
+              onNavigate={navigate}
+              addToast={addToast}
+              companies={companies}
+              contacts={contacts}
+              dmas={dmas}
+              onUpdateCompanies={setCompanies}
+              onUpdateContacts={setContacts}
+            />
+          )}
+          {currentView === 'attraction-tours' && (
+            <AttractionToursPage
+              onNavigate={navigate}
+              addToast={addToast}
+              attractions={attractions}
+              tours={tours}
+              companies={companies}
+              contacts={contacts}
+              dmas={dmas}
+              users={users}
+              onUpdateAttractions={setAttractions}
+              onUpdateTours={setTours}
+            />
+          )}
           {currentView === 'calendar' && <CalendarPage engagements={engagements} onNavigate={navigate} addToast={addToast} />}
-          {currentView === 'projects' && <ProjectsPage projects={projects} engagements={engagements} onNavigate={navigate} addToast={addToast} onCreateEngagement={createEngagement} onUpdateProjects={setProjects} />}
+          {currentView === 'projects' && (
+            <ProjectsPage
+              projects={projects}
+              engagements={engagements}
+              tours={tours}
+              attractions={attractions}
+              companies={companies}
+              contacts={contacts}
+              dmas={dmas}
+              users={users}
+              onNavigate={navigate}
+              addToast={addToast}
+              onCreateEngagement={createEngagement}
+              onUpdateProjects={setProjects}
+              onDeleteProject={deleteProject}
+            />
+          )}
           {currentView === 'project-detail' && (() => {
             const project = projects.find(p => p.id === viewData.projectId);
-            return project ? <ProjectDetailPage project={project} projects={projects} engagements={engagements} onNavigate={navigate} addToast={addToast} onCreateEngagement={createEngagement} onUpdateProjects={setProjects} /> : <div className="text-text-muted">Project not found</div>;
+            return project ? (
+              <ProjectDetailPage
+                project={project}
+                projects={projects}
+                engagements={engagements}
+                tours={tours}
+                attractions={attractions}
+                companies={companies}
+                contacts={contacts}
+                dmas={dmas}
+                users={users}
+                onNavigate={navigate}
+                addToast={addToast}
+                onCreateEngagement={createEngagement}
+                onUpdateProjects={setProjects}
+              />
+            ) : <div className="text-text-muted">Project not found</div>;
           })()}
-          {currentView === 'engagements' && <EngagementsPage engagements={engagements} onNavigate={navigate} statusFilter={viewData.statusFilter} />}
+          {currentView === 'engagements' && (
+            <EngagementsPage
+              engagements={engagements}
+              companies={companies}
+              users={users}
+              tours={tours}
+              onNavigate={navigate}
+              statusFilter={viewData.statusFilter}
+              addToast={addToast}
+              onCreateEngagement={createManualEngagement}
+              onDeleteEngagement={deleteEngagement}
+            />
+          )}
           {currentView === 'engagement-detail' && (() => {
             const eng = engagements.find(e => e.id === viewData.engagementId);
-            return eng ? <EngagementDetailPage engagement={eng} engagements={engagements} onNavigate={navigate} addToast={addToast} onUpdateEngagement={updateEngagement} /> : <div className="text-text-muted">Engagement not found</div>;
+            return eng ? (
+              <EngagementDetailPage
+                engagement={eng}
+                engagements={engagements}
+                onNavigate={navigate}
+                addToast={addToast}
+                onUpdateEngagement={updateEngagement}
+                onDeleteEngagement={deleteEngagement}
+                companies={companies}
+                tours={tours}
+                attractions={attractions}
+                users={users}
+                contacts={contacts}
+              />
+            ) : <div className="text-text-muted">Engagement not found</div>;
           })()}
           {currentView === 'analytics' && <AnalyticsPage />}
-          {currentView === 'settings' && <SettingsPage addToast={addToast} />}
+          {currentView === 'settings' && <SettingsPage addToast={addToast} users={users} dmas={dmas} onUpdateUsers={setUsers} onUpdateDmas={setDmas} />}
         </main>
       </div>
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

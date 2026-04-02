@@ -1,17 +1,25 @@
 import React, { useState } from 'react';
-import { COMPANIES, TOURS, ATTRACTIONS, USERS, CONTACTS, DMAS, formatCurrency, formatDate, getWorkflowDotColor } from '@/data/constants';
+import { formatCurrency, formatDate, getWorkflowDotColor } from '@/data/constants';
 import { StatusBadge, SearchInput, FilterChips, ActionMenu } from './Primitives';
 import type { Engagement } from '@/data/constants';
+import { Modal, FormField } from './Primitives';
 
 interface Props {
   engagements: Engagement[];
+  companies: { id: string; tradeName: string; city: string }[];
+  users: { id: string; name: string }[];
+  tours: { id: string; name: string }[];
   onNavigate: (view: string, data?: any) => void;
   statusFilter?: string;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onCreateEngagement: (engagement: Engagement) => void;
+  onDeleteEngagement: (engagementId: string) => void;
 }
 
-export function EngagementsPage({ engagements, onNavigate, statusFilter: initFilter }: Props) {
+export function EngagementsPage({ engagements, companies, users, tours, onNavigate, statusFilter: initFilter, addToast, onCreateEngagement, onDeleteEngagement }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
+  const [showCreate, setShowCreate] = useState(false);
 
   const filtered = engagements.filter(e => {
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -27,6 +35,7 @@ export function EngagementsPage({ engagements, onNavigate, statusFilter: initFil
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold text-text-primary">Engagements</h1>
         <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary">{filtered.length}</span>
+        <button onClick={() => setShowCreate(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-3 py-1 rounded text-xs font-medium">+ Create</button>
       </div>
       <div className="flex items-center gap-4">
         <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
@@ -47,8 +56,8 @@ export function EngagementsPage({ engagements, onNavigate, statusFilter: initFil
           </tr></thead>
           <tbody>
             {filtered.map(eng => {
-              const venue = COMPANIES.find(c => c.id === eng.venueId);
-              const booker = USERS.find(u => u.id === eng.bookerId);
+              const venue = companies.find(c => c.id === eng.venueId);
+              const booker = users.find(u => u.id === eng.bookerId);
               return (
                 <tr key={eng.id} onClick={() => onNavigate('engagement-detail', { engagementId: eng.id })}
                   className="border-b border-border/50 hover:bg-hover cursor-pointer">
@@ -67,11 +76,75 @@ export function EngagementsPage({ engagements, onNavigate, statusFilter: initFil
                     </div>
                   </td>
                   <td className="py-2.5 px-3"><StatusBadge status={eng.status} /></td>
+                  <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
+                    <ActionMenu items={[{ label: 'Delete', onClick: () => { onDeleteEngagement(eng.id); addToast('Engagement deleted', 'warning'); }, danger: true }]} />
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+      {showCreate && (
+        <Modal title="Create Engagement" onClose={() => setShowCreate(false)} width={600}>
+          <CreateEngagementForm companies={companies} users={users} tours={tours} onSave={(eng) => { onCreateEngagement(eng); setShowCreate(false); addToast('Engagement created', 'success'); }} onCancel={() => setShowCreate(false)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { onSave: (e: Engagement) => void; onCancel: () => void; companies: { id: string; tradeName: string }[]; users: { id: string; name: string }[]; tours: { id: string; name: string }[] }) {
+  const [name, setName] = useState('');
+  const [tourId, setTourId] = useState(tours[0]?.id || '');
+  const [venueId, setVenueId] = useState(companies[0]?.id || '');
+  const [bookerId, setBookerId] = useState(users[0]?.id || '');
+  const [date, setDate] = useState('');
+  const [status, setStatus] = useState('Draft');
+
+  return (
+    <div className="space-y-3">
+      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Tour"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={tourId} onChange={e => setTourId(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></FormField>
+        <FormField label="Venue"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={venueId} onChange={e => setVenueId(e.target.value)}>{companies.map(c => <option key={c.id} value={c.id}>{c.tradeName}</option>)}</select></FormField>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Booker"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={bookerId} onChange={e => setBookerId(e.target.value)}>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></FormField>
+        <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      </div>
+      <FormField label="Show Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} /></FormField>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({
+          id: `eng-${Date.now()}`,
+          name: name || 'New Engagement',
+          tourId,
+          venueId,
+          configName: 'Default',
+          bookerId,
+          projectId: 'manual',
+          offerId: null,
+          showDates: [{ date, doorTime: '19:00', showTime: '20:00', runtime: 120 }],
+          showCount: 1,
+          status,
+          dealType: 'Guarantee',
+          guarantee: 0,
+          splitPct: null,
+          breakeven: null,
+          projectedGross: 0,
+          projectedMargin: 0,
+          actualGross: null,
+          actualMargin: null,
+          workflows: {
+            marketing: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
+            production: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 6 },
+            eventBusiness: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 6 },
+            creative: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
+            sales: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 4 },
+            finance: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
+          },
+        })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Create</button>
       </div>
     </div>
   );
