@@ -70,9 +70,19 @@ interface HeaderProps {
   onSearch?: (q: string) => void;
 }
 
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export function Header({ breadcrumb }: HeaderProps) {
+  const greeting = getGreeting();
+
   return (
-    <div className="h-14 bg-surface border-b border-border flex items-center px-6 sticky top-0 z-30">
+    <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-6 sticky top-0 z-30">
+      {/* Breadcrumb */}
       <div className="flex items-center gap-1 text-sm">
         {breadcrumb.map((b, i) => (
           <span key={i} className={i === breadcrumb.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted'}>
@@ -80,6 +90,22 @@ export function Header({ breadcrumb }: HeaderProps) {
             {b}
           </span>
         ))}
+      </div>
+
+      {/* Greeting */}
+      <div className="flex items-center gap-3">
+        <div className="text-right hidden sm:block">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm text-text-secondary">{greeting},</span>
+            <span className="text-sm font-semibold text-text-primary">Tom 👋</span>
+          </div>
+          <div className="text-[11px] text-text-muted leading-none mt-0.5">
+            Have a great day ahead
+          </div>
+        </div>
+        <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
+          TW
+        </div>
       </div>
     </div>
   );
