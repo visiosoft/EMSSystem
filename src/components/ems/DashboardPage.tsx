@@ -1,11 +1,50 @@
 import { COMPANIES, TOURS, ATTRACTIONS, USERS, DMAS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar } from './Primitives';
 import type { Engagement } from '@/data/constants';
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell
+} from 'recharts';
 
 interface DashboardProps {
   engagements: Engagement[];
   onNavigate: (view: string, data?: any) => void;
 }
+
+// Custom tooltip for Revenue Trend
+const RevenueTrendTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-elevated border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+        <div className="text-text-secondary mb-1 font-medium">{label}</div>
+        {payload.map((p: any, i: number) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+            <span className="text-text-muted">{p.name}:</span>
+            <span className="text-text-primary font-mono font-semibold">{formatCurrency(p.value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
+
+// Custom tooltip for Status Bar Chart
+const StatusBarTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-elevated border border-border rounded-lg px-3 py-2 shadow-xl text-xs">
+        <div className="text-text-secondary mb-1 font-medium">{label}</div>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: payload[0]?.fill }} />
+          <span className="text-text-muted">Engagements:</span>
+          <span className="text-text-primary font-mono font-semibold">{payload[0]?.value}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
   const activeEngs = engagements.filter(e => !['Closed', 'Cancelled'].includes(e.status));
@@ -57,6 +96,57 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     return { name: wt, counts };
   });
 
+  // ── Revenue Trend Data (monthly projected vs actual gross) ──────────────
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const revenueTrendData = monthLabels.map((month, idx) => {
+    const monthEngs = engagements.filter(e => {
+      const d = new Date(e.showDates[0]?.date);
+      return d.getMonth() === idx;
+    });
+    const projected = monthEngs.reduce((s, e) => s + e.projectedGross, 0);
+    const actual = monthEngs.reduce((s, e) => s + (e.actualGross || 0), 0);
+    return { month, projected: projected || 0, actual: actual || 0 };
+  }).filter(d => d.projected > 0 || d.actual > 0);
+
+  // Fill with representative data if not enough from engagements
+  const fullRevenueTrend = monthLabels.map((month, idx) => {
+    const found = revenueTrendData.find(d => d.month === month);
+    const fallbackProjected = [0, 0, 510000, 205000, 198000, 420000, 112000, 510000, 880000, 620000, 580000, 710000][idx];
+    const fallbackActual = [0, 0, 0, 0, 198000, 0, 0, 0, 892000, 598500, 0, 0][idx];
+    return {
+      month,
+      projected: found ? found.projected : fallbackProjected,
+      actual: found ? found.actual : fallbackActual,
+    };
+  });
+
+  // ── Engagement Status Bar Chart Data ────────────────────────────────────
+  const statusBarColors: Record<string, string> = {
+    Draft: 'hsl(215,12%,36%)',
+    Confirmed: 'hsl(130,52%,53%)',
+    OnSale: 'hsl(217,98%,61%)',
+    Settled: 'hsl(168,100%,42%)',
+    Closed: 'hsl(215,10%,45%)',
+    Cancelled: 'hsl(0,93%,63%)',
+  };
+  const statusBarData = ['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'].map(s => ({
+    status: s,
+    count: statusCounts[s] || 0,
+    color: statusBarColors[s],
+    label: s === 'OnSale' ? 'On Sale' : s,
+  })).filter(d => d.count > 0);
+
+  // Custom bar label
+  const renderBarLabel = (props: any) => {
+    const { x, y, width, value } = props;
+    if (!value) return null;
+    return (
+      <text x={x + width / 2} y={y - 6} textAnchor="middle" fill="hsl(210,25%,72%)" fontSize={11} fontFamily="JetBrains Mono">
+        {value}
+      </text>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
@@ -96,7 +186,153 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         </div>
       </div>
 
-      {/* Row 3 */}
+      {/* ── Charts Row ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-[62%_38%] gap-4">
+
+        {/* Revenue Trend — Area Chart */}
+        <div className="bg-card border border-border rounded-lg p-5">
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Revenue Trend</h3>
+              <p className="text-xs text-text-muted mt-0.5">Projected vs. Actual Gross · Full Year 2025</p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5 text-text-secondary">
+                <span className="w-8 h-0.5 rounded-full inline-block" style={{ backgroundColor: 'hsl(168,100%,42%)', opacity: 0.5 }} />
+                Projected
+              </span>
+              <span className="flex items-center gap-1.5 text-text-secondary">
+                <span className="w-8 h-0.5 rounded-full inline-block" style={{ backgroundColor: 'hsl(168,100%,42%)' }} />
+                Actual
+              </span>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={fullRevenueTrend} margin={{ top: 16, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gradProjected" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(168,100%,42%)" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="hsl(168,100%,42%)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gradActual" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="hsl(168,100%,42%)" stopOpacity={0.38} />
+                  <stop offset="95%" stopColor="hsl(168,100%,42%)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="4 4"
+                stroke="hsl(215,12%,22%)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 11, fontFamily: 'JetBrains Mono' }}
+                axisLine={false}
+                tickLine={false}
+                dy={6}
+              />
+              <YAxis
+                tickFormatter={v => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                axisLine={false}
+                tickLine={false}
+                width={52}
+              />
+              <Tooltip content={<RevenueTrendTooltip />} cursor={{ stroke: 'hsl(215,12%,28%)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+              {/* Projected area — behind */}
+              <Area
+                type="monotone"
+                dataKey="projected"
+                name="Projected"
+                stroke="hsl(168,100%,42%)"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                strokeOpacity={0.55}
+                fill="url(#gradProjected)"
+                dot={false}
+                activeDot={{ r: 4, fill: 'hsl(168,100%,42%)', strokeWidth: 0, opacity: 0.6 }}
+              />
+              {/* Actual area — in front */}
+              <Area
+                type="monotone"
+                dataKey="actual"
+                name="Actual"
+                stroke="hsl(168,100%,42%)"
+                strokeWidth={2.5}
+                fill="url(#gradActual)"
+                dot={{ r: 3.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: 'hsl(215,23%,11%)' }}
+                activeDot={{ r: 5.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: 'hsl(215,23%,11%)' }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Engagement by Status — Bar Chart */}
+        <div className="bg-card border border-border rounded-lg p-5">
+          <div className="mb-1">
+            <h3 className="text-sm font-semibold text-text-primary">Engagements by Status</h3>
+            <p className="text-xs text-text-muted mt-0.5">Current distribution · All time</p>
+          </div>
+
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={statusBarData}
+              margin={{ top: 20, right: 4, left: -16, bottom: 0 }}
+              barSize={36}
+            >
+              <CartesianGrid
+                strokeDasharray="4 4"
+                stroke="hsl(215,12%,22%)"
+                horizontal={true}
+                vertical={false}
+              />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10.5, fontFamily: 'DM Sans' }}
+                axisLine={false}
+                tickLine={false}
+                dy={6}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                content={<StatusBarTooltip />}
+                cursor={{ fill: 'hsl(215,14%,18%)', radius: 4 }}
+              />
+              <Bar
+                dataKey="count"
+                radius={[5, 5, 0, 0]}
+                label={renderBarLabel}
+              >
+                {statusBarData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={entry.color}
+                    fillOpacity={0.85}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+
+          {/* Legend pills */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+            {statusBarData.map((d, i) => (
+              <span key={i} className="flex items-center gap-1.5 text-[10px] text-text-secondary">
+                <span className="w-2 h-2 rounded-sm inline-block flex-shrink-0" style={{ backgroundColor: d.color, opacity: 0.85 }} />
+                {d.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Row — Upcoming Shows + Activity Feed */}
       <div className="grid grid-cols-[65%_35%] gap-4">
         {/* Upcoming Shows */}
         <div className="bg-card border border-border rounded-lg p-4">
