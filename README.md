@@ -1,3 +1,3 @@
-# Welcome to your Lovable project
+# IAE Event Flow
 
-TODO: Document your project here
+Event flow application.
