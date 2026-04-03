@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
+import { useTheme } from 'next-themes';
 import { formatCurrency } from '@/data/constants';
 import { StatusBadge, FilterChips } from './Primitives';
 
 export function AnalyticsPage() {
   const [quarter, setQuarter] = useState('All');
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+
+  // Theme-aware SVG text colors
+  const svgColors = {
+    label: isDark ? '#8B949E' : '#64748b',
+    muted: isDark ? '#484F58' : '#94a3b8',
+    primary: isDark ? '#E6EDF3' : '#1e293b',
+    gridLine: isDark ? '#2D333B' : '#e2e8f0',
+    barBg: isDark ? '#21262D' : '#f1f5f9',
+  };
 
   const monthlyGross = [820000, 1100000, 980000, 750000, 1200000, 890000, 1050000, 1380000, 1620000, 1480000, 980000, 590000];
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -20,9 +32,9 @@ export function AnalyticsPage() {
     { status: 'Confirmed', count: 6, color: '#3FB950' },
     { status: 'OnSale', count: 4, color: '#388BFD' },
     { status: 'Settled', count: 8, color: '#00D4AA' },
-    { status: 'Closed', count: 12, color: '#484F58' },
+    { status: 'Closed', count: 12, color: isDark ? '#484F58' : '#94a3b8' },
     { status: 'Cancelled', count: 3, color: '#F85149' },
-    { status: 'Draft', count: 2, color: '#2D333B' },
+    { status: 'Draft', count: 2, color: isDark ? '#2D333B' : '#cbd5e1' },
   ];
   const totalStatus = statusBreakdown.reduce((s, d) => s + d.count, 0);
 
@@ -69,9 +81,15 @@ export function AnalyticsPage() {
             const isFuture = i > 8;
             return (
               <g key={i}>
-                <rect x={x} y={170 - h} width={40} height={h} fill={isFuture ? 'hsl(168, 100%, 42%, 0.3)' : 'hsl(168, 100%, 42%)'} rx="3" />
-                <text x={x + 20} y={165 - h} textAnchor="middle" fill="#8B949E" fontSize="9" fontFamily="JetBrains Mono">${(v / 1000000).toFixed(1)}M</text>
-                <text x={x + 20} y={190} textAnchor="middle" fill="#484F58" fontSize="10">{months[i]}</text>
+                <rect x={x} y={170 - h} width={40} height={h}
+                  fill={isFuture ? 'hsl(168, 100%, 42%, 0.3)' : 'hsl(168, 100%, 42%)'}
+                  rx="3" />
+                <text x={x + 20} y={165 - h} textAnchor="middle" fill={svgColors.label} fontSize="9" fontFamily="JetBrains Mono">
+                  ${(v / 1000000).toFixed(1)}M
+                </text>
+                <text x={x + 20} y={190} textAnchor="middle" fill={svgColors.muted} fontSize="10">
+                  {months[i]}
+                </text>
               </g>
             );
           })}
@@ -105,13 +123,16 @@ export function AnalyticsPage() {
                 return statusBreakdown.map((s, i) => {
                   const pct = s.count / totalStatus;
                   const dash = pct * 377;
-                  const el = <circle key={i} cx="80" cy="80" r="60" fill="none" stroke={s.color} strokeWidth="20" strokeDasharray={`${dash} ${377 - dash}`} strokeDashoffset={-offset} transform="rotate(-90 80 80)" />;
+                  const el = <circle key={i} cx="80" cy="80" r="60" fill="none" stroke={s.color} strokeWidth="20"
+                    strokeDasharray={`${dash} ${377 - dash}`} strokeDashoffset={-offset} transform="rotate(-90 80 80)" />;
                   offset += dash;
                   return el;
                 });
               })()}
-              <text x="80" y="75" textAnchor="middle" fill="#E6EDF3" fontSize="22" fontWeight="600" fontFamily="JetBrains Mono">{totalStatus}</text>
-              <text x="80" y="92" textAnchor="middle" fill="#8B949E" fontSize="10">Total</text>
+              <text x="80" y="75" textAnchor="middle" fill={svgColors.primary} fontSize="22" fontWeight="600" fontFamily="JetBrains Mono">
+                {totalStatus}
+              </text>
+              <text x="80" y="92" textAnchor="middle" fill={svgColors.label} fontSize="10">Total</text>
             </svg>
             <div className="space-y-1.5">
               {statusBreakdown.map((s, i) => (
@@ -138,7 +159,9 @@ export function AnalyticsPage() {
               <div className="flex-1 bg-elevated rounded-full h-3 overflow-hidden">
                 <div className="h-full bg-ems-accent rounded-full" style={{ width: `${(a.revenue / topAttractions[0].revenue) * 100}%` }} />
               </div>
-              <span className="text-xs text-text-muted w-10 text-right">{Math.round((a.revenue / topAttractions[0].revenue) * 100)}%</span>
+              <span className="text-xs text-text-muted w-10 text-right">
+                {Math.round((a.revenue / topAttractions[0].revenue) * 100)}%
+              </span>
             </div>
           ))}
         </div>

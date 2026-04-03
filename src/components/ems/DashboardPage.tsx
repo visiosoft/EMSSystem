@@ -1,3 +1,4 @@
+import { useTheme } from 'next-themes';
 import { COMPANIES, TOURS, ATTRACTIONS, USERS, DMAS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar } from './Primitives';
 import type { Engagement } from '@/data/constants';
@@ -47,6 +48,15 @@ const StatusBarTooltip = ({ active, payload, label }: any) => {
 };
 
 export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+
+  // Theme-aware chart colors
+  const chartColors = {
+    grid: isDark ? 'hsl(215,12%,22%)' : 'hsl(215,20%,87%)',
+    axisText: isDark ? 'hsl(215,10%,42%)' : 'hsl(215,14%,48%)',
+  };
+
   const activeEngs = engagements.filter(e => !['Closed', 'Cancelled'].includes(e.status));
   const grossQ3 = engagements.filter(e => {
     const d = new Date(e.showDates[0]?.date);
@@ -96,7 +106,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     return { name: wt, counts };
   });
 
-  // ── Revenue Trend Data (monthly projected vs actual gross) ──────────────
+  // Revenue trend data
   const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const revenueTrendData = monthLabels.map((month, idx) => {
     const monthEngs = engagements.filter(e => {
@@ -108,7 +118,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     return { month, projected: projected || 0, actual: actual || 0 };
   }).filter(d => d.projected > 0 || d.actual > 0);
 
-  // Fill with representative data if not enough from engagements
   const fullRevenueTrend = monthLabels.map((month, idx) => {
     const found = revenueTrendData.find(d => d.month === month);
     const fallbackProjected = [0, 0, 510000, 205000, 198000, 420000, 112000, 510000, 880000, 620000, 580000, 710000][idx];
@@ -120,13 +129,13 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     };
   });
 
-  // ── Engagement Status Bar Chart Data ────────────────────────────────────
+  // Status bar chart data — Draft/Closed use theme-aware grays
   const statusBarColors: Record<string, string> = {
-    Draft: 'hsl(215,12%,36%)',
+    Draft: isDark ? 'hsl(215,12%,36%)' : 'hsl(215,12%,62%)',
     Confirmed: 'hsl(130,52%,53%)',
     OnSale: 'hsl(217,98%,61%)',
     Settled: 'hsl(168,100%,42%)',
-    Closed: 'hsl(215,10%,45%)',
+    Closed: isDark ? 'hsl(215,10%,45%)' : 'hsl(215,10%,55%)',
     Cancelled: 'hsl(0,93%,63%)',
   };
   const statusBarData = ['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'].map(s => ({
@@ -141,7 +150,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     const { x, y, width, value } = props;
     if (!value) return null;
     return (
-      <text x={x + width / 2} y={y - 6} textAnchor="middle" fill="hsl(210,25%,72%)" fontSize={11} fontFamily="JetBrains Mono">
+      <text x={x + width / 2} y={y - 6} textAnchor="middle" fill={chartColors.axisText} fontSize={11} fontFamily="JetBrains Mono">
         {value}
       </text>
     );
@@ -186,9 +195,8 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         </div>
       </div>
 
-      {/* ── Charts Row ────────────────────────────────────────────────────── */}
+      {/* Charts Row */}
       <div className="grid grid-cols-[62%_38%] gap-4">
-
         {/* Revenue Trend — Area Chart */}
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-1">
@@ -222,25 +230,24 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
               </defs>
               <CartesianGrid
                 strokeDasharray="4 4"
-                stroke="hsl(215,12%,22%)"
+                stroke={chartColors.grid}
                 vertical={false}
               />
               <XAxis
                 dataKey="month"
-                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 11, fontFamily: 'JetBrains Mono' }}
+                tick={{ fill: chartColors.axisText, fontSize: 11, fontFamily: 'JetBrains Mono' }}
                 axisLine={false}
                 tickLine={false}
                 dy={6}
               />
               <YAxis
                 tickFormatter={v => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
-                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                tick={{ fill: chartColors.axisText, fontSize: 10, fontFamily: 'JetBrains Mono' }}
                 axisLine={false}
                 tickLine={false}
                 width={52}
               />
-              <Tooltip content={<RevenueTrendTooltip />} cursor={{ stroke: 'hsl(215,12%,28%)', strokeWidth: 1, strokeDasharray: '4 4' }} />
-              {/* Projected area — behind */}
+              <Tooltip content={<RevenueTrendTooltip />} cursor={{ stroke: chartColors.grid, strokeWidth: 1, strokeDasharray: '4 4' }} />
               <Area
                 type="monotone"
                 dataKey="projected"
@@ -253,7 +260,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
                 dot={false}
                 activeDot={{ r: 4, fill: 'hsl(168,100%,42%)', strokeWidth: 0, opacity: 0.6 }}
               />
-              {/* Actual area — in front */}
               <Area
                 type="monotone"
                 dataKey="actual"
@@ -261,8 +267,8 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
                 stroke="hsl(168,100%,42%)"
                 strokeWidth={2.5}
                 fill="url(#gradActual)"
-                dot={{ r: 3.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: 'hsl(215,23%,11%)' }}
-                activeDot={{ r: 5.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: 'hsl(215,23%,11%)' }}
+                dot={{ r: 3.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: isDark ? 'hsl(215,23%,11%)' : '#ffffff' }}
+                activeDot={{ r: 5.5, fill: 'hsl(168,100%,42%)', strokeWidth: 2, stroke: isDark ? 'hsl(215,23%,11%)' : '#ffffff' }}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -283,26 +289,26 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
             >
               <CartesianGrid
                 strokeDasharray="4 4"
-                stroke="hsl(215,12%,22%)"
+                stroke={chartColors.grid}
                 horizontal={true}
                 vertical={false}
               />
               <XAxis
                 dataKey="label"
-                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10.5, fontFamily: 'DM Sans' }}
+                tick={{ fill: chartColors.axisText, fontSize: 10.5, fontFamily: 'DM Sans' }}
                 axisLine={false}
                 tickLine={false}
                 dy={6}
               />
               <YAxis
                 allowDecimals={false}
-                tick={{ fill: 'hsl(215,10%,42%)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                tick={{ fill: chartColors.axisText, fontSize: 10, fontFamily: 'JetBrains Mono' }}
                 axisLine={false}
                 tickLine={false}
               />
               <Tooltip
                 content={<StatusBarTooltip />}
-                cursor={{ fill: 'hsl(215,14%,18%)', radius: 4 }}
+                cursor={{ fill: isDark ? 'hsl(215,14%,18%)' : 'hsl(215,15%,93%)', radius: 4 }}
               />
               <Bar
                 dataKey="count"

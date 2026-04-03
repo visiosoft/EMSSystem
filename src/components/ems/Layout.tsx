@@ -1,3 +1,5 @@
+import React, { useState, useEffect } from 'react';
+import { useTheme } from 'next-themes';
 import { Avatar } from './Primitives';
 import { CURRENT_USER } from '@/data/constants';
 
@@ -65,6 +67,109 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   );
 }
 
+/* ─── Animated Theme Toggle ─────────────────────────────────────────── */
+
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) {
+    return (
+      <div
+        className="rounded-full bg-elevated border border-border"
+        style={{ width: 52, height: 26 }}
+        aria-hidden="true"
+      />
+    );
+  }
+
+  const isDark = resolvedTheme !== 'light';
+
+  return (
+    <button
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: 52,
+        height: 26,
+        borderRadius: 13,
+        border: 'none',
+        cursor: 'pointer',
+        outline: 'none',
+        padding: 0,
+        backgroundColor: isDark ? 'hsl(223 35% 19%)' : 'hsl(208 75% 76%)',
+        transition: 'background-color 0.4s ease',
+        flexShrink: 0,
+      }}
+      onFocus={e => (e.currentTarget.style.boxShadow = '0 0 0 2px hsl(var(--ems-accent) / 0.4)')}
+      onBlur={e => (e.currentTarget.style.boxShadow = 'none')}
+    >
+      {/* Dark mode: stars */}
+      {isDark && (
+        <>
+          <span style={{ position:'absolute', top:5, left:6, width:2, height:2, borderRadius:'50%', background:'rgba(255,255,255,0.65)', pointerEvents:'none' }} />
+          <span style={{ position:'absolute', top:14, left:10, width:1.5, height:1.5, borderRadius:'50%', background:'rgba(255,255,255,0.45)', pointerEvents:'none' }} />
+          <span style={{ position:'absolute', top:8, left:14, width:1.5, height:1.5, borderRadius:'50%', background:'rgba(255,255,255,0.55)', pointerEvents:'none' }} />
+        </>
+      )}
+
+      {/* Light mode: small decorative cloud-like dots */}
+      {!isDark && (
+        <>
+          <span style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', width:9, height:9, borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.7)', pointerEvents:'none' }} />
+        </>
+      )}
+
+      {/* Sliding thumb */}
+      <span
+        className="theme-toggle-thumb"
+        style={{
+          position: 'absolute',
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transform: isDark ? 'translateX(27px)' : 'translateX(2px)',
+          backgroundColor: isDark ? 'hsl(228 40% 28%)' : '#ffffff',
+          boxShadow: isDark
+            ? '0 1px 4px rgba(0,0,0,0.6)'
+            : '0 1px 4px rgba(0,0,0,0.18)',
+        }}
+      >
+        {isDark ? (
+          /* Moon icon */
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#93b8f5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        ) : (
+          /* Sun icon */
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e08800" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <line x1="12" y1="2" x2="12" y2="4"/>
+            <line x1="12" y1="20" x2="12" y2="22"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="2" y1="12" x2="4" y2="12"/>
+            <line x1="20" y1="12" x2="22" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        )}
+      </span>
+    </button>
+  );
+}
+
+/* ─── Header ─────────────────────────────────────────────────────────── */
+
 interface HeaderProps {
   breadcrumb: string[];
   onSearch?: (q: string) => void;
@@ -92,8 +197,9 @@ export function Header({ breadcrumb }: HeaderProps) {
         ))}
       </div>
 
-      {/* Greeting */}
+      {/* Right side: greeting + toggle + avatar */}
       <div className="flex items-center gap-3">
+        {/* Greeting */}
         <div className="text-right hidden sm:block">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-text-secondary">{greeting},</span>
@@ -103,6 +209,11 @@ export function Header({ breadcrumb }: HeaderProps) {
             Have a great day ahead
           </div>
         </div>
+
+        {/* Theme toggle */}
+        <ThemeToggle />
+
+        {/* Avatar */}
         <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
           TW
         </div>
