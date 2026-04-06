@@ -3,6 +3,81 @@ import { useTheme } from 'next-themes';
 import { Avatar } from './Primitives';
 import { CURRENT_USER } from '@/data/constants';
 
+/* ─── IAE Logo Component ─────────────────────────────────────────────── */
+
+function IaeLogo() {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) {
+    return <div className="rounded bg-elevated animate-pulse" style={{ width: 48, height: 24 }} />;
+  }
+
+  const isDark = resolvedTheme !== 'light';
+
+  return (
+    <div
+      style={{
+        width: 48,
+        height: 24,
+        borderRadius: 4,
+        overflow: 'hidden',
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <img
+        src="/iae_logo.png"
+        alt="IAE Logo"
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          borderRadius: 4,
+          // Dark mode: screen blend makes the black background disappear, white logo glows
+          // Light mode: invert the image (white→black logo) + multiply to drop white bg
+          filter: isDark ? 'none' : 'invert(1)',
+          mixBlendMode: isDark ? 'screen' : 'multiply',
+          transition: 'filter 0.25s ease',
+        }}
+      />
+    </div>
+  );
+}
+
+/* ─── Full-size logo for header / splash use ─────────────────────────── */
+
+export function IaeLogoFull({ height = 28 }: { height?: number }) {
+  const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+
+  const isDark = resolvedTheme !== 'light';
+
+  return (
+    <img
+      src="/iae_logo.png"
+      alt="IAE"
+      style={{
+        height,
+        width: 'auto',
+        objectFit: 'contain',
+        filter: isDark ? 'none' : 'invert(1)',
+        mixBlendMode: isDark ? 'screen' : 'multiply',
+        transition: 'filter 0.25s ease',
+      }}
+    />
+  );
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────────────── */
+
 interface SidebarProps {
   currentView: string;
   onNavigate: (view: string) => void;
@@ -26,10 +101,15 @@ const NAV_SECTIONS = [
 export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   return (
     <div className="w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40">
-      <div className="h-14 flex items-center px-4 border-b border-border">
-        <span className="text-ems-accent text-lg mr-2">◈</span>
-        <span className="text-text-primary font-semibold text-base">IAE EMS</span>
+      {/* Logo + Brand */}
+      <div className="h-14 flex items-center px-4 border-b border-border gap-2">
+        <IaeLogo />
+        <div className="flex flex-col leading-tight">
+          <span className="text-text-primary font-semibold text-sm tracking-wide">IAE</span>
+          <span className="text-text-muted text-[10px] tracking-widest uppercase font-medium">Event Flow</span>
+        </div>
       </div>
+
       <nav className="flex-1 overflow-y-auto py-2">
         {NAV_SECTIONS.map(section => (
           <div key={section.label} className="mb-1">
@@ -54,6 +134,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           </div>
         ))}
       </nav>
+
       <div className="p-4 border-t border-border">
         <div className="flex items-center gap-2">
           <Avatar name={CURRENT_USER.name} size="sm" />
@@ -110,7 +191,6 @@ function ThemeToggle() {
       onFocus={e => (e.currentTarget.style.boxShadow = '0 0 0 2px hsl(var(--ems-accent) / 0.4)')}
       onBlur={e => (e.currentTarget.style.boxShadow = 'none')}
     >
-      {/* Dark mode: stars */}
       {isDark && (
         <>
           <span style={{ position:'absolute', top:5, left:6, width:2, height:2, borderRadius:'50%', background:'rgba(255,255,255,0.65)', pointerEvents:'none' }} />
@@ -118,15 +198,9 @@ function ThemeToggle() {
           <span style={{ position:'absolute', top:8, left:14, width:1.5, height:1.5, borderRadius:'50%', background:'rgba(255,255,255,0.55)', pointerEvents:'none' }} />
         </>
       )}
-
-      {/* Light mode: small decorative cloud-like dots */}
       {!isDark && (
-        <>
-          <span style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', width:9, height:9, borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.7)', pointerEvents:'none' }} />
-        </>
+        <span style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', width:9, height:9, borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.7)', pointerEvents:'none' }} />
       )}
-
-      {/* Sliding thumb */}
       <span
         className="theme-toggle-thumb"
         style={{
@@ -139,18 +213,14 @@ function ThemeToggle() {
           justifyContent: 'center',
           transform: isDark ? 'translateX(27px)' : 'translateX(2px)',
           backgroundColor: isDark ? 'hsl(228 40% 28%)' : '#ffffff',
-          boxShadow: isDark
-            ? '0 1px 4px rgba(0,0,0,0.6)'
-            : '0 1px 4px rgba(0,0,0,0.18)',
+          boxShadow: isDark ? '0 1px 4px rgba(0,0,0,0.6)' : '0 1px 4px rgba(0,0,0,0.18)',
         }}
       >
         {isDark ? (
-          /* Moon icon */
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#93b8f5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
         ) : (
-          /* Sun icon */
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#e08800" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="4"/>
             <line x1="12" y1="2" x2="12" y2="4"/>
@@ -187,7 +257,6 @@ export function Header({ breadcrumb }: HeaderProps) {
 
   return (
     <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-6 sticky top-0 z-30">
-      {/* Breadcrumb */}
       <div className="flex items-center gap-1 text-sm">
         {breadcrumb.map((b, i) => (
           <span key={i} className={i === breadcrumb.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted'}>
@@ -197,9 +266,7 @@ export function Header({ breadcrumb }: HeaderProps) {
         ))}
       </div>
 
-      {/* Right side: greeting + toggle + avatar */}
       <div className="flex items-center gap-3">
-        {/* Greeting */}
         <div className="text-right hidden sm:block">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-text-secondary">{greeting},</span>
@@ -209,11 +276,7 @@ export function Header({ breadcrumb }: HeaderProps) {
             Have a great day ahead
           </div>
         </div>
-
-        {/* Theme toggle */}
         <ThemeToggle />
-
-        {/* Avatar */}
         <div className="w-8 h-8 rounded-full bg-ems-accent-dim border border-ems-accent/30 flex items-center justify-center text-ems-accent text-xs font-bold select-none">
           TW
         </div>
