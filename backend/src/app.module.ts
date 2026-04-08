@@ -4,11 +4,22 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
+const parseBoolean = (
+  value: string | undefined,
+  fallback: boolean,
+): boolean => {
+  if (!value) return fallback;
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+};
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      // Support both run modes:
+      // - from backend directory: `.env`
+      // - from repo root (npm --prefix backend): `backend/.env`
+      envFilePath: ['.env', 'backend/.env'],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -21,10 +32,11 @@ import { AppService } from './app.service';
         database: configService.get<string>('DB_NAME', 'master'),
         synchronize: false,
         options: {
-          encrypt: configService.get<string>('DB_ENCRYPT', 'false') === 'true',
-          trustServerCertificate:
-            configService.get<string>('DB_TRUST_SERVER_CERT', 'true') ===
-            'true',
+          encrypt: parseBoolean(configService.get<string>('DB_ENCRYPT'), true),
+          trustServerCertificate: parseBoolean(
+            configService.get<string>('DB_TRUST_SERVER_CERT'),
+            true,
+          ),
         },
       }),
     }),

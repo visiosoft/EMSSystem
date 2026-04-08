@@ -17,7 +17,11 @@ describe('AppController', () => {
               service: 'iae-event-flow-backend',
               timestamp: '2026-01-01T00:00:00.000Z',
             }),
-            getDatabaseStatus: jest.fn().mockResolvedValue({ connected: true }),
+            getDatabaseStatus: jest.fn().mockResolvedValue({
+              connected: true,
+              latencyMs: 2,
+              serverTime: '2026-01-01T00:00:00.000Z',
+            }),
           },
         },
       ],

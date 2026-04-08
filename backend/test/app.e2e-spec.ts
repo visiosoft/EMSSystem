@@ -20,7 +20,11 @@ describe('AppController (e2e)', () => {
               service: 'iae-event-flow-backend',
               timestamp: '2026-01-01T00:00:00.000Z',
             }),
-            getDatabaseStatus: jest.fn().mockResolvedValue({ connected: true }),
+            getDatabaseStatus: jest.fn().mockResolvedValue({
+              connected: true,
+              latencyMs: 1,
+              serverTime: '2026-01-01T00:00:00.000Z',
+            }),
           },
         },
       ],
@@ -37,6 +41,17 @@ describe('AppController (e2e)', () => {
       service: 'iae-event-flow-backend',
       timestamp: '2026-01-01T00:00:00.000Z',
     });
+  });
+
+  it('/api/db-check (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/api/db-check')
+      .expect(200)
+      .expect('Content-Type', /text\/html/)
+      .expect((res) => {
+        expect(res.text).toContain('Database connected');
+        expect(res.text).toContain('/api/db-health');
+      });
   });
 
   afterEach(async () => {

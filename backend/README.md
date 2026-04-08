@@ -19,7 +19,7 @@ DB_PORT=1433
 DB_USERNAME=SA
 DB_PASSWORD=<PASTE_YOUR_PASSWORD_HERE>
 DB_NAME=master
-DB_ENCRYPT=false
+DB_ENCRYPT=true
 DB_TRUST_SERVER_CERT=true
 ```
 
@@ -33,7 +33,8 @@ npm run start:dev
 ## 3) Test API and DB connection
 
 - API health: `http://localhost:3000/api`
-- DB health: `http://localhost:3000/api/db-health`
+- DB health (JSON): `http://localhost:3000/api/db-health`
+- DB check (HTML in browser): `http://localhost:3000/api/db-check`
 
 Expected DB health response:
 
