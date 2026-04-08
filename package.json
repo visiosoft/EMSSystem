@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:backend": "npm run start:dev --prefix backend",
-    "dev:full": "npm run dev & npm run dev:backend",
+    "dev:full": "concurrently -k -n web,api -c cyan,magenta \"npm run dev\" \"npm run dev:backend\"",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -76,6 +76,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
