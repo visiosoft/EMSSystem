@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
 import type { Project, Offer, Engagement } from '@/data/constants';
+import { Select2, toOptions, toObjOptions } from './Select2';
 
 interface Props {
   projects: Project[];
@@ -339,7 +340,7 @@ function EditProjectForm({ project, onSave, onCancel }: { project: Project; onSa
   return (
     <div className="space-y-3">
       <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      <FormField label="Status"><Select2 options={toOptions(['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'])} value={status} onChange={setStatus} /></FormField>
       <FormField label="Target On-Sale"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={targetOnSale} onChange={e => setTargetOnSale(e.target.value)} /></FormField>
       <FormField label="Notes"><textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} /></FormField>
       <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...project, name, status, targetOnSale: targetOnSale || null, notes })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
@@ -354,7 +355,7 @@ function EditOfferForm({ offer, onSave, onCancel }: { offer: Offer; onSave: (o: 
   const [guarantee, setGuarantee] = useState(String(offer.guarantee));
   return (
     <div className="space-y-3">
-      <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Draft', 'Submitted', 'Accepted', 'Declined', 'Countered'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+      <FormField label="Status"><Select2 options={toOptions(['Draft', 'Submitted', 'Accepted', 'Declined', 'Countered'])} value={status} onChange={setStatus} /></FormField>
       <FormField label="Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} /></FormField>
       <FormField label="Show Time"><input type="time" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={time} onChange={e => setTime(e.target.value)} /></FormField>
       <FormField label="Guarantee"><input type="number" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
@@ -417,10 +418,7 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
   return (
     <div className="space-y-3">
       <FormField label="Venue" required>
-        <select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={venueId} onChange={e => setVenueId(e.target.value)}>
-          <option value="">Select...</option>
-          {venues.map(v => <option key={v.id} value={v.id}>{v.tradeName}</option>)}
-        </select>
+        <Select2 options={[{ value: '', label: 'Select venue...' }, ...toObjOptions(venues, v => v.tradeName)]} value={venueId} onChange={setVenueId} placeholder="Select venue..." />
       </FormField>
       <FormField label="Proposed Date" required>
         <input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} />

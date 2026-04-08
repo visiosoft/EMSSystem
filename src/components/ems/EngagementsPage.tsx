@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatCurrency, formatDate, getWorkflowDotColor } from '@/data/constants';
 import { StatusBadge, SearchInput, FilterChips, ActionMenu } from './Primitives';
+import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
 import { Modal, FormField } from './Primitives';
 
@@ -102,40 +103,39 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
   const [date, setDate] = useState('');
   const [status, setStatus] = useState('Draft');
 
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
   return (
     <div className="space-y-3">
-      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Tour"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={tourId} onChange={e => setTourId(e.target.value)}>{tours.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></FormField>
-        <FormField label="Venue"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={venueId} onChange={e => setVenueId(e.target.value)}>{companies.map(c => <option key={c.id} value={c.id}>{c.tradeName}</option>)}</select></FormField>
+        <FormField label="Tour">
+          <Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} />
+        </FormField>
+        <FormField label="Venue">
+          <Select2 options={toObjOptions(companies, c => c.tradeName)} value={venueId} onChange={setVenueId} />
+        </FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Booker"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={bookerId} onChange={e => setBookerId(e.target.value)}>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></FormField>
-        <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
+        <FormField label="Booker">
+          <Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} />
+        </FormField>
+        <FormField label="Status">
+          <Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} />
+        </FormField>
       </div>
-      <FormField label="Show Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} /></FormField>
+      <FormField label="Show Date"><input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} /></FormField>
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
         <button onClick={() => onSave({
           id: `eng-${Date.now()}`,
           name: name || 'New Engagement',
-          tourId,
-          venueId,
-          configName: 'Default',
-          bookerId,
-          projectId: 'manual',
-          offerId: null,
+          tourId, venueId, configName: 'Default', bookerId,
+          projectId: 'manual', offerId: null,
           showDates: [{ date, doorTime: '19:00', showTime: '20:00', runtime: 120 }],
-          showCount: 1,
-          status,
-          dealType: 'Guarantee',
-          guarantee: 0,
-          splitPct: null,
-          breakeven: null,
-          projectedGross: 0,
-          projectedMargin: 0,
-          actualGross: null,
-          actualMargin: null,
+          showCount: 1, status,
+          dealType: 'Guarantee', guarantee: 0, splitPct: null, breakeven: null,
+          projectedGross: 0, projectedMargin: 0, actualGross: null, actualMargin: null,
           workflows: {
             marketing: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
             production: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 6 },

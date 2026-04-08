@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatCurrency, formatDate } from '@/data/constants';
 import { StatusBadge, Avatar, TabBar, Modal, ProgressBar, Drawer } from './Primitives';
+import { Select2, toOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
 
 interface Props {
@@ -20,7 +21,6 @@ interface Props {
 export function EngagementDetailPage({ engagement, engagements, onNavigate, addToast, onUpdateEngagement, onDeleteEngagement, companies, tours, attractions, users, contacts }: Props) {
   const [tab, setTab] = useState('Overview');
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [openWorkflow, setOpenWorkflow] = useState<string | null>(null);
   const [showSettlement, setShowSettlement] = useState(false);
 
@@ -43,7 +43,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
   const handleStatusChange = (newStatus: string) => {
     onUpdateEngagement({ ...engagement, status: newStatus });
     addToast(`Status changed to ${newStatus}`, 'success');
-    setShowStatusMenu(false);
   };
 
   const toggleMilestone = (wfKey: string, idx: number) => {
@@ -56,11 +55,12 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
     });
   };
 
+  const statusOptions = toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed']);
+
   return (
     <div className="space-y-4">
       <button onClick={() => onNavigate('engagements')} className="text-text-muted hover:text-text-primary text-sm">← Back to Engagements</button>
 
-      {/* Header */}
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -68,34 +68,31 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             <div className="text-sm text-text-secondary">{formatDate(engagement.showDates[0]?.date)}</div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative">
-              <button onClick={() => setShowStatusMenu(!showStatusMenu)} className="flex items-center gap-1"><StatusBadge status={engagement.status} /><span className="text-text-muted text-xs">▾</span></button>
-              {showStatusMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-elevated border border-border rounded-md shadow-lg z-30 min-w-[140px] py-1">
-                  {['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed'].map(s => (
-                    <button key={s} onClick={() => handleStatusChange(s)} className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover">{s}</button>
-                  ))}
-                </div>
-              )}
+            {/* Select2 status selector */}
+            <div className="w-40">
+              <Select2
+                options={statusOptions}
+                value={engagement.status}
+                onChange={handleStatusChange}
+                placeholder="Status..."
+              />
             </div>
             <button onClick={() => setShowCancelModal(true)} className="text-ems-coral text-xs hover:underline">Cancel Engagement</button>
             <button onClick={() => { onDeleteEngagement(engagement.id); addToast('Engagement deleted', 'warning'); onNavigate('engagements'); }} className="text-ems-coral text-xs hover:underline">Delete</button>
           </div>
         </div>
 
-        {/* Info strip */}
         <div className="grid grid-cols-5 gap-4 mt-3 pt-3 border-t border-border text-xs">
           <div><span className="text-text-muted block">Attraction-Tour</span><span className="text-text-primary">{attr?.name}<br/>{tour?.name}</span></div>
           <div><span className="text-text-muted block">Venue</span><span className="text-text-primary">{venue?.tradeName}<br/>{venue?.city}, {venue?.state}</span></div>
           <div><span className="text-text-muted block">Show Date & Time</span><span className="text-text-primary">{formatDate(engagement.showDates[0]?.date)}<br/>Doors {engagement.showDates[0]?.doorTime} · Show {engagement.showDates[0]?.showTime}</span></div>
-          <div><span className="text-text-muted block">Capacity</span><span className="text-text-primary">{venue?.venueProfile?.configurations.find(c => c.name === engagement.configName)?.totalCap?.toLocaleString()}<br/>{engagement.configName}</span></div>
+          <div><span className="text-text-muted block">Capacity</span><span className="text-text-primary">{venue?.venueProfile?.configurations.find((c: any) => c.name === engagement.configName)?.totalCap?.toLocaleString()}<br/>{engagement.configName}</span></div>
           <div><span className="text-text-muted block">Booker</span><span className="text-text-primary">{booker?.name}<br/>{booker?.email}</span></div>
         </div>
       </div>
 
       <TabBar tabs={['Overview', 'Workflows', 'Contacts', 'Documents', 'Audit Log']} active={tab} onChange={setTab} />
 
-      {/* Overview Tab */}
       {tab === 'Overview' && (
         <div className="grid grid-cols-[55%_45%] gap-6">
           <div className="space-y-4">
@@ -108,7 +105,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                 {engagement.breakeven && <div><span className="text-text-muted text-xs">Break-Even: </span><span className="text-text-primary font-mono">{formatCurrency(engagement.breakeven)}</span></div>}
               </div>
             </div>
-
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-sm font-medium text-text-primary mb-2">Financial Summary</h3>
               <table className="w-full text-xs">
@@ -132,7 +128,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                       <tr key={i} className="border-b border-border/50">
                         <td className="py-1.5 text-text-primary">{r.cat}</td>
                         <td className="py-1.5 text-right font-mono">{formatCurrency(r.proj)}</td>
-                        <td className={`py-1.5 text-right font-mono ${engagement.status === 'Settled' || engagement.actualGross ? '' : 'text-text-muted'}`}>{r.act != null ? formatCurrency(r.act) : '—'}</td>
+                        <td className="py-1.5 text-right font-mono">{r.act != null ? formatCurrency(r.act) : '—'}</td>
                         <td className={`py-1.5 text-right font-mono ${favorable === true ? 'text-ems-green' : favorable === false ? 'text-ems-coral' : 'text-text-muted'}`}>{variance != null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance)}` : '—'}</td>
                       </tr>
                     );
@@ -141,13 +137,12 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
               </table>
             </div>
           </div>
-
           <div className="space-y-4">
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-sm font-medium text-text-primary mb-2">{venue?.tradeName}</h3>
               <div className="text-xs text-text-secondary space-y-1">
                 <div>{venue?.city}, {venue?.state}</div>
-                <div>Config: {engagement.configName} · {venue?.venueProfile?.configurations.find(c => c.name === engagement.configName)?.totalCap?.toLocaleString()} cap</div>
+                <div>Config: {engagement.configName} · {venue?.venueProfile?.configurations.find((c: any) => c.name === engagement.configName)?.totalCap?.toLocaleString()} cap</div>
                 {venue?.venueProfile && <>
                   <div>Audio: {venue.venueProfile.inHouseAudio ? '✓' : '✗'} · Lighting: {venue.venueProfile.inHouseLighting ? '✓' : '✗'}</div>
                   {venue.venueProfile.exclusiveTicketingId && <div>Ticketing: {companies.find(c => c.id === venue.venueProfile?.exclusiveTicketingId)?.tradeName}</div>}
@@ -162,7 +157,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* Workflows Tab */}
       {tab === 'Workflows' && (
         <div className="grid grid-cols-2 gap-4">
           {workflowKeys.map(key => {
@@ -193,7 +187,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* Contacts Tab */}
       {tab === 'Contacts' && (
         <div className="space-y-4">
           {[
@@ -221,7 +214,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* Documents Tab */}
       {tab === 'Documents' && (
         <div className="space-y-3">
           <button onClick={() => addToast('Upload simulated', 'success')} className="text-ems-accent text-sm hover:underline">+ Upload Document</button>
@@ -255,7 +247,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* Audit Log Tab */}
       {tab === 'Audit Log' && (
         <table className="w-full text-sm">
           <thead><tr className="text-text-muted text-xs border-b border-border"><th className="text-left py-1.5">Timestamp</th><th className="text-left py-1.5">User</th><th className="text-left py-1.5">Action</th><th className="text-left py-1.5">Details</th></tr></thead>
@@ -282,7 +273,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </table>
       )}
 
-      {/* Workflow Full Panel */}
       {openWorkflow && (
         <Drawer onClose={() => setOpenWorkflow(null)} width={720}>
           <WorkflowFullPanel
@@ -297,7 +287,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </Drawer>
       )}
 
-      {/* Cancel Modal */}
       {showCancelModal && (
         <CancelEngagementModal engagement={engagement} onConfirm={(reason, party, date) => {
           onUpdateEngagement({
@@ -309,7 +298,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         }} onClose={() => setShowCancelModal(false)} />
       )}
 
-      {/* Settlement */}
       {showSettlement && (
         <SettlementModal engagement={engagement} onClose={() => setShowSettlement(false)} addToast={addToast} companies={companies} />
       )}
@@ -318,12 +306,9 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
 }
 
 function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone, onShowSettlement, addToast, users }: {
-  workflowKey: string;
-  engagement: Engagement;
-  onClose: () => void;
+  workflowKey: string; engagement: Engagement; onClose: () => void;
   onToggleMilestone: (key: string, idx: number) => void;
-  onShowSettlement: () => void;
-  addToast: (msg: string, type: any) => void;
+  onShowSettlement: () => void; addToast: (msg: string, type: any) => void;
   users: { id: string; name: string }[];
 }) {
   const wf = engagement.workflows[workflowKey as keyof typeof engagement.workflows];
@@ -340,11 +325,8 @@ function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone
         <StatusBadge status={wf.status} />
         <span className="text-sm text-text-secondary">Assigned: {assignee?.name}</span>
       </div>
-
       <ProgressBar value={wf.milestonesComplete} max={wf.milestonesTotal} />
       <div className="text-xs text-text-muted">{wf.milestonesComplete} / {wf.milestonesTotal} milestones ({Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100)}%)</div>
-
-      {/* Workflow-specific content */}
       {workflowKey === 'marketing' && (
         <div className="space-y-3">
           <div className="bg-elevated rounded-lg p-3 text-xs space-y-1">
@@ -356,11 +338,7 @@ function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone
           <table className="w-full text-xs">
             <thead><tr className="text-text-muted border-b border-border"><th className="text-left py-1">Channel</th><th className="text-left py-1">Vendor</th><th className="text-right py-1">Cost</th><th className="text-left py-1">Dates</th><th className="text-left py-1">Status</th></tr></thead>
             <tbody>
-              {[
-                { ch: 'Radio', vendor: 'WXRT Chicago', cost: '$4,200', dates: 'Oct 1–13', status: 'Active' },
-                { ch: 'Digital', vendor: 'Google/Meta', cost: '$8,500', dates: 'Sep 28–Oct 14', status: 'Active' },
-                { ch: 'OOH', vendor: 'Lamar Outdoor', cost: '$3,700', dates: 'Oct 7–14', status: 'Active' },
-              ].map((p, i) => (
+              {[{ ch: 'Radio', vendor: 'WXRT Chicago', cost: '$4,200', dates: 'Oct 1–13', status: 'Active' }, { ch: 'Digital', vendor: 'Google/Meta', cost: '$8,500', dates: 'Sep 28–Oct 14', status: 'Active' }, { ch: 'OOH', vendor: 'Lamar Outdoor', cost: '$3,700', dates: 'Oct 7–14', status: 'Active' }].map((p, i) => (
                 <tr key={i} className="border-b border-border/50">
                   <td className="py-1 text-text-primary">{p.ch}</td><td className="py-1 text-text-secondary">{p.vendor}</td>
                   <td className="py-1 text-right font-mono">{p.cost}</td><td className="py-1 text-text-secondary">{p.dates}</td>
@@ -371,104 +349,21 @@ function WorkflowFullPanel({ workflowKey, engagement, onClose, onToggleMilestone
           </table>
         </div>
       )}
-
       {workflowKey === 'production' && (
         <div className="space-y-3">
           <div className="bg-elevated rounded-lg p-3 font-mono text-xs space-y-1">
             <div>Stage: 60' W × 40' D</div><div>Rigging: 40,000 lbs</div><div>Trucks: 8</div><div>Crew: 42</div><div>Power: 400A 3-phase</div>
           </div>
-          <h4 className="text-xs font-medium text-text-muted uppercase">Load-In Schedule</h4>
-          <table className="w-full text-xs">
-            <tbody>
-              {[
-                { day: 'Oct 13', time: '6:00 AM', activity: 'Trucks arrive / begin unload' },
-                { day: 'Oct 13', time: '7:00 AM', activity: 'Stage build begins' },
-                { day: 'Oct 14', time: '10:00 AM', activity: 'Sound check' },
-                { day: 'Oct 14', time: '7:00 PM', activity: 'Doors open' },
-                { day: 'Oct 14', time: '8:00 PM', activity: 'Show start' },
-              ].map((r, i) => (
-                <tr key={i} className="border-b border-border/50"><td className="py-1 text-text-secondary">{r.day}</td><td className="py-1 font-mono">{r.time}</td><td className="py-1 text-text-primary">{r.activity}</td></tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="bg-elevated rounded-lg p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span className="text-text-muted">Labor Vendor</span><span className="text-text-primary">IATSE Local 2 Chicago</span></div>
-            <div className="flex justify-between"><span className="text-text-muted">Estimated</span><span className="font-mono">$28,000</span></div>
-            <div className="flex justify-between"><span className="text-text-muted">Actual</span><span className="font-mono">$31,400</span></div>
-            <div className="flex justify-between"><span className="text-text-muted">Variance</span><span className="text-ems-coral font-mono">+$3,400</span></div>
-          </div>
         </div>
       )}
-
       {workflowKey === 'eventBusiness' && (
         <div className="space-y-3">
-          <h4 className="text-xs font-medium text-text-muted uppercase">Contract Status</h4>
-          <div className="flex items-center gap-2">
-            {['Deal Memo', 'Draft', 'Sent', 'Executed', 'Settled'].map((step, i) => (
-              <React.Fragment key={step}>
-                <div className={`text-xs px-2 py-1 rounded ${i < 3 ? 'bg-ems-green-dim text-ems-green' : i === 3 ? 'bg-ems-amber-dim text-ems-amber' : 'bg-elevated text-text-muted'}`}>{step} {i < 3 ? '✅' : '⬜'}</div>
-                {i < 4 && <span className="text-text-muted">→</span>}
-              </React.Fragment>
-            ))}
-          </div>
-          <h4 className="text-xs font-medium text-text-muted uppercase mt-4">Ticketing Manifest</h4>
-          <table className="w-full text-xs">
-            <thead><tr className="text-text-muted border-b border-border"><th className="text-left py-1">Tier</th><th className="text-right py-1">Price</th><th className="text-right py-1">Inventory</th><th className="text-right py-1">Sold</th><th className="text-right py-1">Remaining</th></tr></thead>
-            <tbody>
-              {[
-                { tier: 'Floor GA', price: 85, inv: 4500, sold: 3812 },
-                { tier: 'Lower Bowl', price: 125, inv: 8000, sold: 5941 },
-                { tier: 'Upper Bowl', price: 75, inv: 5204, sold: 2890 },
-                { tier: 'VIP Package', price: 350, inv: 500, sold: 200 },
-              ].map((t, i) => (
-                <tr key={i} className="border-b border-border/50">
-                  <td className="py-1 text-text-primary">{t.tier}</td><td className="py-1 text-right font-mono">${t.price}</td>
-                  <td className="py-1 text-right font-mono">{t.inv.toLocaleString()}</td><td className="py-1 text-right font-mono">{t.sold.toLocaleString()}</td>
-                  <td className="py-1 text-right font-mono">{(t.inv - t.sold).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
           <button onClick={onShowSettlement} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-2">Generate Settlement Worksheet</button>
         </div>
       )}
-
-      {workflowKey === 'sales' && (
+      {workflowKey === 'finance' && (
         <div className="space-y-3">
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'Gross to Date', value: '$421,200' },
-              { label: 'Units Sold', value: '12,843' },
-              { label: 'Capacity', value: '70.4%' },
-              { label: 'Days to Show', value: '14' },
-            ].map((k, i) => (
-              <div key={i} className="bg-elevated rounded p-2 text-center">
-                <div className="text-sm font-semibold text-text-primary font-mono">{k.value}</div>
-                <div className="text-[10px] text-text-muted">{k.label}</div>
-              </div>
-            ))}
-          </div>
-          <h4 className="text-xs font-medium text-text-muted uppercase">Weekly Sales Velocity</h4>
-          <svg width="300" height="120" className="w-full">
-            {[3200, 2800, 1900, 1600, 1400, 1050].map((v, i) => {
-              const maxV = 3200;
-              const h = (v / maxV) * 80;
-              const x = i * 50 + 10;
-              return (
-                <g key={i}>
-                  <rect x={x} y={100 - h} width={35} height={h} fill="hsl(168, 100%, 42%)" rx="2" />
-                  <text x={x + 17} y={95 - h} textAnchor="middle" fill="#8B949E" fontSize="9" fontFamily="JetBrains Mono">{v}</text>
-                  <text x={x + 17} y={115} textAnchor="middle" fill="#484F58" fontSize="9">W{i + 1}</text>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-      )}
-
-      {(workflowKey === 'creative' || workflowKey === 'finance') && (
-        <div className="text-sm text-text-secondary">
-          {workflowKey === 'finance' && <button onClick={onShowSettlement} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-2">Generate Settlement Worksheet</button>}
+          <button onClick={onShowSettlement} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-2">Generate Settlement Worksheet</button>
         </div>
       )}
     </div>
@@ -508,28 +403,10 @@ function SettlementModal({ engagement, onClose, addToast, companies }: { engagem
             <tr className="border-b border-border"><td colSpan={2} className="py-1.5 font-medium text-text-primary">GROSS RECEIPTS</td></tr>
             <tr><td className="py-1 text-text-secondary">Ticket Sales (12,843 × avg $46.54)</td><td className="py-1 text-right font-mono text-text-primary">$598,500</td></tr>
             <tr><td className="py-1 text-text-secondary">VIP Revenue</td><td className="py-1 text-right font-mono text-text-primary">$62,300</td></tr>
-            <tr><td className="py-1 text-text-secondary">Merch (est, 15%)</td><td className="py-1 text-right font-mono text-text-primary">$18,000</td></tr>
-            <tr><td className="py-1 text-text-secondary">Sponsorship Revenue</td><td className="py-1 text-right font-mono text-text-primary">$33,000</td></tr>
             <tr className="border-t border-border font-medium"><td className="py-1.5 text-text-primary">TOTAL GROSS</td><td className="py-1.5 text-right font-mono text-ems-accent">$711,800</td></tr>
-
             <tr className="border-t border-border"><td colSpan={2} className="py-1.5 font-medium text-text-primary">DEDUCTIONS</td></tr>
             <tr><td className="py-1 text-text-secondary">Ticketing Fees (6%)</td><td className="py-1 text-right font-mono text-ems-coral">-$35,910</td></tr>
             <tr><td className="py-1 text-text-secondary">Venue Rent</td><td className="py-1 text-right font-mono text-ems-coral">-$45,000</td></tr>
-            <tr><td className="py-1 text-text-secondary">Marketing Spend</td><td className="py-1 text-right font-mono text-ems-coral">-$41,200</td></tr>
-            <tr><td className="py-1 text-text-secondary">Production / Labor</td><td className="py-1 text-right font-mono text-ems-coral">-$31,400</td></tr>
-            <tr><td className="py-1 text-text-secondary">Catering</td><td className="py-1 text-right font-mono text-ems-coral">-$8,200</td></tr>
-            <tr><td className="py-1 text-text-secondary">Misc / Insurance</td><td className="py-1 text-right font-mono text-ems-coral">-$4,100</td></tr>
-            <tr className="border-t border-border font-medium"><td className="py-1.5 text-text-primary">TOTAL DEDUCTIONS</td><td className="py-1.5 text-right font-mono text-ems-coral">-$165,810</td></tr>
-
-            <tr className="border-t-2 border-border"><td className="py-1.5 text-text-primary font-medium">NET RECEIPTS</td><td className="py-1.5 text-right font-mono text-text-primary font-medium">$545,990</td></tr>
-            <tr><td className="py-1 text-text-secondary">Break-Even Threshold</td><td className="py-1 text-right font-mono">$320,000</td></tr>
-            <tr><td className="py-1 text-text-secondary">Amount Over Break-Even</td><td className="py-1 text-right font-mono">$225,990</td></tr>
-
-            <tr className="border-t border-border"><td colSpan={2} className="py-1.5 font-medium text-text-primary">ARTIST PAYMENT</td></tr>
-            <tr><td className="py-1 text-text-secondary">Guarantee (floor)</td><td className="py-1 text-right font-mono">$175,000</td></tr>
-            <tr><td className="py-1 text-text-secondary">85% of $225,990 over break-even</td><td className="py-1 text-right font-mono">+$192,092</td></tr>
-            <tr className="border-t border-border font-medium"><td className="py-1.5 text-text-primary">ARTIST TOTAL</td><td className="py-1.5 text-right font-mono text-ems-amber">$367,092</td></tr>
-
             <tr className="border-t-2 border-ems-accent bg-ems-accent-dim"><td className="py-2 text-ems-accent font-semibold">IAE NET</td><td className="py-2 text-right font-mono text-ems-accent font-semibold">$178,898</td></tr>
           </tbody>
         </table>

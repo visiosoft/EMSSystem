@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatCurrency, formatDate } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, TabBar, Drawer, Modal, FormField, ActionMenu } from './Primitives';
+import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Attraction, Tour, Company, Contact } from '@/data/constants';
 
 interface Props {
@@ -159,21 +160,41 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
   const [primaryAgentContactId, setPrimaryAgentContactId] = useState(initial?.primaryAgentContactId || '');
   const [ownerId, setOwnerId] = useState(initial?.ownerId || users[0]?.id || '');
   const [iaeStatus, setIaeStatus] = useState(initial?.iaeStatus || 'Active');
+
   const agencyContacts = contacts.filter(c => c.companyId === agencyId);
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
+  const agencyOptions = toObjOptions(companies.filter(c => c.types.includes('TalentAgency')), c => c.tradeName);
+  const agentOptions = toObjOptions(agencyContacts, c => `${c.firstName} ${c.lastName}`);
+  const ownerOptions = toObjOptions(users, u => u.name);
+
   return (
     <div className="space-y-3">
-      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Genres (comma separated)"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={genres} onChange={e => setGenres(e.target.value)} /></FormField>
+      <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Genres (comma separated)"><input className={inputCls} value={genres} onChange={e => setGenres(e.target.value)} /></FormField>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Market Tier"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={marketTier} onChange={e => setMarketTier(e.target.value)}>{['Arena', 'Theater', 'Club'].map(v => <option key={v} value={v}>{v}</option>)}</select></FormField>
-        <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={iaeStatus} onChange={e => setIaeStatus(e.target.value)}>{['Active', 'Prospective', 'Dead'].map(v => <option key={v} value={v}>{v}</option>)}</select></FormField>
+        <FormField label="Market Tier">
+          <Select2 options={toOptions(['Arena', 'Theater', 'Club'])} value={marketTier} onChange={setMarketTier} />
+        </FormField>
+        <FormField label="Status">
+          <Select2 options={toOptions(['Active', 'Prospective', 'Dead'])} value={iaeStatus} onChange={setIaeStatus} />
+        </FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Agency"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={agencyId} onChange={e => setAgencyId(e.target.value)}>{companies.filter(c => c.types.includes('TalentAgency')).map(c => <option key={c.id} value={c.id}>{c.tradeName}</option>)}</select></FormField>
-        <FormField label="Primary Agent"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={primaryAgentContactId} onChange={e => setPrimaryAgentContactId(e.target.value)}>{agencyContacts.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}</select></FormField>
+        <FormField label="Agency">
+          <Select2 options={agencyOptions} value={agencyId} onChange={v => { setAgencyId(v); setPrimaryAgentContactId(''); }} />
+        </FormField>
+        <FormField label="Primary Agent">
+          <Select2 options={agentOptions} value={primaryAgentContactId} onChange={setPrimaryAgentContactId} placeholder="Select agent..." />
+        </FormField>
       </div>
-      <FormField label="Owner"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={ownerId} onChange={e => setOwnerId(e.target.value)}>{users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select></FormField>
-      <div className="flex gap-2 justify-end"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ id: initial?.id || `atr-${Date.now()}`, name, genres: genres.split(',').map(x => x.trim()).filter(Boolean), marketTier, agencyId, primaryAgentContactId, iaeStatus, ownerId })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <FormField label="Owner">
+        <Select2 options={ownerOptions} value={ownerId} onChange={setOwnerId} />
+      </FormField>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({ id: initial?.id || `atr-${Date.now()}`, name, genres: genres.split(',').map(x => x.trim()).filter(Boolean), marketTier, agencyId, primaryAgentContactId, iaeStatus, ownerId })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }
@@ -188,26 +209,38 @@ function TourForm({ onSave, onCancel, initial, attractions, dmas }: { onSave: (t
   const [guarantee, setGuarantee] = useState(String(initial?.guarantee || 0));
   const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds || []);
 
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+  const attractionOptions = toObjOptions(attractions, a => a.name);
+
   return (
     <div className="space-y-3">
-      <FormField label="Tour Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Tour Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Attraction"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={attractionId} onChange={e => setAttractionId(e.target.value)}>{attractions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></FormField>
-        <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Draft', 'ActiveRouting', 'Announced', 'Closed'].map(v => <option key={v} value={v}>{v}</option>)}</select></FormField>
+        <FormField label="Attraction">
+          <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} />
+        </FormField>
+        <FormField label="Status">
+          <Select2 options={toOptions(['Draft', 'ActiveRouting', 'Announced', 'Closed'])} value={status} onChange={setStatus} />
+        </FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Start Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={startDate} onChange={e => setStartDate(e.target.value)} /></FormField>
-        <FormField label="End Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={endDate} onChange={e => setEndDate(e.target.value)} /></FormField>
+        <FormField label="Start Date"><input type="date" className={inputCls} value={startDate} onChange={e => setStartDate(e.target.value)} /></FormField>
+        <FormField label="End Date"><input type="date" className={inputCls} value={endDate} onChange={e => setEndDate(e.target.value)} /></FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Deal Type"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={dealType} onChange={e => setDealType(e.target.value)}>{['Guarantee', 'GuaranteeVsSplit', 'FlatFee'].map(v => <option key={v} value={v}>{v}</option>)}</select></FormField>
-        <FormField label="Guarantee"><input type="number" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
+        <FormField label="Deal Type">
+          <Select2 options={toOptions(['Guarantee', 'GuaranteeVsSplit', 'FlatFee'])} value={dealType} onChange={setDealType} />
+        </FormField>
+        <FormField label="Guarantee"><input type="number" className={inputCls} value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
       </div>
       <div>
         <label className="text-xs text-text-muted block mb-1">Territory DMAs</label>
         <div className="flex flex-wrap gap-2">{dmas.map(d => <button key={d.id} type="button" onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])} className={`px-2 py-1 text-xs rounded border ${selectedDmas.includes(d.id) ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border'}`}>{d.name}</button>)}</div>
       </div>
-      <div className="flex gap-2 justify-end"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ id: initial?.id || `tour-${Date.now()}`, attractionId, name, status, startDate, endDate, dmaIds: selectedDmas, dealType, guarantee: Number(guarantee) || 0, splitPct: initial?.splitPct || null, breakeven: initial?.breakeven || null, radiusMiles: initial?.radiusMiles || 0, radiusDays: initial?.radiusDays || 0, stageWidth: initial?.stageWidth || null, stageDepth: initial?.stageDepth || null, riggingLoad: initial?.riggingLoad || null, trucks: initial?.trucks || null, crew: initial?.crew || null, technicalRider: initial?.technicalRider || '', hospitalityRider: initial?.hospitalityRider || '', dressingRooms: initial?.dressingRooms || null, contacts: initial?.contacts || [] })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({ id: initial?.id || `tour-${Date.now()}`, attractionId, name, status, startDate, endDate, dmaIds: selectedDmas, dealType, guarantee: Number(guarantee) || 0, splitPct: initial?.splitPct || null, breakeven: initial?.breakeven || null, radiusMiles: initial?.radiusMiles || 0, radiusDays: initial?.radiusDays || 0, stageWidth: initial?.stageWidth || null, stageDepth: initial?.stageDepth || null, riggingLoad: initial?.riggingLoad || null, trucks: initial?.trucks || null, crew: initial?.crew || null, technicalRider: initial?.technicalRider || '', hospitalityRider: initial?.hospitalityRider || '', dressingRooms: initial?.dressingRooms || null, contacts: initial?.contacts || [] })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }

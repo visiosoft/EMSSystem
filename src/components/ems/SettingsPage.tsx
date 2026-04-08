@@ -1,19 +1,9 @@
 import React, { useState } from 'react';
 import { StatusBadge, TabBar, ActionMenu, Modal, FormField } from './Primitives';
+import { Select2, toOptions } from './Select2';
 
-interface UserRow {
-  id: string;
-  name: string;
-  role: string;
-  email: string;
-  lastLogin: string;
-}
-
-interface DmaRow {
-  id: string;
-  name: string;
-  status: string;
-}
+interface UserRow { id: string; name: string; role: string; email: string; lastLogin: string; }
+interface DmaRow { id: string; name: string; status: string; }
 
 interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -32,6 +22,8 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
   const [showAddDma, setShowAddDma] = useState(false);
   const [editDma, setEditDma] = useState<DmaRow | null>(null);
 
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
@@ -42,16 +34,26 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
           <button onClick={() => setShowInvite(!showInvite)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium">+ Invite User</button>
           {showInvite && (
             <div className="bg-elevated border border-border rounded-lg p-3 flex gap-3 items-end">
-              <div className="flex-1"><label className="text-xs text-text-muted">Email</label><input value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary mt-1" /></div>
-              <div className="w-40"><label className="text-xs text-text-muted">Role</label><select value={role} onChange={e => setRole(e.target.value)} className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary mt-1"><option>Booker</option><option>WorkflowStaff</option><option>Management</option><option>Admin</option></select></div>
+              <div className="flex-1">
+                <label className="text-xs text-text-muted">Email</label>
+                <input value={email} onChange={e => setEmail(e.target.value)} className={inputCls + ' mt-1'} />
+              </div>
+              <div className="w-48">
+                <label className="text-xs text-text-muted">Role</label>
+                <div className="mt-1">
+                  <Select2
+                    options={toOptions(['Booker', 'WorkflowStaff', 'Management', 'Admin'])}
+                    value={role}
+                    onChange={setRole}
+                  />
+                </div>
+              </div>
               <button onClick={() => {
                 if (!email) return;
                 const namePart = email.split('@')[0].replace(/[._-]/g, ' ');
                 const name = namePart.split(' ').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
                 onUpdateUsers([{ id: `usr-${Date.now()}`, name, email, role, lastLogin: 'Never' }, ...users]);
-                setEmail('');
-                setRole('Booker');
-                setShowInvite(false);
+                setEmail(''); setRole('Booker'); setShowInvite(false);
                 addToast('User invited', 'success');
               }} className="bg-ems-accent text-background px-3 py-1.5 rounded text-sm">Send</button>
             </div>
@@ -132,12 +134,18 @@ function UserForm({ initial, onSave, onCancel }: { initial: UserRow; onSave: (u:
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email);
   const [role, setRole] = useState(initial.role);
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
   return (
     <div className="space-y-3">
-      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Email"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={email} onChange={e => setEmail(e.target.value)} /></FormField>
-      <FormField label="Role"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={role} onChange={e => setRole(e.target.value)}>{['Booker', 'WorkflowStaff', 'Management', 'Admin'].map(r => <option key={r} value={r}>{r}</option>)}</select></FormField>
-      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...initial, name, email, role })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Email"><input className={inputCls} value={email} onChange={e => setEmail(e.target.value)} /></FormField>
+      <FormField label="Role">
+        <Select2 options={toOptions(['Booker', 'WorkflowStaff', 'Management', 'Admin'])} value={role} onChange={setRole} />
+      </FormField>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({ ...initial, name, email, role })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }
@@ -145,11 +153,17 @@ function UserForm({ initial, onSave, onCancel }: { initial: UserRow; onSave: (u:
 function DmaForm({ initial, onSave, onCancel }: { initial?: DmaRow; onSave: (d: DmaRow) => void; onCancel: () => void }) {
   const [name, setName] = useState(initial?.name || '');
   const [status, setStatus] = useState(initial?.status || 'Active');
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
   return (
     <div className="space-y-3">
-      <FormField label="DMA Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Status"><select className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={status} onChange={e => setStatus(e.target.value)}>{['Active', 'Inactive'].map(s => <option key={s} value={s}>{s}</option>)}</select></FormField>
-      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ id: initial?.id || `dma-${Date.now()}`, name, status })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <FormField label="DMA Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
+      <FormField label="Status">
+        <Select2 options={toOptions(['Active', 'Inactive'])} value={status} onChange={setStatus} />
+      </FormField>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <button onClick={() => onSave({ id: initial?.id || `dma-${Date.now()}`, name, status })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }
