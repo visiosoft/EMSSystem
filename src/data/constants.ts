@@ -641,7 +641,7 @@ export function formatCurrency(n: number | null | undefined): string {
 export function formatDate(str: string | null | undefined): string {
   if (!str) return '—';
   const d = new Date(str + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function getInitials(name: string): string {

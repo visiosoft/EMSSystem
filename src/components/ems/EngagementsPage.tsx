@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
-import { formatCurrency, formatDate, getWorkflowDotColor } from '@/data/constants';
+import { formatCurrency, getWorkflowDotColor } from '@/data/constants';
 import { StatusBadge, SearchInput, FilterChips, ActionMenu } from './Primitives';
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
 import { Modal, FormField } from './Primitives';
+
+// Full date with day of week
+function formatEngDate(str: string | null | undefined): string {
+  if (!str) return '—';
+  const d = new Date(str + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 interface Props {
   engagements: Engagement[];
@@ -52,7 +59,7 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
             <th className="text-left py-2.5 px-3">Market</th>
             <th className="text-left py-2.5 px-3">Booker</th>
             <th className="text-right py-2.5 px-3">Proj. Gross</th>
-            <th className="text-center py-2.5 px-3">Workflows</th>
+            <th className="text-center py-2.5 px-3">Depts</th>
             <th className="text-left py-2.5 px-3">Status</th>
           </tr></thead>
           <tbody>
@@ -64,7 +71,7 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
                   className="border-b border-border/50 hover:bg-hover cursor-pointer">
                   <td className="py-2.5 px-3 font-mono text-xs text-text-muted">{eng.id.toUpperCase()}</td>
                   <td className="py-2.5 px-3 text-text-primary font-medium max-w-[250px] truncate">{eng.name}</td>
-                  <td className="py-2.5 px-3 font-mono text-xs">{formatDate(eng.showDates[0]?.date)}</td>
+                  <td className="py-2.5 px-3 text-xs text-text-secondary whitespace-nowrap">{formatEngDate(eng.showDates[0]?.date)}{eng.showDates.length > 1 && <span className="ml-1 text-text-muted">+{eng.showDates.length - 1}</span>}</td>
                   <td className="py-2.5 px-3 text-text-secondary">{venue?.tradeName}</td>
                   <td className="py-2.5 px-3 text-text-secondary text-xs">{venue?.city}</td>
                   <td className="py-2.5 px-3 text-text-secondary">{booker?.name}</td>
@@ -72,7 +79,7 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
                   <td className="py-2.5 px-3">
                     <div className="flex items-center justify-center gap-1" title={workflowKeys.map((k, i) => `${workflowLabels[i]}: ${eng.workflows[k].status}`).join('\n')}>
                       {workflowKeys.map(k => (
-                        <div key={k} className={`w-2.5 h-2.5 rounded-full ${getWorkflowDotColor(eng.workflows[k].status)}`} title={`${k}: ${eng.workflows[k].status}`} />
+                        <div key={k} className={`w-2.5 h-2.5 rounded-full ${getWorkflowDotColor(eng.workflows[k].status)}`} />
                       ))}
                     </div>
                   </td>
@@ -109,24 +116,19 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
     <div className="space-y-3">
       <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Tour">
-          <Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} />
-        </FormField>
-        <FormField label="Venue">
-          <Select2 options={toObjOptions(companies, c => c.tradeName)} value={venueId} onChange={setVenueId} />
-        </FormField>
+        <FormField label="Tour"><Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} /></FormField>
+        <FormField label="Venue"><Select2 options={toObjOptions(companies, c => c.tradeName)} value={venueId} onChange={setVenueId} /></FormField>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Booker">
-          <Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} />
-        </FormField>
-        <FormField label="Status">
-          <Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} />
-        </FormField>
+        <FormField label="Booker"><Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} /></FormField>
+        <FormField label="Status"><Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} /></FormField>
       </div>
-      <FormField label="Show Date"><input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} /></FormField>
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+      <FormField label="Show Date">
+        <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
+        {date && <div className="text-xs text-text-muted mt-1">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>}
+      </FormField>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
         <button onClick={() => onSave({
           id: `eng-${Date.now()}`,
           name: name || 'New Engagement',
