@@ -153,21 +153,32 @@ export function SearchInput({ value, onChange, placeholder = 'Search...' }: { va
   );
 }
 
-// FilterChips
-export function FilterChips({ options, active, onChange }: { options: string[]; active: string; onChange: (v: string) => void }) {
+// FilterChips — supports both string[] and {value, label}[] for plain English labels
+export function FilterChips({
+  options,
+  active,
+  onChange,
+}: {
+  options: string[] | { value: string; label: string }[];
+  active: string;
+  onChange: (v: string) => void;
+}) {
+  const normalized = (options as any[]).map(o =>
+    typeof o === 'string' ? { value: o, label: o } : o
+  );
   return (
     <div className="flex flex-wrap gap-1.5">
-      {options.map(o => (
+      {normalized.map(o => (
         <button
-          key={o}
-          onClick={() => onChange(o)}
+          key={o.value}
+          onClick={() => onChange(o.value)}
           className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-            active === o
+            active === o.value
               ? 'bg-ems-accent-dim text-ems-accent border border-ems-accent/30'
               : 'bg-elevated text-text-secondary border border-border hover:bg-hover'
           }`}
         >
-          {o}
+          {o.label}
         </button>
       ))}
     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
+import { TourForm, TOUR_STATUS_OPTIONS, DEAL_TYPE_OPTIONS } from './AttractionToursPage';
 import type { Project, Offer, Engagement, Tour, Attraction } from '@/data/constants';
 import { Select2, toOptions, toObjOptions } from './Select2';
 
@@ -20,11 +21,26 @@ interface Props {
   onDeleteProject?: (projectId: string) => void;
 }
 
-// ─── Valid Project Statuses (NOT engagement statuses) ─────────────────────────
-const PROJECT_STATUSES = ['Active', 'OffersSent', 'PartiallyBooked', 'FullyBooked', 'Dead'];
+// ─── Plain-English status options ─────────────────────────────────────────────
 
-// ─── Tour Status Options ───────────────────────────────────────────────────────
-const TOUR_STATUSES = ['Draft', 'Announced', 'ActiveRouting', 'Closed'];
+const PROJECT_STATUS_FILTER = [
+  { value: 'All', label: 'All' },
+  { value: 'Active', label: 'Active' },
+  { value: 'OffersSent', label: 'Offers Sent' },
+  { value: 'PartiallyBooked', label: 'Partially Booked' },
+  { value: 'FullyBooked', label: 'Fully Booked' },
+  { value: 'Dead', label: 'Inactive' },
+];
+
+const PROJECT_STATUS_OPTIONS = [
+  { value: 'Active', label: 'Active' },
+  { value: 'OffersSent', label: 'Offers Sent' },
+  { value: 'PartiallyBooked', label: 'Partially Booked' },
+  { value: 'FullyBooked', label: 'Fully Booked' },
+  { value: 'Dead', label: 'Inactive' },
+];
+
+// ─── Projects List Page ────────────────────────────────────────────────────────
 
 export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects, onDeleteProject }: Props) {
   const [search, setSearch] = useState('');
@@ -46,15 +62,15 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
       </div>
       <div className="flex items-center gap-4">
         <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
-        <FilterChips options={['All', ...PROJECT_STATUSES]} active={statusFilter} onChange={setStatusFilter} />
+        <FilterChips options={PROJECT_STATUS_FILTER} active={statusFilter} onChange={setStatusFilter} />
       </div>
       <div className="bg-card border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
             <th className="text-left py-2.5 px-3">Project Name</th>
-            <th className="text-left py-2.5 px-3">Attraction — Tour</th>
+            <th className="text-left py-2.5 px-3">Artist — Tour</th>
             <th className="text-left py-2.5 px-3">Booker</th>
-            <th className="text-left py-2.5 px-3">DMA(s)</th>
+            <th className="text-left py-2.5 px-3">Markets</th>
             <th className="text-left py-2.5 px-3">Offers</th>
             <th className="text-left py-2.5 px-3">Status</th>
             <th />
@@ -193,7 +209,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-text-primary">{project.name}</h1>
-          <div className="text-sm text-text-secondary">{attr?.name} — {tour?.name} · {booker?.name} · DMAs: {project.dmaIds.map(d => DMAS.find(dm => dm.id === d)?.name).join(', ')}</div>
+          <div className="text-sm text-text-secondary">{attr?.name} — {tour?.name} · {booker?.name} · Markets: {project.dmaIds.map(d => DMAS.find(dm => dm.id === d)?.name).join(', ')}</div>
         </div>
         <StatusBadge status={project.status} />
       </div>
@@ -208,22 +224,23 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
 
           {project.offers.map(offer => {
             const venue = COMPANIES.find(c => c.id === offer.venueId);
+            const dealLabel = DEAL_TYPE_OPTIONS.find(d => d.value === offer.dealType)?.label || offer.dealType;
             return (
               <div key={offer.id} className={`bg-card border border-border rounded-lg overflow-hidden ${offer.status === 'Declined' ? 'opacity-60' : ''}`}>
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <span className="text-text-primary font-medium">{venue?.tradeName}</span>
-                      <div className="text-xs text-text-secondary">{venue?.city}, {venue?.state} · {offer.configName} · Cap: {venue?.venueProfile?.configurations.find((c: any) => c.name === offer.configName)?.totalCap?.toLocaleString()}</div>
+                      <div className="text-xs text-text-secondary">{venue?.city}, {venue?.state} · {offer.configName} · Capacity: {venue?.venueProfile?.configurations.find((c: any) => c.name === offer.configName)?.totalCap?.toLocaleString()}</div>
                     </div>
                     <StatusBadge status={offer.status} />
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs border-t border-border pt-2 mt-2">
-                    <div><span className="text-text-muted">Proposed Dates: </span><span className="text-text-primary">{offer.proposedDates.map(d => formatDate(d)).join(', ')} — {offer.showTime}</span></div>
-                    <div><span className="text-text-muted">Deal: </span><span className="text-text-primary">{offer.dealType}</span></div>
+                    <div><span className="text-text-muted">Proposed Date: </span><span className="text-text-primary">{offer.proposedDates.map(d => formatDate(d)).join(', ')} — {offer.showTime}</span></div>
+                    <div><span className="text-text-muted">Deal: </span><span className="text-text-primary">{dealLabel}</span></div>
                     <div><span className="text-text-muted">Guarantee: </span><span className="text-text-primary font-mono">{formatCurrency(offer.guarantee)}</span></div>
                     {offer.splitPct && <div><span className="text-text-muted">Split: </span><span className="text-text-primary">{offer.splitPct}% artist / {100 - offer.splitPct}% IAE after {formatCurrency(offer.breakeven)}</span></div>}
-                    <div><span className="text-text-muted">Mktg Co-Op: </span><span className="text-text-primary font-mono">{formatCurrency(offer.marketingCoOp)}</span></div>
+                    <div><span className="text-text-muted">Marketing Co-Op: </span><span className="text-text-primary font-mono">{formatCurrency(offer.marketingCoOp)}</span></div>
                   </div>
                   {offer.responseNotes && <div className="text-xs text-text-secondary mt-2 italic">"{offer.responseNotes}"</div>}
                   <div className="flex gap-2 mt-3 justify-end">
@@ -231,8 +248,8 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                     <button onClick={() => {
                       const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: p.offers.filter(o => o.id !== offer.id) } : p);
                       onUpdateProjects(updatedProjects);
-                      addToast('Offer deleted', 'warning');
-                    }} className="bg-elevated text-ems-coral text-xs px-3 py-1 rounded border border-border hover:bg-hover">Delete</button>
+                      addToast('Offer removed', 'warning');
+                    }} className="bg-elevated text-ems-coral text-xs px-3 py-1 rounded border border-border hover:bg-hover">Remove</button>
                     {offer.status === 'Submitted' && (
                       <button onClick={() => setShowRecordResponse(offer.id)} className="bg-elevated text-text-primary text-xs px-3 py-1 rounded border border-border hover:bg-hover">Record Response ▾</button>
                     )}
@@ -272,7 +289,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
 
           {project.offers.length > 0 && (
             <div className="bg-card border border-border rounded-lg p-4">
-              <h3 className="text-xs font-medium text-text-muted mb-2">Offer Status</h3>
+              <h3 className="text-xs font-medium text-text-muted mb-2">Offer Breakdown</h3>
               <div className="flex items-center gap-4">
                 <svg width="120" height="120" viewBox="0 0 120 120">
                   {(() => {
@@ -349,13 +366,17 @@ function EditProjectForm({ project, onSave, onCancel }: { project: Project; onSa
   const [notes, setNotes] = useState(project.notes);
   return (
     <div className="space-y-3">
-      <FormField label="Name"><input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <FormField label="Status">
-        <Select2 options={toOptions(PROJECT_STATUSES)} value={status} onChange={setStatus} />
+      <FormField label="Project Name">
+        <input className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent" value={name} onChange={e => setName(e.target.value)} />
       </FormField>
-      <FormField label="Notes"><textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} /></FormField>
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+      <FormField label="Status">
+        <Select2 options={PROJECT_STATUS_OPTIONS} value={status} onChange={setStatus} />
+      </FormField>
+      <FormField label="Notes">
+        <textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none focus:outline-none focus:border-ems-accent" value={notes} onChange={e => setNotes(e.target.value)} />
+      </FormField>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
         <button onClick={() => onSave({ ...project, name, status, notes })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
       </div>
     </div>
@@ -367,13 +388,25 @@ function EditOfferForm({ offer, onSave, onCancel }: { offer: Offer; onSave: (o: 
   const [date, setDate] = useState(offer.proposedDates[0] || '');
   const [time, setTime] = useState(offer.showTime);
   const [guarantee, setGuarantee] = useState(String(offer.guarantee));
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
   return (
     <div className="space-y-3">
-      <FormField label="Status"><Select2 options={toOptions(['Draft', 'Submitted', 'Accepted', 'Declined', 'Countered'])} value={status} onChange={setStatus} /></FormField>
-      <FormField label="Date"><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} /></FormField>
-      <FormField label="Show Time"><input type="time" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={time} onChange={e => setTime(e.target.value)} /></FormField>
-      <FormField label="Guarantee"><input type="number" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
-      <div className="flex justify-end gap-2"><button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button><button onClick={() => onSave({ ...offer, status, proposedDates: [date], showTime: time, guarantee: Number(guarantee) || 0 })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button></div>
+      <FormField label="Offer Status">
+        <Select2 options={[
+          { value: 'Draft', label: 'Draft' },
+          { value: 'Submitted', label: 'Submitted' },
+          { value: 'Accepted', label: 'Accepted' },
+          { value: 'Declined', label: 'Declined' },
+          { value: 'Countered', label: 'Countered' },
+        ]} value={status} onChange={setStatus} />
+      </FormField>
+      <FormField label="Proposed Date"><input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} /></FormField>
+      <FormField label="Show Time"><input type="time" className={inputCls} value={time} onChange={e => setTime(e.target.value)} /></FormField>
+      <FormField label="Guarantee ($)"><input type="number" className={inputCls} value={guarantee} onChange={e => setGuarantee(e.target.value)} /></FormField>
+      <div className="flex justify-end gap-2 pt-2 border-t border-border">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
+        <button onClick={() => onSave({ ...offer, status, proposedDates: [date], showTime: time, guarantee: Number(guarantee) || 0 })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Save</button>
+      </div>
     </div>
   );
 }
@@ -390,7 +423,7 @@ function RecordResponseModal({ offerId, offer, onSave, onClose }: { offerId: str
   };
 
   return (
-    <Modal title="Record Talent Agent Response" onClose={onClose} width={500}>
+    <Modal title="Record Agent Response" onClose={onClose} width={500}>
       <div className="space-y-3">
         <div className="text-sm text-text-secondary">Offer: {venue?.tradeName} · {formatDate(offer.proposedDates[0])}</div>
         <FormField label="Response">
@@ -401,15 +434,15 @@ function RecordResponseModal({ offerId, offer, onSave, onClose }: { offerId: str
           ))}</div>
         </FormField>
         <FormField label="Notes">
-          <textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none" value={notes} onChange={e => setNotes(e.target.value)} />
+          <textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none focus:outline-none focus:border-ems-accent" value={notes} onChange={e => setNotes(e.target.value)} />
         </FormField>
         {showConfirm && (
           <div className="bg-ems-accent-dim border border-ems-accent/30 rounded-lg p-3 text-sm text-ems-accent">
-            Accepting this offer will automatically create a new Engagement. Proceed?
+            Accepting this offer will automatically create a new Engagement. Ready to proceed?
           </div>
         )}
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="text-text-secondary px-4 py-1.5">Cancel</button>
+        <div className="flex gap-2 justify-end pt-2 border-t border-border">
+          <button onClick={onClose} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
           <button onClick={handleSave} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">
             {showConfirm ? 'Confirm & Create Engagement' : 'Save Response'}
           </button>
@@ -425,6 +458,7 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
   const [time, setTime] = useState('20:00');
   const venues = COMPANIES.filter(c => c.types.includes('Venue'));
   const tour = TOURS.find(t => t.id === project.tourId);
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   return (
     <div className="space-y-3">
@@ -432,13 +466,13 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
         <Select2 options={[{ value: '', label: 'Select venue...' }, ...toObjOptions(venues, v => v.tradeName)]} value={venueId} onChange={setVenueId} placeholder="Select venue..." />
       </FormField>
       <FormField label="Proposed Date" required>
-        <input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={date} onChange={e => setDate(e.target.value)} />
+        <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
       </FormField>
       <FormField label="Show Time" required>
-        <input type="time" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary" value={time} onChange={e => setTime(e.target.value)} />
+        <input type="time" className={inputCls} value={time} onChange={e => setTime(e.target.value)} />
       </FormField>
-      <div className="flex gap-2 justify-end pt-2">
-        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5">Cancel</button>
+      <div className="flex gap-2 justify-end pt-2 border-t border-border">
+        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
         <button onClick={() => {
           if (!venueId || !date) return;
           const venue = venues.find(v => v.id === venueId);
@@ -455,66 +489,70 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
 }
 
 // ─── Create Project Wizard ─────────────────────────────────────────────────────
-// Strict order: 1. Attraction → 2. Tour (existing or new) → 3. Agent → 4. DMAs → 5. Review
+// Steps: 1. Artist  →  2. Tour (existing or new)  →  3. Agent  →  4. Markets  →  5. Review
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
 
-interface NewTourForm {
+// Holds pending new-tour data collected from TourForm in wizard mode
+interface PendingTour {
   name: string;
   status: string;
   startDate: string;
   endDate: string;
   dealType: string;
-  guarantee: string;
+  guarantee: number;
+  dmaIds: string[];
+  attractionId: string;
+  isValid: boolean;
 }
 
 function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) {
   const [step, setStep] = useState<WizardStep>(1);
 
-  // Step 1: Attraction
+  // Step 1
   const [attractionId, setAttractionId] = useState('');
 
-  // Step 2: Tour
+  // Step 2
   const [tourMode, setTourMode] = useState<'existing' | 'new'>('existing');
   const [tourId, setTourId] = useState('');
-  const [newTour, setNewTour] = useState<NewTourForm>({
+  const [pendingTour, setPendingTour] = useState<PendingTour>({
     name: '', status: 'ActiveRouting', startDate: '', endDate: '',
-    dealType: 'Guarantee', guarantee: '',
+    dealType: 'Guarantee', guarantee: 0, dmaIds: [], attractionId: '', isValid: false,
   });
 
-  // Step 3: Agent (from tour's attraction agency)
+  // Step 3
   const [agentId, setAgentId] = useState('');
 
-  // Step 4: DMAs
+  // Step 4
   const [selectedDmas, setSelectedDmas] = useState<string[]>([]);
 
-  // Step 5: Project details
+  // Step 5
   const [projectName, setProjectName] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
 
   const selectedAttraction = ATTRACTIONS.find(a => a.id === attractionId);
   const attractionTours = TOURS.filter(t => t.attractionId === attractionId);
 
-  // Derive agency contacts from attraction
   const agencyContacts = useMemo(() => {
     if (!selectedAttraction) return [];
     return CONTACTS.filter(c => c.companyId === selectedAttraction.agencyId);
   }, [selectedAttraction]);
 
-  // When attraction changes, auto-set project name
   const handleSelectAttraction = (id: string) => {
     setAttractionId(id);
     setTourId('');
     setAgentId('');
     const attr = ATTRACTIONS.find(a => a.id === id);
     if (attr) setProjectName(`${attr.name} ${new Date().getFullYear()}`);
+    // Pre-fill attractionId for new tour form
+    setPendingTour(prev => ({ ...prev, attractionId: id }));
   };
 
   const canProceed = () => {
     if (step === 1) return !!attractionId;
     if (step === 2) {
       if (tourMode === 'existing') return !!tourId;
-      return !!(newTour.name && newTour.startDate && newTour.endDate);
+      return pendingTour.isValid;
     }
     if (step === 3) return !!agentId;
     if (step === 4) return selectedDmas.length > 0;
@@ -533,7 +571,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
 
   const handleCreate = () => {
     if (!canProceed()) return;
-    // For "new tour" mode, tourId will be a temporary placeholder
     const finalTourId = tourMode === 'existing' ? tourId : `tour-new-${Date.now()}`;
     onSave({
       id: `prj-${Date.now()}`,
@@ -543,19 +580,19 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
       agentContactId: agentId,
       dmaIds: selectedDmas,
       status: 'Active',
-      targetOnSale: null, // On-sale belongs to Engagement, not Project
+      targetOnSale: null,
       notes: projectNotes,
       createdAt: new Date().toISOString().split('T')[0],
       offers: [],
     });
   };
 
-  const stepLabels = ['Attraction', 'Tour', 'Agent', 'DMAs', 'Review'];
+  const stepLabels = ['Artist', 'Tour', 'Agent', 'Markets', 'Review'];
 
   return (
-    <Modal title="Create Project" onClose={onClose} width={760}>
+    <Modal title="Create Project" onClose={onClose} width={780}>
       <div className="space-y-5">
-        {/* Step indicator */}
+        {/* Step progress indicator */}
         <div className="flex items-center justify-between mb-2">
           {stepLabels.map((label, idx) => {
             const s = (idx + 1) as WizardStep;
@@ -583,11 +620,11 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           })}
         </div>
 
-        {/* ── STEP 1: Select Attraction ── */}
+        {/* ── STEP 1: Select Artist / Attraction ── */}
         {step === 1 && (
           <div className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Attraction</h3>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Artist</h3>
               <p className="text-xs text-text-muted">Choose the artist or act for this project</p>
             </div>
             <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
@@ -653,108 +690,84 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               </button>
             </div>
 
+            {/* Existing tours list */}
             {tourMode === 'existing' && (
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                 {attractionTours.length === 0 ? (
                   <div className="text-text-muted text-sm bg-elevated rounded-lg p-4 text-center">
-                    No existing tours. Switch to "Create New Tour".
+                    No existing tours for this artist. Switch to "Create New Tour" to add one.
                   </div>
-                ) : attractionTours.map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTourId(t.id)}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                      tourId === t.id
-                        ? 'border-ems-accent bg-ems-accent-dim'
-                        : 'border-border bg-elevated hover:bg-hover'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-text-primary font-medium">{t.name}</span>
-                      <StatusBadge status={t.status} />
-                    </div>
-                    <div className="text-xs text-text-secondary mt-1">
-                      {t.dealType} · {t.guarantee ? `$${t.guarantee.toLocaleString()} guarantee` : 'No guarantee set'}
-                    </div>
-                    <div className="text-xs text-text-muted">
-                      {t.startDate} → {t.endDate}
-                    </div>
-                  </button>
-                ))}
+                ) : attractionTours.map(t => {
+                  const dealLabel = DEAL_TYPE_OPTIONS.find(d => d.value === t.dealType)?.label || t.dealType;
+                  const statusLabel = TOUR_STATUS_OPTIONS.find(s => s.value === t.status)?.label || t.status;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => setTourId(t.id)}
+                      className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                        tourId === t.id
+                          ? 'border-ems-accent bg-ems-accent-dim'
+                          : 'border-border bg-elevated hover:bg-hover'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-text-primary font-medium">{t.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${tourId === t.id ? 'bg-ems-accent/20 text-ems-accent' : 'bg-elevated text-text-secondary border border-border'}`}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div className="text-xs text-text-secondary mt-1">
+                        {dealLabel} · {t.guarantee ? `$${t.guarantee.toLocaleString()} guarantee` : 'No guarantee set'}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        {t.startDate} → {t.endDate}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
+            {/* Full new tour form — same as the Add Tour modal */}
             {tourMode === 'new' && (
-              <div className="space-y-3 bg-elevated border border-border rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">New Tour Details</h4>
-                <FormField label="Tour Name" required>
-                  <input
-                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
-                    value={newTour.name}
-                    onChange={e => setNewTour(p => ({ ...p, name: e.target.value }))}
-                    placeholder={`${selectedAttraction.name} Tour 2025`}
-                  />
-                </FormField>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField label="Tour Status">
-                    <Select2
-                      options={toOptions(TOUR_STATUSES)}
-                      value={newTour.status}
-                      onChange={v => setNewTour(p => ({ ...p, status: v }))}
-                    />
-                  </FormField>
-                  <FormField label="Deal Type">
-                    <Select2
-                      options={toOptions(['Guarantee', 'GuaranteeVsSplit', 'FlatFee'])}
-                      value={newTour.dealType}
-                      onChange={v => setNewTour(p => ({ ...p, dealType: v }))}
-                    />
-                  </FormField>
+              <div className="bg-elevated border border-border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-1.5 h-1.5 rounded-full bg-ems-accent inline-block"></span>
+                  <h4 className="text-sm font-semibold text-text-primary">New Tour Details</h4>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField label="Start Date" required>
-                    <input
-                      type="date"
-                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
-                      value={newTour.startDate}
-                      onChange={e => setNewTour(p => ({ ...p, startDate: e.target.value }))}
-                    />
-                  </FormField>
-                  <FormField label="End Date" required>
-                    <input
-                      type="date"
-                      className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
-                      value={newTour.endDate}
-                      onChange={e => setNewTour(p => ({ ...p, endDate: e.target.value }))}
-                    />
-                  </FormField>
-                </div>
-                <FormField label="Guarantee ($)">
-                  <input
-                    type="number"
-                    className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
-                    value={newTour.guarantee}
-                    onChange={e => setNewTour(p => ({ ...p, guarantee: e.target.value }))}
-                    placeholder="0"
-                  />
-                </FormField>
+                <TourForm
+                  attractions={[selectedAttraction]}
+                  dmas={DMAS}
+                  wizardMode={true}
+                  onChange={(data) => {
+                    setPendingTour(prev => ({
+                      ...prev,
+                      ...data,
+                      attractionId: selectedAttraction.id,
+                    }));
+                  }}
+                  onSave={() => {}}
+                />
+                {!pendingTour.isValid && pendingTour.name !== '' && (
+                  <p className="text-xs text-ems-amber mt-2">Please fill in the tour name, start date, and end date to continue.</p>
+                )}
               </div>
             )}
           </div>
         )}
 
-        {/* ── STEP 3: Select Agent ── */}
+        {/* ── STEP 3: Select Talent Agent ── */}
         {step === 3 && (
           <div className="space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Talent Agent</h3>
               <p className="text-xs text-text-muted">
-                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.tradeName || 'the agency'} linked to this tour
+                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.tradeName || 'the agency'} for this tour
               </p>
             </div>
             {agencyContacts.length === 0 ? (
               <div className="text-text-muted text-sm bg-elevated rounded-lg p-4 text-center">
-                No contacts found for this agency. Add contacts in Companies first.
+                No contacts found for this agency. Add contacts in the Companies section first.
               </div>
             ) : (
               <div className="space-y-2">
@@ -770,7 +783,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                           : 'border-border bg-elevated hover:bg-hover'
                       }`}
                     >
-                      <div className="w-8 h-8 rounded-full bg-ems-purple-dim text-ems-purple flex items-center justify-center text-xs font-semibold">
+                      <div className="w-8 h-8 rounded-full bg-ems-purple-dim text-ems-purple flex items-center justify-center text-xs font-semibold shrink-0">
                         {ct.firstName[0]}{ct.lastName[0]}
                       </div>
                       <div className="flex-1">
@@ -778,9 +791,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                         <div className="text-xs text-text-secondary">{ct.title} · {company?.tradeName}</div>
                         <div className="text-xs text-ems-blue">{ct.email}</div>
                       </div>
-                      {agentId === ct.id && (
-                        <span className="text-ems-accent text-lg">✓</span>
-                      )}
+                      {agentId === ct.id && <span className="text-ems-accent text-lg">✓</span>}
                     </button>
                   );
                 })}
@@ -789,11 +800,11 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* ── STEP 4: Select DMAs ── */}
+        {/* ── STEP 4: Select Markets (DMAs) ── */}
         {step === 4 && (
           <div className="space-y-3">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Target DMAs</h3>
+              <h3 className="text-sm font-semibold text-text-primary mb-0.5">Target Markets</h3>
               <p className="text-xs text-text-muted">Select the markets for this project. At least one is required.</p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -816,30 +827,33 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
             </div>
             {selectedDmas.length > 0 && (
               <div className="text-xs text-text-muted">
-                {selectedDmas.length} DMA{selectedDmas.length !== 1 ? 's' : ''} selected
+                {selectedDmas.length} market{selectedDmas.length !== 1 ? 's' : ''} selected
               </div>
             )}
           </div>
         )}
 
-        {/* ── STEP 5: Review & Project Details ── */}
+        {/* ── STEP 5: Review & Project Name ── */}
         {step === 5 && (
           <div className="space-y-4">
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-0.5">Review & Create</h3>
-              <p className="text-xs text-text-muted">Confirm details and give your project a name</p>
+              <p className="text-xs text-text-muted">Confirm the details and give your project a name</p>
             </div>
 
-            {/* Summary */}
+            {/* Summary card */}
             <div className="bg-elevated border border-border rounded-lg p-4 space-y-2 text-sm">
-              <div className="grid grid-cols-2 gap-2">
-                <div><span className="text-text-muted text-xs block">Attraction</span><span className="text-text-primary font-medium">{selectedAttraction?.name}</span></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-text-muted text-xs block">Artist</span>
+                  <span className="text-text-primary font-medium">{selectedAttraction?.name}</span>
+                </div>
                 <div>
                   <span className="text-text-muted text-xs block">Tour</span>
                   <span className="text-text-primary font-medium">
                     {tourMode === 'existing'
                       ? TOURS.find(t => t.id === tourId)?.name
-                      : newTour.name + ' (new)'}
+                      : pendingTour.name + ' (new)'}
                   </span>
                 </div>
                 <div>
@@ -847,13 +861,24 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                   <span className="text-text-primary">{(() => { const ct = CONTACTS.find(c => c.id === agentId); return ct ? `${ct.firstName} ${ct.lastName}` : '—'; })()}</span>
                 </div>
                 <div>
-                  <span className="text-text-muted text-xs block">DMAs</span>
+                  <span className="text-text-muted text-xs block">Markets</span>
                   <span className="text-text-primary">{selectedDmas.map(id => DMAS.find(d => d.id === id)?.name).join(', ')}</span>
                 </div>
+                {tourMode === 'new' && pendingTour.name && (
+                  <>
+                    <div>
+                      <span className="text-text-muted text-xs block">Tour Status</span>
+                      <span className="text-text-primary">{TOUR_STATUS_OPTIONS.find(s => s.value === pendingTour.status)?.label}</span>
+                    </div>
+                    <div>
+                      <span className="text-text-muted text-xs block">Deal Type</span>
+                      <span className="text-text-primary">{DEAL_TYPE_OPTIONS.find(d => d.value === pendingTour.dealType)?.label}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Project name + notes */}
             <FormField label="Project Name" required>
               <input
                 className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent"
@@ -871,15 +896,14 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               />
             </FormField>
 
-            {/* Note: no On-Sale Date — that's at Engagement level */}
             <div className="text-xs text-text-muted bg-elevated rounded-lg px-3 py-2 border border-border/50 flex items-center gap-2">
               <span>ℹ</span>
-              <span>On-sale date is set per Engagement, not at the Project level.</span>
+              <span>The on-sale date is set per individual engagement, not at the project level.</span>
             </div>
           </div>
         )}
 
-        {/* Navigation */}
+        {/* Wizard navigation */}
         <div className="flex items-center justify-between pt-2 border-t border-border">
           <button
             onClick={handleBack}
@@ -887,17 +911,22 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           >
             {step === 1 ? 'Cancel' : '← Back'}
           </button>
-          <button
-            onClick={step === 5 ? handleCreate : handleNext}
-            disabled={!canProceed()}
-            className={`px-5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              canProceed()
-                ? 'bg-ems-accent hover:bg-ems-accent/80 text-background'
-                : 'bg-elevated text-text-muted cursor-not-allowed'
-            }`}
-          >
-            {step === 5 ? 'Create Project' : 'Next →'}
-          </button>
+          <div className="flex items-center gap-3">
+            {!canProceed() && step === 2 && tourMode === 'new' && pendingTour.name === '' && (
+              <span className="text-xs text-text-muted">Fill in the tour name, start date, and end date</span>
+            )}
+            <button
+              onClick={step === 5 ? handleCreate : handleNext}
+              disabled={!canProceed()}
+              className={`px-5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                canProceed()
+                  ? 'bg-ems-accent hover:bg-ems-accent/80 text-background'
+                  : 'bg-elevated text-text-muted cursor-not-allowed'
+              }`}
+            >
+              {step === 5 ? 'Create Project' : 'Next →'}
+            </button>
+          </div>
         </div>
       </div>
     </Modal>
