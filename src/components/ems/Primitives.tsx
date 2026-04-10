@@ -81,7 +81,10 @@ export function Modal({ title, children, onClose, width = 600 }: { title: string
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl max-h-[90vh] overflow-auto w-[95vw] sm:w-auto" style={{ maxWidth: 'min(' + width + 'px, 95vw)' }}>
+      <div
+        className="relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl max-h-[90vh] overflow-y-auto box-border"
+        style={{ width: `min(${width}px, 95vw)` }}
+      >
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-elevated z-10">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>

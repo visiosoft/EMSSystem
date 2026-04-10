@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Drawer, Modal, FormField, ActionMenu } from './Primitives';
 import { Select2, toOptions, toObjOptions } from './Select2';
-import type { Company, Contact } from '@/data/constants';
+import type { Company, Contact, CompanyTicketing } from '@/data/constants';
 import { getDmaFromPostalCode } from '@/data/constants';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 
@@ -85,7 +85,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
       </div>
 
       {selectedCompany && (
-        <Drawer onClose={() => setSelectedCompanyId(null)} width={1000}>
+        <Drawer onClose={() => setSelectedCompanyId(null)} width={1080}>
           <div className="p-4 border-b border-border flex items-center gap-3">
             <Avatar name={selectedCompany.tradeName} size="lg" />
             <div className="flex-1">
@@ -98,7 +98,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
             <button onClick={() => setSelectedCompanyId(null)} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
           </div>
 
-          <TabBar tabs={['Overview', 'Contacts', 'Engagements', 'Documents']} active={drawerTab} onChange={setDrawerTab} />
+          <TabBar tabs={['Overview', 'Contacts', 'Engagements', 'Documents', 'Ticketing']} active={drawerTab} onChange={setDrawerTab} />
 
           <div className="p-4">
             {drawerTab === 'Overview' && (
@@ -182,6 +182,17 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
 
             {drawerTab === 'Engagements' && <div className="text-sm text-text-secondary"><p>Engagements involving {selectedCompany.tradeName} will appear here.</p></div>}
             {drawerTab === 'Documents' && <div className="space-y-3"><button onClick={() => addToast('Upload simulated', 'success')} className="text-ems-accent text-sm hover:underline">+ Upload Document</button><div className="text-sm text-text-muted">No documents uploaded yet.</div></div>}
+
+            {drawerTab === 'Ticketing' && (
+              <CompanyTicketingTab
+                company={selectedCompany}
+                contacts={companyContacts}
+                onSave={(ticketing) => {
+                  onUpdateCompanies(companies.map(c => (c.id === selectedCompany.id ? { ...c, ticketing } : c)));
+                  addToast('Ticketing details saved', 'success');
+                }}
+              />
+            )}
           </div>
         </Drawer>
       )}
@@ -203,6 +214,307 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
           <ContactForm companies={companies} initial={editContact} onSave={(ct) => { onUpdateContacts(contacts.map(c => c.id === editContact.id ? { ...c, ...ct } : c)); setEditContact(null); addToast('Contact updated', 'success'); }} onCancel={() => setEditContact(null)} currentCompanyId={editContact.companyId} />
         </Modal>
       )}
+    </div>
+  );
+}
+
+const TICKETING_SYSTEM_OPTIONS = ['Ticketmaster', 'AXS', 'SeatGeek', 'Etix', 'Dice', 'See Tickets', 'Other'];
+const SEATING_TYPE_OPTIONS = ['Reserved Seating', 'General Admission', 'Mixed', 'Standing Room Only', 'Festival / GA + Reserved', 'Other'];
+
+function defaultCompanyTicketing(): CompanyTicketing {
+  return {
+    seatingChartFiles: [],
+    ticketingSystem: '',
+    venueWebsite: '',
+    seatingType: '',
+    managers: [],
+  };
+}
+
+function CompanyTicketingTab({
+  company,
+  contacts,
+  onSave,
+}: {
+  company: Company;
+  contacts: Contact[];
+  onSave: (t: CompanyTicketing) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showFileList, setShowFileList] = useState(false);
+  const [draft, setDraft] = useState<CompanyTicketing>(() => company.ticketing ?? defaultCompanyTicketing());
+
+  useEffect(() => {
+    setDraft(company.ticketing ? JSON.parse(JSON.stringify(company.ticketing)) as CompanyTicketing : defaultCompanyTicketing());
+  }, [company]);
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted/90 focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20';
+  const labelCls = 'text-sm font-medium text-text-secondary block mb-1.5';
+  const sublabelCls = 'text-xs text-text-secondary/90 block mb-2';
+
+  const contactOptions = useMemo(
+    () => [{ value: '', label: 'Select name…' }, ...contacts.map(c => ({ value: c.id, label: `${c.firstName} ${c.lastName}` }))],
+    [contacts],
+  );
+
+  const addFiles = (fileList: FileList | File[]) => {
+    const arr = Array.from(fileList);
+    if (arr.length === 0) return;
+    setDraft(prev => ({
+      ...prev,
+      seatingChartFiles: [
+        ...prev.seatingChartFiles,
+        ...arr.map(f => ({ id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, name: f.name })),
+      ],
+    }));
+  };
+
+  const applyContactToManager = (managerId: string, contactId: string) => {
+    const ct = contacts.find(c => c.id === contactId);
+    setDraft(prev => ({
+      ...prev,
+      managers: prev.managers.map(m => {
+        if (m.id !== managerId) return m;
+        if (!ct) return { ...m, contactId: undefined };
+        return {
+          ...m,
+          contactId: ct.id,
+          displayName: `${ct.firstName} ${ct.lastName}`,
+          email: ct.workEmail || ct.email,
+          phone: ct.workPhone || ct.phone,
+        };
+      }),
+    }));
+  };
+
+  const addManager = () => {
+    setDraft(prev => ({
+      ...prev,
+      managers: [
+        ...prev.managers,
+        { id: `tm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, displayName: '', phone: '', email: '' },
+      ],
+    }));
+  };
+
+  const removeManager = (id: string) => {
+    setDraft(prev => ({ ...prev, managers: prev.managers.filter(m => m.id !== id) }));
+  };
+
+  return (
+    <div className="w-full space-y-8">
+      <header className="space-y-1">
+        <h3 className="text-lg font-semibold text-text-primary tracking-tight">Ticketing</h3>
+        <p className="text-sm text-text-secondary leading-relaxed max-w-2xl">
+          Upload seating charts, set the ticketing platform and venue links, and list who runs ticketing for this company.
+        </p>
+      </header>
+
+      <div className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-6">
+        <section className="space-y-3">
+          <div>
+            <span className={labelCls}>Seating chart</span>
+            <p className={sublabelCls}>Maps and diagrams (PDF, images, or CAD). Stored as references in this demo.</p>
+          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+            onDrop={e => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
+            className="group border border-dashed border-border rounded-lg px-4 py-7 text-center bg-surface/60 hover:bg-hover/60 hover:border-ems-accent/40 transition-all cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              multiple
+              accept=".pdf,.png,.jpg,.jpeg,.svg,.dwg"
+              onChange={e => { const l = e.target.files; if (l) addFiles(l); e.target.value = ''; }}
+            />
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-elevated border border-border text-text-secondary mb-2 group-hover:border-ems-accent/30">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </span>
+            <span className="text-sm font-medium text-text-primary block">Attach file</span>
+            <span className="text-xs text-text-secondary mt-1 block">Drop files here or click to browse</span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setShowFileList(v => !v)}
+              className="text-ems-accent hover:text-ems-accent/90 hover:underline"
+            >
+              {showFileList ? 'Hide file list' : 'Show file list'} ({draft.seatingChartFiles.length})
+            </button>
+          </div>
+          {showFileList && draft.seatingChartFiles.length > 0 && (
+            <ul className="text-sm text-text-primary bg-surface border border-border rounded-md divide-y divide-border/80 max-h-36 overflow-y-auto">
+              {draft.seatingChartFiles.map(f => (
+                <li key={f.id} className="flex items-center justify-between px-3 py-2 gap-2">
+                  <span className="truncate text-text-secondary">{f.name}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-ems-coral shrink-0 hover:underline"
+                    onClick={() => setDraft(prev => ({ ...prev, seatingChartFiles: prev.seatingChartFiles.filter(x => x.id !== f.id) }))}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <div className="h-px bg-border/80" aria-hidden />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+          <div>
+            <span className={labelCls}>Ticketing system</span>
+            <Select2
+              options={toOptions(TICKETING_SYSTEM_OPTIONS)}
+              value={draft.ticketingSystem}
+              onChange={v => setDraft(prev => ({ ...prev, ticketingSystem: v }))}
+              placeholder="Select system…"
+              allowClear
+            />
+          </div>
+          <div>
+            <span className={labelCls}>Seating type</span>
+            <Select2
+              options={toOptions(SEATING_TYPE_OPTIONS)}
+              value={draft.seatingType}
+              onChange={v => setDraft(prev => ({ ...prev, seatingType: v }))}
+              placeholder="Select type…"
+              allowClear
+            />
+          </div>
+          <div className="md:col-span-2">
+            <span className={labelCls}>Venue website</span>
+            <input
+              className={inputCls}
+              type="url"
+              value={draft.venueWebsite}
+              onChange={e => setDraft(prev => ({ ...prev, venueWebsite: e.target.value }))}
+              placeholder="https://example.com/tickets"
+            />
+          </div>
+        </div>
+      </div>
+
+      <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-base font-semibold text-text-primary">Ticketing managers</h4>
+            <p className="text-sm text-text-secondary mt-0.5">Link company contacts or enter details manually.</p>
+          </div>
+          <button
+            type="button"
+            onClick={addManager}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-ems-accent px-3 py-1.5 text-sm font-medium text-background hover:bg-ems-accent/90"
+          >
+            <span className="text-base leading-none">+</span>
+            Add manager
+          </button>
+        </div>
+
+        {draft.managers.length === 0 ? (
+          <p className="text-sm text-text-secondary py-2 border-t border-border/60 pt-4">
+            No managers added yet. Use <span className="text-text-primary font-medium">Add manager</span> to create a row.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {draft.managers.map((m, idx) => (
+              <div
+                key={m.id}
+                className="rounded-lg border border-border/90 bg-surface/50 p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-2 mb-1">
+                  <span className="text-xs font-medium text-text-muted uppercase tracking-wide">Manager {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeManager(m.id)}
+                    className="text-xs font-medium text-text-secondary hover:text-ems-coral"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_9rem] gap-3">
+                  <div className="min-w-0">
+                    <span className={labelCls}>Contact</span>
+                    <Select2
+                      options={contactOptions}
+                      value={m.contactId ?? ''}
+                      onChange={cid => {
+                        if (cid) applyContactToManager(m.id, cid);
+                        else setDraft(prev => ({
+                          ...prev,
+                          managers: prev.managers.map(x => (x.id === m.id ? { ...x, contactId: undefined } : x)),
+                        }));
+                      }}
+                      placeholder="Select from contacts…"
+                      allowClear
+                    />
+                  </div>
+                  <div>
+                    <span className={labelCls}>Phone</span>
+                    <input
+                      className={inputCls}
+                      value={m.phone}
+                      onChange={e => setDraft(prev => ({
+                        ...prev,
+                        managers: prev.managers.map(x => (x.id === m.id ? { ...x, phone: e.target.value } : x)),
+                      }))}
+                      placeholder="(555) 000-0000"
+                      type="tel"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className={labelCls}>Display name</span>
+                    <input
+                      className={inputCls}
+                      value={m.displayName}
+                      onChange={e => setDraft(prev => ({
+                        ...prev,
+                        managers: prev.managers.map(x => (x.id === m.id ? { ...x, displayName: e.target.value } : x)),
+                      }))}
+                      placeholder="Shown on internal records"
+                    />
+                  </div>
+                  <div>
+                    <span className={labelCls}>Email</span>
+                    <input
+                      className={inputCls}
+                      type="email"
+                      value={m.email}
+                      onChange={e => setDraft(prev => ({
+                        ...prev,
+                        managers: prev.managers.map(x => (x.id === m.id ? { ...x, email: e.target.value } : x)),
+                      }))}
+                      placeholder="name@company.com"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <footer className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pt-2 border-t border-border">
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          className="w-full sm:w-auto min-w-[200px] rounded-md bg-ems-accent px-5 py-2.5 text-sm font-semibold text-background shadow-sm hover:bg-ems-accent/90"
+        >
+          Save ticketing details
+        </button>
+      </footer>
     </div>
   );
 }
@@ -358,6 +670,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       standing: initial?.standing || 'PreferredVendor',
       status,
       venueProfile: initial?.venueProfile,
+      ticketing: initial?.ticketing,
       physicalStreet: physicalStreet || undefined,
       physicalCity: physicalCity || undefined,
       physicalState: physicalState || undefined,

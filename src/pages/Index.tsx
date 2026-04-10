@@ -10,9 +10,10 @@ import { EngagementsPage } from '@/components/ems/EngagementsPage';
 import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
 // import { AnalyticsPage } from '@/components/ems/AnalyticsPage'; // HIDDEN
 import { SettingsPage } from '@/components/ems/SettingsPage';
-import { PROJECTS_INIT, ENGAGEMENTS_INIT, TOURS, ATTRACTIONS, COMPANIES, CONTACTS, USERS, DMAS } from '@/data/constants';
+import { PROJECTS_INIT, ENGAGEMENTS_INIT, DAILY_SALES_INIT, TOURS, ATTRACTIONS, COMPANIES, CONTACTS, USERS, DMAS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
-import type { Project, Engagement, Offer, Company, Contact, Attraction, Tour } from '@/data/constants';
+import type { Project, Engagement, Offer, Company, Contact, Attraction, Tour, DailySaleEntry } from '@/data/constants';
+import { DailySalesPage } from '@/components/ems/DailySalesPage';
 
 const Index = () => {
   const [currentView, setCurrentView] = useState('companies'); // Default changed from 'dashboard'
@@ -25,6 +26,7 @@ const Index = () => {
   const [tours, setTours] = useState<Tour[]>(TOURS);
   const [users, setUsers] = useState(USERS);
   const [dmas, setDmas] = useState(DMAS);
+  const [dailySales, setDailySales] = useState<DailySaleEntry[]>(DAILY_SALES_INIT);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -100,6 +102,7 @@ const Index = () => {
       projects: ['Projects'],
       'project-detail': ['Projects', projects.find(p => p.id === viewData.projectId)?.name || 'Detail'],
       engagements: ['Engagements'],
+      'daily-sales': ['Daily Sales'],
       'engagement-detail': ['Engagements', engagements.find(e => e.id === viewData.engagementId)?.id?.toUpperCase() || 'Detail'],
       // analytics: ['Analytics'], // HIDDEN
       settings: ['Settings'],
@@ -192,6 +195,18 @@ const Index = () => {
               addToast={addToast}
               onCreateEngagement={createManualEngagement}
               onDeleteEngagement={deleteEngagement}
+            />
+          )}
+          {currentView === 'daily-sales' && (
+            <DailySalesPage
+              dailySales={dailySales}
+              onUpdateDailySales={setDailySales}
+              engagements={engagements}
+              tours={tours}
+              attractions={attractions}
+              companies={companies}
+              onNavigate={navigate}
+              addToast={addToast}
             />
           )}
           {currentView === 'engagement-detail' && (() => {

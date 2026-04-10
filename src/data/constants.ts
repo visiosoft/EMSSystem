@@ -50,6 +50,23 @@ export interface VenueProfile {
   houseAgencyId?: string;
 }
 
+export interface TicketingManagerRow {
+  id: string;
+  /** When set, name/email can sync from this contact */
+  contactId?: string;
+  displayName: string;
+  phone: string;
+  email: string;
+}
+
+export interface CompanyTicketing {
+  seatingChartFiles: { id: string; name: string }[];
+  ticketingSystem: string;
+  venueWebsite: string;
+  seatingType: string;
+  managers: TicketingManagerRow[];
+}
+
 export interface Company {
   id: string;
   legalName: string;
@@ -62,6 +79,8 @@ export interface Company {
   standing: string;
   status: string;
   venueProfile?: VenueProfile;
+  /** Ticketing provider / venue ticketing configuration */
+  ticketing?: CompanyTicketing;
   // Physical Address
   physicalStreet?: string;
   physicalCity?: string;
@@ -122,7 +141,16 @@ export const COMPANIES: Company[] = [
     standing: 'Preferred Vendor', status: 'Active' },
   { id: 'co-09', legalName: 'TicketFlow Inc.', tradeName: 'TicketFlow',
     types: ['Ticketing'], city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
-    standing: 'Master Agreement', status: 'Active' },
+    standing: 'Master Agreement', status: 'Active',
+    ticketing: {
+      seatingChartFiles: [],
+      ticketingSystem: 'Ticketmaster',
+      venueWebsite: 'https://www.ticketflow.example',
+      seatingType: 'Mixed',
+      managers: [
+        { id: 'tm-09-1', contactId: 'ct-15', displayName: 'Alicia Moran', phone: '(615) 555-0166', email: 'a.moran@ticketflow.com' },
+      ],
+    } },
   { id: 'co-10', legalName: 'IATSE Local 2 Chicago', tradeName: 'IATSE Local 2',
     types: ['Labor'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
     standing: 'Master Agreement', status: 'Active' },
@@ -418,6 +446,17 @@ export interface Engagement {
   };
 }
 
+/** Daily ticket sales logged against an engagement (attraction / venue / city come from the engagement). */
+export interface DailySaleEntry {
+  id: string;
+  engagementId: string;
+  /** ISO date YYYY-MM-DD */
+  saleDate: string;
+  ticketsSold: number;
+  totalRevenue: number;
+  notes?: string;
+}
+
 export const ENGAGEMENTS_INIT: Engagement[] = [
   { id: 'eng-01', name: 'Stella Vance — Afterglow World Tour @ United Center',
     tourId: 'tour-01', venueId: 'co-01', configName: 'Full House', bookerId: 'usr-02',
@@ -557,6 +596,12 @@ export const ENGAGEMENTS_INIT: Engagement[] = [
       finance:       { status: 'Cancelled', assigneeId: 'usr-08', notes: 'Insurance claim filed', milestonesComplete: 1, milestonesTotal: 5 },
     }
   },
+];
+
+export const DAILY_SALES_INIT: DailySaleEntry[] = [
+  { id: 'ds-01', engagementId: 'eng-01', saleDate: '2025-10-05', ticketsSold: 1091, totalRevenue: 72363, notes: 'Weekend push' },
+  { id: 'ds-02', engagementId: 'eng-03', saleDate: '2025-09-20', ticketsSold: 4200, totalRevenue: 312000 },
+  { id: 'ds-03', engagementId: 'eng-06', saleDate: '2025-07-01', ticketsSold: 856, totalRevenue: 44880 },
 ];
 
 // Postal code to DMA mapping utility

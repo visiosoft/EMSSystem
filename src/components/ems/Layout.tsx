@@ -94,6 +94,7 @@ const NAV_SECTIONS = [
   { label: 'OPERATIONS', items: [
     { key: 'projects', label: 'Projects', icon: '⬡' },
     { key: 'engagements', label: 'Engagements', icon: '⬡' },
+    { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
   ] },
   // REPORTS section hidden — Analytics disabled
   // { label: 'REPORTS', items: [{ key: 'analytics', label: 'Analytics', icon: '⬡' }] },

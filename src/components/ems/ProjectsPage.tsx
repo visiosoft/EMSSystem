@@ -129,7 +129,7 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
       )}
 
       {editProject && (
-        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600}>
+        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={680}>
           <EditProjectForm project={editProject} onSave={(next) => {
             onUpdateProjects(projects.map(p => p.id === next.id ? next : p));
             setEditProject(null);
@@ -330,7 +330,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
       )}
 
       {showAddVenue && (
-        <Modal title="Add Venue to Project" onClose={() => setShowAddVenue(false)} width={500}>
+        <Modal title="Add Venue to Project" onClose={() => setShowAddVenue(false)} width={640}>
           <AddVenueForm project={project} onSave={(offer) => {
             const updatedProjects = projects.map(p => p.id === project.id ? { ...p, offers: [offer, ...p.offers] } : p);
             onUpdateProjects(updatedProjects);
@@ -341,7 +341,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
       )}
 
       {editOfferId && (
-        <Modal title="Edit Offer" onClose={() => setEditOfferId(null)} width={500}>
+        <Modal title="Edit Offer" onClose={() => setEditOfferId(null)} width={640}>
           <EditOfferForm
             offer={project.offers.find(o => o.id === editOfferId)!}
             onSave={(offer) => {
@@ -423,7 +423,7 @@ function RecordResponseModal({ offerId, offer, onSave, onClose }: { offerId: str
   };
 
   return (
-    <Modal title="Record Agent Response" onClose={onClose} width={500}>
+    <Modal title="Record Agent Response" onClose={onClose} width={640}>
       <div className="space-y-3">
         <div className="text-sm text-text-secondary">Offer: {venue?.tradeName} · {formatDate(offer.proposedDates[0])}</div>
         <FormField label="Response">
@@ -590,7 +590,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
   const stepLabels = ['Artist', 'Tour', 'Agent', 'Markets', 'Review'];
 
   return (
-    <Modal title="Create Project" onClose={onClose} width={780}>
+    <Modal title="Create Project" onClose={onClose} width={900}>
       <div className="space-y-5">
         {/* Step progress indicator */}
         <div className="flex items-center justify-between mb-2">
