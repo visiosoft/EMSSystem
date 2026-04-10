@@ -35,7 +35,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-text-primary">Companies</h1>
           <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary">{filtered.length}</span>
@@ -43,13 +43,13 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
         <button onClick={() => setShowAddModal(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium">+ Add Company</button>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="w-64"><SearchInput value={search} onChange={setSearch} placeholder="Search companies..." /></div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="w-full sm:w-64"><SearchInput value={search} onChange={setSearch} placeholder="Search companies..." /></div>
         <FilterChips options={typeOptions} active={typeFilter} onChange={setTypeFilter} />
       </div>
 
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3">Company Name</th>
@@ -102,7 +102,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
           <div className="p-4">
             {drawerTab === 'Overview' && (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div><span className="text-text-muted text-xs">Legal Name</span><div className="text-text-primary">{selectedCompany.legalName}</div></div>
                   <div><span className="text-text-muted text-xs">Trade Name</span><div className="text-text-primary">{selectedCompany.tradeName}</div></div>
                   <div><span className="text-text-muted text-xs">City/State</span><div className="text-text-primary">{selectedCompany.city}, {selectedCompany.state}</div></div>
@@ -232,7 +232,7 @@ function ContactForm({ onSave, onCancel, initial, companies, currentCompanyId }:
 
   return (
     <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-3">
           <FormField label="First Name" required><input className={inputCls} value={firstName} onChange={e => setFirstName(e.target.value)} /></FormField>
           <FormField label="Last Name" required><input className={inputCls} value={lastName} onChange={e => setLastName(e.target.value)} /></FormField>
@@ -343,7 +343,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       {errors.length > 0 && <div className="text-ems-coral text-sm bg-ems-coral-dim border border-ems-coral/20 rounded px-3 py-2">{errors.join(', ')}</div>}
 
       {/* Row 1: Company Type + Status */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Company Type" required>
           <Select2 options={companyTypeOptions} value={type} onChange={setType} />
         </FormField>
@@ -358,7 +358,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       </FormField>
 
       {/* Row 3: Addresses side-by-side */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Physical Address */}
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Physical Address</h3>
@@ -421,7 +421,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       </div>
 
       {/* Row 4: DMA selections side-by-side */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <label className="text-xs font-medium text-text-secondary block mb-2">DMA(s) <span className="text-text-muted font-normal">(Auto-filled from postal code)</span></label>
           <div className="flex flex-wrap gap-1.5">

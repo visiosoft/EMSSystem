@@ -79,6 +79,8 @@ export function IaeLogoFull({ height = 28 }: { height?: number }) {
 interface SidebarProps {
   currentView: string;
   onNavigate: (view: string) => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const NAV_SECTIONS = [
@@ -98,53 +100,69 @@ const NAV_SECTIONS = [
   { label: 'SYSTEM', items: [{ key: 'settings', label: 'Settings', icon: '⬡' }] },
 ];
 
-export function Sidebar({ currentView, onNavigate }: SidebarProps) {
+export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: SidebarProps) {
+  const handleNav = (key: string) => {
+    onNavigate(key);
+    onMobileClose?.();
+  };
+
   return (
-    <div className="w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40">
-      {/* Logo + Brand */}
-      <div className="h-14 flex items-center px-4 border-b border-border gap-2">
-        <IaeLogo />
-        <div className="flex flex-col leading-tight">
-          <span className="text-text-primary font-semibold text-sm tracking-wide">IAE</span>
-          <span className="text-text-muted text-[10px] tracking-widest uppercase font-medium">Event Flow</span>
-        </div>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto py-2">
-        {NAV_SECTIONS.map(section => (
-          <div key={section.label} className="mb-1">
-            <div className="px-4 py-2 text-[10px] font-semibold text-text-muted tracking-wider uppercase">{section.label}</div>
-            {section.items.map(item => {
-              const isActive = currentView === item.key || (item.key === 'dashboard' && currentView === 'dashboard');
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => onNavigate(item.key)}
-                  className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
-                    isActive
-                      ? 'bg-ems-accent-dim text-ems-accent border-l-[3px] border-l-ems-accent'
-                      : 'text-text-secondary hover:bg-hover hover:text-text-primary border-l-[3px] border-l-transparent'
-                  }`}
-                >
-                  <span className="text-xs">{item.icon}</span>
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
-
-      <div className="p-4 border-t border-border">
-        <div className="flex items-center gap-2">
-          <Avatar name={CURRENT_USER.name} size="sm" />
-          <div>
-            <div className="text-xs text-text-primary font-medium">{CURRENT_USER.name}</div>
-            <div className="text-[10px] text-text-muted">{CURRENT_USER.role}</div>
+    <>
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+      <div className={`w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200 ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+      }`}>
+        {/* Logo + Brand */}
+        <div className="h-14 flex items-center px-4 border-b border-border gap-2">
+          <IaeLogo />
+          <div className="flex flex-col leading-tight">
+            <span className="text-text-primary font-semibold text-sm tracking-wide">IAE</span>
+            <span className="text-text-muted text-[10px] tracking-widest uppercase font-medium">Event Flow</span>
           </div>
         </div>
+
+        <nav className="flex-1 overflow-y-auto py-2">
+          {NAV_SECTIONS.map(section => (
+            <div key={section.label} className="mb-1">
+              <div className="px-4 py-2 text-[10px] font-semibold text-text-muted tracking-wider uppercase">{section.label}</div>
+              {section.items.map(item => {
+                const isActive = currentView === item.key || (item.key === 'dashboard' && currentView === 'dashboard');
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => handleNav(item.key)}
+                    className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors ${
+                      isActive
+                        ? 'bg-ems-accent-dim text-ems-accent border-l-[3px] border-l-ems-accent'
+                        : 'text-text-secondary hover:bg-hover hover:text-text-primary border-l-[3px] border-l-transparent'
+                    }`}
+                  >
+                    <span className="text-xs">{item.icon}</span>
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-2">
+            <Avatar name={CURRENT_USER.name} size="sm" />
+            <div>
+              <div className="text-xs text-text-primary font-medium">{CURRENT_USER.name}</div>
+              <div className="text-[10px] text-text-muted">{CURRENT_USER.role}</div>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -243,6 +261,7 @@ function ThemeToggle() {
 interface HeaderProps {
   breadcrumb: string[];
   onSearch?: (q: string) => void;
+  onMenuToggle?: () => void;
 }
 
 function getGreeting(): string {
@@ -252,22 +271,36 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-export function Header({ breadcrumb }: HeaderProps) {
+export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
   const greeting = getGreeting();
 
   return (
-    <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-6 sticky top-0 z-30">
-      <div className="flex items-center gap-1 text-sm">
-        {breadcrumb.map((b, i) => (
-          <span key={i} className={i === breadcrumb.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted'}>
-            {i > 0 && <span className="text-text-muted mx-1">/</span>}
-            {b}
-          </span>
-        ))}
+    <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Hamburger menu - visible on mobile/tablet only */}
+        <button
+          onClick={onMenuToggle}
+          className="lg:hidden w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shrink-0"
+          aria-label="Toggle menu"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-1 text-sm truncate">
+          {breadcrumb.map((b, i) => (
+            <span key={i} className={i === breadcrumb.length - 1 ? 'text-text-primary font-medium truncate' : 'text-text-muted hidden sm:inline'}>
+              {i > 0 && <span className="text-text-muted mx-1 hidden sm:inline">/</span>}
+              {b}
+            </span>
+          ))}
+        </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="text-right hidden sm:block">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="text-right hidden md:block">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-text-secondary">{greeting},</span>
             <span className="text-sm font-semibold text-text-primary">Tom 👋</span>

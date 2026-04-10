@@ -81,7 +81,7 @@ export function Modal({ title, children, onClose, width = 600 }: { title: string
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl max-h-[90vh] overflow-auto" style={{ width, maxWidth: '95vw' }}>
+      <div className="relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl max-h-[90vh] overflow-auto w-[95vw] sm:w-auto" style={{ maxWidth: 'min(' + width + 'px, 95vw)' }}>
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-elevated z-10">
           <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
@@ -101,9 +101,9 @@ export function Drawer({ title, children, onClose, width = 600 }: { title?: stri
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-50 flex justify-end max-sm:items-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative animate-slide-in-right bg-surface border-l border-border h-full overflow-auto" style={{ width, maxWidth: '95vw' }}>
+      <div className="relative animate-slide-in-right bg-surface border-l border-border h-full overflow-auto max-sm:h-[85vh] max-sm:w-full max-sm:border-l-0 max-sm:border-t max-sm:rounded-t-2xl" style={{ width, maxWidth: '95vw' }}>
         {title && (
           <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-surface z-10">
             <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
@@ -119,12 +119,12 @@ export function Drawer({ title, children, onClose, width = 600 }: { title?: stri
 // TabBar
 export function TabBar({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (t: string) => void }) {
   return (
-    <div className="flex border-b border-border">
+    <div className="flex border-b border-border overflow-x-auto">
       {tabs.map(t => (
         <button
           key={t}
           onClick={() => onChange(t)}
-          className={`px-4 py-2.5 text-sm font-medium transition-colors relative ${
+          className={`px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap ${
             active === t
               ? 'text-ems-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-ems-accent'
               : 'text-text-secondary hover:text-text-primary'

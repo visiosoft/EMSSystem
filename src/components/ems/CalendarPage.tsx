@@ -127,7 +127,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
   return (
     <div className="space-y-4">
       {/* ─── Header Row ─────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           {/* Month navigation */}
           <div className="flex items-center gap-2">
@@ -137,7 +137,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
             >
               ‹
             </button>
-            <h1 className="text-xl font-semibold text-text-primary min-w-[200px] text-center">
+            <h1 className="text-lg sm:text-xl font-semibold text-text-primary min-w-[160px] sm:min-w-[200px] text-center">
               {monthNames[month]} {year}
             </h1>
             <button
@@ -222,7 +222,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
           {/* Day headers */}
           <div className="grid grid-cols-7 border-b border-border">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-              <div key={d} className="text-center text-xs text-text-muted py-2.5 bg-surface font-medium">{d}</div>
+              <div key={d} className="text-center text-[10px] sm:text-xs text-text-muted py-2 sm:py-2.5 bg-surface font-medium">{d}</div>
             ))}
           </div>
 
@@ -230,7 +230,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
           <div className="grid grid-cols-7">
             {/* Leading empty cells */}
             {Array.from({ length: firstDay }).map((_, i) => (
-              <div key={`blank-${i}`} className="border-b border-r border-border/40 min-h-[110px] bg-surface/30" />
+              <div key={`blank-${i}`} className="border-b border-r border-border/40 min-h-[70px] sm:min-h-[110px] bg-surface/30" />
             ))}
 
             {/* Day cells */}
@@ -240,18 +240,18 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
               return (
                 <div
                   key={day}
-                  className={`border-b border-r border-border/40 min-h-[110px] p-1.5 relative transition-colors ${
+                  className={`border-b border-r border-border/40 min-h-[70px] sm:min-h-[110px] p-1 sm:p-1.5 relative transition-colors ${
                     isCurrentDay ? 'bg-ems-accent-dim/20' : 'hover:bg-hover/20'
                   }`}
                 >
-                  <div className={`text-xs font-medium text-right mb-1 ${
+                  <div className={`text-[10px] sm:text-xs font-medium text-right mb-0.5 sm:mb-1 ${
                     isCurrentDay
                       ? 'w-5 h-5 bg-ems-accent text-background rounded-full flex items-center justify-center ml-auto text-[10px]'
                       : 'text-text-muted'
                   }`}>
                     {day}
                   </div>
-                  <div className="space-y-0.5">
+                  <div className="space-y-0.5 hidden sm:block">
                     {dayEntries.slice(0, 3).map((entry, idx) => {
                       const cfg = STATUS_CONFIG[entry.status] || STATUS_CONFIG.Draft;
                       return (
@@ -274,6 +274,14 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
                       </button>
                     )}
                   </div>
+                  {/* Mobile: show dots only */}
+                  <div className="flex gap-0.5 sm:hidden flex-wrap">
+                    {dayEntries.slice(0, 4).map((entry, idx) => {
+                      const cfg = STATUS_CONFIG[entry.status] || STATUS_CONFIG.Draft;
+                      return <span key={idx} className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />;
+                    })}
+                    {dayEntries.length > 4 && <span className="text-[8px] text-text-muted">+{dayEntries.length - 4}</span>}
+                  </div>
                 </div>
               );
             })}
@@ -289,7 +297,8 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
               No events match the current filters for {monthNames[month]} {year}
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[550px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   <th className="text-left py-2.5 px-3">Date</th>
@@ -338,6 +347,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
                 })}
               </tbody>
             </table>
+          </div>
           )}
         </div>
       )}

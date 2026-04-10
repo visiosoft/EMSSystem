@@ -40,17 +40,17 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-xl font-semibold text-text-primary">Engagements</h1>
         <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary">{filtered.length}</span>
         <button onClick={() => setShowCreate(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-3 py-1 rounded text-xs font-medium">+ Create</button>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="w-full sm:w-64"><SearchInput value={search} onChange={setSearch} /></div>
         <FilterChips options={['All', 'Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled']} active={statusFilter} onChange={setStatusFilter} />
       </div>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
           <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
             <th className="text-left py-2.5 px-3">ID</th>
             <th className="text-left py-2.5 px-3">Engagement</th>
@@ -115,11 +115,11 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
   return (
     <div className="space-y-3">
       <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Tour"><Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} /></FormField>
         <FormField label="Venue"><Select2 options={toObjOptions(companies, c => c.tradeName)} value={venueId} onChange={setVenueId} /></FormField>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Booker"><Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} /></FormField>
         <FormField label="Status"><Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} /></FormField>
       </div>

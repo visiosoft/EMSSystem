@@ -33,7 +33,7 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
         <div className="space-y-3">
           <button onClick={() => setShowInvite(!showInvite)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium">+ Invite User</button>
           {showInvite && (
-            <div className="bg-elevated border border-border rounded-lg p-3 flex gap-3 items-end">
+            <div className="bg-elevated border border-border rounded-lg p-3 flex flex-col sm:flex-row gap-3 sm:items-end">
               <div className="flex-1">
                 <label className="text-xs text-text-muted">Email</label>
                 <input value={email} onChange={e => setEmail(e.target.value)} className={inputCls + ' mt-1'} />
@@ -58,7 +58,8 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
               }} className="bg-ems-accent text-background px-3 py-1.5 rounded text-sm">Send</button>
             </div>
           )}
-          <table className="w-full text-sm bg-card border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[550px]">
             <thead><tr className="text-text-muted text-xs border-b border-border bg-surface"><th className="text-left py-2.5 px-3">Name</th><th className="text-left py-2.5 px-3">Email</th><th className="text-left py-2.5 px-3">Role</th><th className="text-left py-2.5 px-3">Last Login</th><th className="text-left py-2.5 px-3">Status</th><th /></tr></thead>
             <tbody>
               {users.map(u => (
@@ -78,13 +79,15 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {tab === 'Lookup Tables' && (
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-text-primary">DMAs</h3>
-          <table className="w-full text-sm bg-card border border-border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[300px]">
             <thead><tr className="text-text-muted text-xs border-b border-border bg-surface"><th className="text-left py-2.5 px-3">Name</th><th className="text-left py-2.5 px-3">Status</th><th className="w-20"></th></tr></thead>
             <tbody>
               {dmas.map(d => (
@@ -101,6 +104,7 @@ export function SettingsPage({ addToast, users, dmas, onUpdateUsers, onUpdateDma
               ))}
             </tbody>
           </table>
+          </div>
           <button onClick={() => setShowAddDma(true)} className="text-ems-accent text-sm hover:underline">+ Add DMA</button>
         </div>
       )}

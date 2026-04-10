@@ -159,7 +159,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[
           { label: 'Active Engagements', value: activeEngs.length.toString(), sub: '● live', onClick: () => onNavigate('engagements') },
           { label: 'Open Projects', value: '8', sub: '◐ in progress', onClick: () => onNavigate('projects') },
@@ -188,7 +188,8 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
                 className={`${bg} flex items-center justify-center text-xs font-medium transition-opacity hover:opacity-80`}
                 style={{ width: `${pct}%`, minWidth: p.count > 0 ? '60px' : 0 }}
                 title={`${p.status}: ${p.count}`}>
-                <span className="text-text-primary">{p.status.replace(/([A-Z])/g, ' $1').trim()} ({p.count})</span>
+                <span className="text-text-primary hidden sm:inline">{p.status.replace(/([A-Z])/g, ' $1').trim()} ({p.count})</span>
+                <span className="text-text-primary sm:hidden">{p.count}</span>
               </button>
             );
           })}
@@ -196,7 +197,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-[62%_38%] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[62%_38%] gap-4">
         {/* Revenue Trend — Area Chart */}
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-1">
@@ -339,11 +340,12 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
       </div>
 
       {/* Row — Upcoming Shows + Activity Feed */}
-      <div className="grid grid-cols-[65%_35%] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[65%_35%] gap-4">
         {/* Upcoming Shows */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Upcoming Shows (Next 30 Days)</h3>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="text-text-muted text-xs border-b border-border">
                 <th className="text-left py-2">Date</th>
@@ -374,6 +376,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Activity Feed */}
@@ -396,7 +399,8 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
       {/* Workflow Health Grid */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Workflow Health Grid</h3>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[500px]">
           <thead>
             <tr className="text-text-muted text-xs">
               <th className="text-left py-2 w-40">Workflow</th>
@@ -421,6 +425,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

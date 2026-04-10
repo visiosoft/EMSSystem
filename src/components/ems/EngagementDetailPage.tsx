@@ -196,7 +196,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
 
       {/* Header Card */}
       <div className="bg-card border border-border rounded-lg p-4">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-text-primary">{engagement.name}</h1>
             <div className="flex flex-wrap gap-2 mt-1">
@@ -207,7 +207,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="w-40">
               <Select2 options={statusOptions} value={engagement.status} onChange={handleStatusChange} placeholder="Status..." />
             </div>
@@ -216,7 +216,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-4 mt-3 pt-3 border-t border-border text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-3 pt-3 border-t border-border text-xs">
           <div><span className="text-text-muted block mb-0.5">Attraction — Tour</span><span className="text-text-primary font-medium">{attr?.name}</span><br/><span className="text-text-secondary">{tour?.name}</span></div>
           <div><span className="text-text-muted block mb-0.5">Venue</span><span className="text-text-primary font-medium">{venue?.tradeName}</span><br/><span className="text-text-secondary">{venue?.city}, {venue?.state}</span></div>
           <div>
@@ -236,7 +236,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
       {tab === 'Overview' && (
         <div className="space-y-4">
           {/* Department Overview Cards */}
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {DEPARTMENTS.map(dept => {
               const wf = getWfForDept(dept.key);
               const pct = wf.milestonesTotal > 0 ? Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100) : 0;
@@ -260,7 +260,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
           </div>
 
           {/* Deal Structure + Venue Info */}
-          <div className="grid grid-cols-[55%_45%] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-sm font-semibold text-text-primary mb-3">Deal Structure</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -289,7 +289,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
       {tab === 'Departments' && (
         <div className="space-y-4">
           {/* Dept selector */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {DEPARTMENTS.map(dept => {
               const wf = getWfForDept(dept.key);
               return (
@@ -318,7 +318,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             // Finance tab — restricted
             if (dept.key === 'finance') {
               return (
-                <div key={dept.key} className="grid grid-cols-[55%_45%] gap-4">
+                <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
                   <div className="space-y-4">
                     {/* Milestones */}
                     <div className="bg-card border border-border rounded-lg p-4">
@@ -342,7 +342,8 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                     {/* Financial Summary — Finance only */}
                     <div className="bg-card border border-border rounded-lg p-4">
                       <h3 className="text-sm font-semibold text-text-primary mb-3">Financial Summary</h3>
-                      <table className="w-full text-xs">
+                      <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[400px]">
                         <thead><tr className="text-text-muted border-b border-border">
                           <th className="text-left py-1.5">Category</th><th className="text-right py-1.5">Projected</th><th className="text-right py-1.5">Actual</th><th className="text-right py-1.5">Variance</th>
                         </tr></thead>
@@ -370,6 +371,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                           })}
                         </tbody>
                       </table>
+                      </div>
                       <button onClick={() => setShowSettlement(true)} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-3">Generate Settlement Worksheet</button>
                     </div>
                   </div>
@@ -380,7 +382,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             }
 
             return (
-              <div key={dept.key} className="grid grid-cols-[55%_45%] gap-4">
+              <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
                 {/* Milestones */}
                 <div className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -419,8 +421,16 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             <div key={si}>
               <h3 className="text-sm font-semibold text-text-primary mb-2">{section.title}</h3>
               <div className="bg-card border border-border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead><tr className="text-text-muted text-xs border-b border-border bg-surface"><th className="text-left py-2 px-3">Name</th><th className="text-left py-2 px-3">Title/Role</th><th className="text-left py-2 px-3">Email</th><th className="text-left py-2 px-3">Phone</th></tr></thead>
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                      <th className="text-left py-2 px-3">Name</th>
+                      <th className="text-left py-2 px-3">Title/Role</th>
+                      <th className="text-left py-2 px-3">Email</th>
+                      <th className="text-left py-2 px-3">Phone</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {section.contacts.map((ct: any, i) => (
                       <tr key={i} className="border-b border-border/50">
@@ -432,6 +442,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           ))}
@@ -472,7 +483,8 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary">Activity & Audit Log</h3>
           <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[400px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   <th className="text-left py-2.5 px-3">Timestamp</th>
@@ -496,6 +508,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

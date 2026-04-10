@@ -56,7 +56,7 @@ export function AnalyticsPage() {
       <h1 className="text-xl font-semibold text-text-primary">Analytics</h1>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Gross YTD', value: '$12,420,000' },
           { label: 'Total Shows YTD', value: '48' },
@@ -96,7 +96,7 @@ export function AnalyticsPage() {
         </svg>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Shows by DMA */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Shows by DMA</h3>
@@ -116,7 +116,7 @@ export function AnalyticsPage() {
         {/* Engagement Status Donut */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Engagement Status Breakdown</h3>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
             <svg width="160" height="160" viewBox="0 0 160 160">
               {(() => {
                 let offset = 0;
@@ -173,7 +173,7 @@ export function AnalyticsPage() {
         <div className="space-y-2">
           {workflowRates.map((w, i) => (
             <div key={i} className="flex items-center gap-3">
-              <span className="text-sm text-text-secondary w-32">{w.name}</span>
+              <span className="text-sm text-text-secondary w-24 sm:w-32">{w.name}</span>
               <div className="flex-1 bg-elevated rounded-full h-3 overflow-hidden">
                 <div className="h-full bg-ems-accent rounded-full" style={{ width: `${w.pct}%` }} />
               </div>

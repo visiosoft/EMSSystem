@@ -26,6 +26,7 @@ const Index = () => {
   const [users, setUsers] = useState(USERS);
   const [dmas, setDmas] = useState(DMAS);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const navigate = useCallback((view: string, data?: any) => {
     setCurrentView(view);
@@ -110,10 +111,10 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar currentView={sidebarView} onNavigate={navigate} />
-      <div className="ml-60">
-        <Header breadcrumb={getBreadcrumb()} />
-        <main className="p-6">
+      <Sidebar currentView={sidebarView} onNavigate={navigate} mobileOpen={mobileSidebarOpen} onMobileClose={() => setMobileSidebarOpen(false)} />
+      <div className="lg:ml-60 min-h-screen">
+        <Header breadcrumb={getBreadcrumb()} onMenuToggle={() => setMobileSidebarOpen(prev => !prev)} />
+        <main className="p-4 lg:p-6">
           {/* Dashboard — HIDDEN
           {currentView === 'dashboard' && <DashboardPage engagements={engagements} onNavigate={navigate} />}
           */}

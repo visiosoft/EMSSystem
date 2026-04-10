@@ -53,8 +53,8 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
           <h1 className="text-xl font-semibold text-text-primary">Attraction-Tours</h1>
           <TabBar tabs={['Attractions', 'Tours']} active={pageTab} onChange={setPageTab} />
         </div>
@@ -63,11 +63,11 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
           : <button onClick={() => setShowAddTour(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium">+ Add Tour</button>}
       </div>
 
-      <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
+      <div className="w-full sm:w-64"><SearchInput value={search} onChange={setSearch} /></div>
 
       {pageTab === 'Attractions' && (
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-card border border-border rounded-lg overflow-x-auto">
+          <table className="w-full text-sm min-w-[650px]">
             <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3">Attraction Name</th><th className="text-left py-2.5 px-3">Genre(s)</th><th className="text-left py-2.5 px-3">Market Tier</th><th className="text-left py-2.5 px-3">Agency</th><th className="text-left py-2.5 px-3">Active Tours</th><th className="text-left py-2.5 px-3">Status</th><th />
             </tr></thead>
@@ -98,8 +98,8 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
       )}
 
       {pageTab === 'Tours' && (
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-card border border-border rounded-lg overflow-x-auto">
+          <table className="w-full text-sm min-w-[650px]">
             <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3">Tour Name</th><th className="text-left py-2.5 px-3">Attraction</th><th className="text-left py-2.5 px-3">Status</th><th className="text-left py-2.5 px-3">Routing Period</th><th className="text-left py-2.5 px-3">Deal Type</th><th className="text-left py-2.5 px-3">Territory Markets</th><th />
             </tr></thead>
@@ -196,7 +196,7 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
     <div className="space-y-3">
       <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
       <FormField label="Genres (comma separated)"><input className={inputCls} value={genres} onChange={e => setGenres(e.target.value)} /></FormField>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Market Tier">
           <Select2 options={toOptions(['Arena', 'Theater', 'Club'])} value={marketTier} onChange={setMarketTier} />
         </FormField>
@@ -208,7 +208,7 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
           ]} value={iaeStatus} onChange={setIaeStatus} />
         </FormField>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Agency">
           <Select2 options={agencyOptions} value={agencyId} onChange={v => { setAgencyId(v); setPrimaryAgentContactId(''); }} />
         </FormField>
@@ -304,7 +304,7 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
         <input className={inputCls} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. World Tour 2025" />
       </FormField>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Artist / Attraction">
           <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} />
         </FormField>
@@ -313,7 +313,7 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
         </FormField>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Start Date" required>
           <input type="date" className={inputCls} value={startDate} onChange={e => setStartDate(e.target.value)} />
         </FormField>
@@ -322,7 +322,7 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
         </FormField>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Deal Type">
           <Select2 options={DEAL_TYPE_OPTIONS} value={dealType} onChange={setDealType} />
         </FormField>

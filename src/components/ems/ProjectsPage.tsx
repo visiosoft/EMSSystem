@@ -60,12 +60,12 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
         <h1 className="text-xl font-semibold text-text-primary">Projects</h1>
         <button onClick={() => setShowCreateWizard(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium">+ Create Project</button>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="w-64"><SearchInput value={search} onChange={setSearch} /></div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="w-full sm:w-64"><SearchInput value={search} onChange={setSearch} /></div>
         <FilterChips options={PROJECT_STATUS_FILTER} active={statusFilter} onChange={setStatusFilter} />
       </div>
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-card border border-border rounded-lg overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
             <th className="text-left py-2.5 px-3">Project Name</th>
             <th className="text-left py-2.5 px-3">Artist — Tour</th>
@@ -214,7 +214,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
         <StatusBadge status={project.status} />
       </div>
 
-      <div className="grid grid-cols-[60%_40%] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[60%_40%] gap-6">
         {/* Left — Venues & Offers */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -235,7 +235,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                     </div>
                     <StatusBadge status={offer.status} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs border-t border-border pt-2 mt-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs border-t border-border pt-2 mt-2">
                     <div><span className="text-text-muted">Proposed Date: </span><span className="text-text-primary">{offer.proposedDates.map(d => formatDate(d)).join(', ')} — {offer.showTime}</span></div>
                     <div><span className="text-text-muted">Deal: </span><span className="text-text-primary">{dealLabel}</span></div>
                     <div><span className="text-text-muted">Guarantee: </span><span className="text-text-primary font-mono">{formatCurrency(offer.guarantee)}</span></div>
@@ -290,7 +290,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
           {project.offers.length > 0 && (
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-xs font-medium text-text-muted mb-2">Offer Breakdown</h3>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-center gap-4">
                 <svg width="120" height="120" viewBox="0 0 120 120">
                   {(() => {
                     const total = project.offers.length;
