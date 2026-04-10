@@ -170,8 +170,8 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
 
       {showAddAttraction && <Modal title="Add Attraction" onClose={() => setShowAddAttraction(false)} width={700}><AttractionForm companies={companies} contacts={contacts} users={users} onSave={(a) => { onUpdateAttractions([a, ...attractions]); setShowAddAttraction(false); addToast('Attraction created', 'success'); }} onCancel={() => setShowAddAttraction(false)} /></Modal>}
       {editAttraction && <Modal title="Edit Attraction" onClose={() => setEditAttraction(null)} width={700}><AttractionForm companies={companies} contacts={contacts} users={users} initial={editAttraction} onSave={(a) => { onUpdateAttractions(attractions.map(x => x.id === editAttraction.id ? a : x)); setEditAttraction(null); addToast('Attraction updated', 'success'); }} onCancel={() => setEditAttraction(null)} /></Modal>}
-      {showAddTour && <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={750}><TourForm attractions={attractions} dmas={dmas} onSave={(t) => { onUpdateTours([t, ...tours]); setShowAddTour(false); addToast('Tour created', 'success'); }} onCancel={() => setShowAddTour(false)} /></Modal>}
-      {editTour && <Modal title="Edit Tour" onClose={() => setEditTour(null)} width={750}><TourForm attractions={attractions} dmas={dmas} initial={editTour} onSave={(t) => { onUpdateTours(tours.map(x => x.id === editTour.id ? t : x)); setEditTour(null); addToast('Tour updated', 'success'); }} onCancel={() => setEditTour(null)} /></Modal>}
+      {showAddTour && <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={750}><TourForm attractions={attractions} onSave={(t) => { onUpdateTours([t, ...tours]); setShowAddTour(false); addToast('Tour created', 'success'); }} onCancel={() => setShowAddTour(false)} /></Modal>}
+      {editTour && <Modal title="Edit Tour" onClose={() => setEditTour(null)} width={750}><TourForm attractions={attractions} initial={editTour} onSave={(t) => { onUpdateTours(tours.map(x => x.id === editTour.id ? t : x)); setEditTour(null); addToast('Tour updated', 'success'); }} onCancel={() => setEditTour(null)} /></Modal>}
     </div>
   );
 }
@@ -234,14 +234,13 @@ export interface TourFormProps {
   onCancel?: () => void;
   initial?: Tour;
   attractions: Attraction[];
-  dmas: { id: string; name: string }[];
   /** When true, hides Cancel/Save buttons (wizard controls navigation) */
   wizardMode?: boolean;
   /** Called in wizard mode whenever form state changes */
   onChange?: (data: Partial<Tour> & { isValid: boolean }) => void;
 }
 
-export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardMode = false, onChange }: TourFormProps) {
+export function TourForm({ onSave, onCancel, initial, attractions, wizardMode = false, onChange }: TourFormProps) {
   const [name, setName] = useState(initial?.name || '');
   const [attractionId, setAttractionId] = useState(initial?.attractionId || attractions[0]?.id || '');
   const [status, setStatus] = useState(initial?.status || 'ActiveRouting');
@@ -249,7 +248,6 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
   const [endDate, setEndDate] = useState(initial?.endDate || '');
   const [dealType, setDealType] = useState(initial?.dealType || 'Guarantee');
   const [guarantee, setGuarantee] = useState(String(initial?.guarantee || 0));
-  const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds || []);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
   const attractionOptions = toObjOptions(attractions, a => a.name);
@@ -267,11 +265,10 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
         endDate,
         dealType,
         guarantee: Number(guarantee) || 0,
-        dmaIds: selectedDmas,
         isValid,
       });
     }
-  }, [name, attractionId, status, startDate, endDate, dealType, guarantee, selectedDmas]);
+  }, [name, attractionId, status, startDate, endDate, dealType, guarantee]);
 
   const buildTour = (): Tour => ({
     id: initial?.id || `tour-${Date.now()}`,
@@ -280,9 +277,9 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
     status,
     startDate,
     endDate,
-    dmaIds: selectedDmas,
     dealType,
     guarantee: Number(guarantee) || 0,
+    dmaIds: [],
     splitPct: initial?.splitPct || null,
     breakeven: initial?.breakeven || null,
     radiusMiles: initial?.radiusMiles || 0,
@@ -329,30 +326,6 @@ export function TourForm({ onSave, onCancel, initial, attractions, dmas, wizardM
         <FormField label="Guarantee Amount ($)">
           <input type="number" className={inputCls} value={guarantee} onChange={e => setGuarantee(e.target.value)} placeholder="0" />
         </FormField>
-      </div>
-
-      <div>
-        <label className="text-xs font-medium text-text-secondary block mb-2">Territory Markets</label>
-        <div className="flex flex-wrap gap-2">
-          {dmas.map(d => (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => setSelectedDmas(prev => prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id])}
-              className={`px-2.5 py-1 text-xs rounded-md border transition-colors font-medium ${
-                selectedDmas.includes(d.id)
-                  ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30'
-                  : 'bg-elevated text-text-secondary border-border hover:bg-hover'
-              }`}
-            >
-              {selectedDmas.includes(d.id) && <span className="mr-1">✓</span>}
-              {d.name}
-            </button>
-          ))}
-        </div>
-        {selectedDmas.length > 0 && (
-          <p className="text-xs text-text-muted mt-2">{selectedDmas.length} market{selectedDmas.length !== 1 ? 's' : ''} selected</p>
-        )}
       </div>
 
       {!wizardMode && (
