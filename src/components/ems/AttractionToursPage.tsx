@@ -131,7 +131,7 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
       )}
 
       {attraction && (
-        <Drawer onClose={() => setSelectedAttraction(null)} width={620}>
+        <Drawer onClose={() => setSelectedAttraction(null)} width={1000}>
           <div className="p-4 border-b border-border"><div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-text-primary">{attraction.name}</h2><div className="flex gap-1.5 mt-1">{attraction.genres.map(g => <span key={g} className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{g}</span>)}<span className="text-xs bg-ems-blue-dim px-1.5 py-0.5 rounded text-ems-blue">{attraction.marketTier}</span><StatusBadge status={attraction.iaeStatus} /></div></div><button onClick={() => setSelectedAttraction(null)} className="text-text-muted hover:text-text-secondary text-lg">✕</button></div></div>
           <TabBar tabs={['Overview', 'Tours']} active={attrDrawerTab} onChange={setAttrDrawerTab} />
           <div className="p-4">
