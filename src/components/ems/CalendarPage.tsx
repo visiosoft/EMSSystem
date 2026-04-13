@@ -21,8 +21,6 @@ type CalendarEntry = {
   engagementId?: string;
 };
 
-// ─── Status Color Config ──────────────────────────────────────────────────────
-
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   Confirmed:  { bg: 'bg-ems-green-dim border-ems-green/30',   text: 'text-ems-green',   dot: 'bg-ems-green',   label: 'Confirmed' },
   OnSale:     { bg: 'bg-ems-blue-dim border-ems-blue/30',     text: 'text-ems-blue',    dot: 'bg-ems-blue',    label: 'On Sale' },
@@ -75,7 +73,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
   const selectAllStatuses = () => setActiveStatuses(new Set(ALL_STATUSES));
   const clearAllStatuses = () => setActiveStatuses(new Set());
 
-  // Build all entries from engagements + custom holds
   const allEntries: CalendarEntry[] = useMemo(() => [
     ...engagements.map(eng => {
       const tour = TOURS.find(t => t.id === eng.tourId);
@@ -116,7 +113,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
   const isToday = (day: number) =>
     today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
 
-  // For list view: get entries in this month sorted by date
   const monthEntries = useMemo(() => {
     const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
     return filteredEntries
@@ -126,10 +122,8 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* ─── Header Row ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          {/* Month navigation */}
           <div className="flex items-center gap-2">
             <button
               onClick={prevMonth}
@@ -156,7 +150,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* View toggle */}
           <div className="flex items-center bg-elevated border border-border rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('grid')}
@@ -188,7 +181,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </div>
       </div>
 
-      {/* ─── Status Filter Bar ───────────────────────────────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-text-muted font-medium">Filter:</span>
         {ALL_STATUSES.map(status => {
@@ -216,24 +208,19 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </div>
       </div>
 
-      {/* ─── CALENDAR GRID VIEW ─────────────────────────────────────────── */}
       {viewMode === 'grid' && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          {/* Day headers */}
           <div className="grid grid-cols-7 border-b border-border">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
               <div key={d} className="text-center text-[10px] sm:text-xs text-text-muted py-2 sm:py-2.5 bg-surface font-medium">{d}</div>
             ))}
           </div>
 
-          {/* Day cells */}
           <div className="grid grid-cols-7">
-            {/* Leading empty cells */}
             {Array.from({ length: firstDay }).map((_, i) => (
               <div key={`blank-${i}`} className="border-b border-r border-border/40 min-h-[70px] sm:min-h-[110px] bg-surface/30" />
             ))}
 
-            {/* Day cells */}
             {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
               const dayEntries = getEntriesForDay(day);
               const isCurrentDay = isToday(day);
@@ -274,7 +261,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
                       </button>
                     )}
                   </div>
-                  {/* Mobile: show dots only */}
                   <div className="flex gap-0.5 sm:hidden flex-wrap">
                     {dayEntries.slice(0, 4).map((entry, idx) => {
                       const cfg = STATUS_CONFIG[entry.status] || STATUS_CONFIG.Draft;
@@ -289,7 +275,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </div>
       )}
 
-      {/* ─── LIST VIEW ───────────────────────────────────────────────────── */}
       {viewMode === 'list' && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           {monthEntries.length === 0 ? (
@@ -352,7 +337,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </div>
       )}
 
-      {/* ─── Day Detail Popover ──────────────────────────────────────────── */}
       {selectedDay !== null && (
         <Modal title={`${monthNames[month]} ${selectedDay}, ${year}`} onClose={() => setSelectedDay(null)} width={440}>
           <div className="space-y-2">
@@ -383,7 +367,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         </Modal>
       )}
 
-      {/* ─── Add Hold Modal ──────────────────────────────────────────────── */}
       {showAddHold && (
         <Modal title="Add Hold" onClose={() => setShowAddHold(false)} width={500}>
           <AddHoldForm
@@ -399,8 +382,6 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
     </div>
   );
 }
-
-// ─── Add Hold Form ────────────────────────────────────────────────────────────
 
 function AddHoldForm({ onSave, onCancel }: { onSave: (e: CalendarEntry) => void; onCancel: () => void }) {
   const [tourId, setTourId] = useState('');

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatCurrency, formatDate, getStatusColor } from '@/data/constants';
+import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatDate, getStatusColor } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
 import { TourForm, TOUR_STATUS_OPTIONS, DEAL_TYPE_OPTIONS } from './AttractionToursPage';
 import type { Project, Offer, Engagement, Tour, Attraction } from '@/data/constants';
@@ -21,8 +21,6 @@ interface Props {
   onDeleteProject?: (projectId: string) => void;
 }
 
-// ─── Plain-English status options ─────────────────────────────────────────────
-
 const PROJECT_STATUS_FILTER = [
   { value: 'All', label: 'All' },
   { value: 'Active', label: 'Active' },
@@ -39,8 +37,6 @@ const PROJECT_STATUS_OPTIONS = [
   { value: 'FullyBooked', label: 'Fully Booked' },
   { value: 'Dead', label: 'Inactive' },
 ];
-
-// ─── Projects List Page ────────────────────────────────────────────────────────
 
 export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects, onDeleteProject }: Props) {
   const [search, setSearch] = useState('');
@@ -141,8 +137,6 @@ export function ProjectsPage({ projects, engagements, onNavigate, addToast, onCr
   );
 }
 
-// ─── Project Detail Page ──────────────────────────────────────────────────────
-
 export function ProjectDetailPage({ project, projects, engagements, onNavigate, addToast, onCreateEngagement, onUpdateProjects }: {
   project: Project;
   projects: Project[];
@@ -215,7 +209,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[60%_40%] gap-6">
-        {/* Left — Venues & Offers */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-text-primary">Candidate Venues & Offers</h2>
@@ -238,9 +231,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs border-t border-border pt-2 mt-2">
                     <div><span className="text-text-muted">Proposed Date: </span><span className="text-text-primary">{offer.proposedDates.map(d => formatDate(d)).join(', ')} — {offer.showTime}</span></div>
                     <div><span className="text-text-muted">Deal: </span><span className="text-text-primary">{dealLabel}</span></div>
-                    <div><span className="text-text-muted">Guarantee: </span><span className="text-text-primary font-mono">{formatCurrency(offer.guarantee)}</span></div>
-                    {offer.splitPct && <div><span className="text-text-muted">Split: </span><span className="text-text-primary">{offer.splitPct}% artist / {100 - offer.splitPct}% IAE after {formatCurrency(offer.breakeven)}</span></div>}
-                    <div><span className="text-text-muted">Marketing Co-Op: </span><span className="text-text-primary font-mono">{formatCurrency(offer.marketingCoOp)}</span></div>
+                    {offer.splitPct != null && <div><span className="text-text-muted">Split: </span><span className="text-text-primary">{offer.splitPct}% artist / {100 - offer.splitPct}% IAE</span></div>}
                   </div>
                   {offer.responseNotes && <div className="text-xs text-text-secondary mt-2 italic">"{offer.responseNotes}"</div>}
                   <div className="flex gap-2 mt-3 justify-end">
@@ -264,7 +255,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
           {project.offers.length === 0 && <div className="text-text-muted text-sm bg-card border border-border rounded-lg p-4">No offers yet. Add a venue to get started.</div>}
         </div>
 
-        {/* Right — Project Info */}
         <div className="space-y-4">
           {agent && (
             <div className="bg-card border border-border rounded-lg p-4">
@@ -357,8 +347,6 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
     </div>
   );
 }
-
-// ─── Edit Project Form ────────────────────────────────────────────────────────
 
 function EditProjectForm({ project, onSave, onCancel }: { project: Project; onSave: (p: Project) => void; onCancel: () => void }) {
   const [name, setName] = useState(project.name);
@@ -488,12 +476,8 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
   );
 }
 
-// ─── Create Project Wizard ─────────────────────────────────────────────────────
-// Steps: 1. Artist  →  2. Tour (existing or new)  →  3. Agent  →  4. Markets  →  5. Review
-
 type WizardStep = 1 | 2 | 3 | 4 | 5;
 
-// Holds pending new-tour data collected from TourForm in wizard mode
 interface PendingTour {
   name: string;
   status: string;
@@ -509,10 +493,8 @@ interface PendingTour {
 function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) {
   const [step, setStep] = useState<WizardStep>(1);
 
-  // Step 1
   const [attractionId, setAttractionId] = useState('');
 
-  // Step 2
   const [tourMode, setTourMode] = useState<'existing' | 'new'>('existing');
   const [tourId, setTourId] = useState('');
   const [pendingTour, setPendingTour] = useState<PendingTour>({
@@ -520,13 +502,10 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
     dealType: 'Guarantee', guarantee: 0, dmaIds: [], attractionId: '', isValid: false,
   });
 
-  // Step 3
   const [agentId, setAgentId] = useState('');
 
-  // Step 4
   const [selectedDmas, setSelectedDmas] = useState<string[]>([]);
 
-  // Step 5
   const [projectName, setProjectName] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
 
@@ -544,7 +523,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
     setAgentId('');
     const attr = ATTRACTIONS.find(a => a.id === id);
     if (attr) setProjectName(`${attr.name} ${new Date().getFullYear()}`);
-    // Pre-fill attractionId for new tour form
     setPendingTour(prev => ({ ...prev, attractionId: id }));
   };
 
@@ -592,7 +570,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
   return (
     <Modal title="Create Project" onClose={onClose} width={900}>
       <div className="space-y-5">
-        {/* Step progress indicator */}
         <div className="flex items-center justify-between mb-2">
           {stepLabels.map((label, idx) => {
             const s = (idx + 1) as WizardStep;
@@ -620,7 +597,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           })}
         </div>
 
-        {/* ── STEP 1: Select Artist / Attraction ── */}
         {step === 1 && (
           <div className="space-y-3">
             <div>
@@ -658,7 +634,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* ── STEP 2: Select or Create Tour ── */}
         {step === 2 && selectedAttraction && (
           <div className="space-y-4">
             <div>
@@ -666,7 +641,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               <p className="text-xs text-text-muted">Choose an existing tour for {selectedAttraction.name} or create a new one</p>
             </div>
 
-            {/* Mode toggle */}
             <div className="flex gap-2">
               <button
                 onClick={() => setTourMode('existing')}
@@ -690,7 +664,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               </button>
             </div>
 
-            {/* Existing tours list */}
             {tourMode === 'existing' && (
               <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                 {attractionTours.length === 0 ? (
@@ -728,7 +701,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               </div>
             )}
 
-            {/* Full new tour form — same as the Add Tour modal */}
             {tourMode === 'new' && (
               <div className="bg-elevated border border-border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-4">
@@ -756,7 +728,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* ── STEP 3: Select Talent Agent ── */}
         {step === 3 && (
           <div className="space-y-3">
             <div>
@@ -800,7 +771,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* ── STEP 4: Select Markets (DMAs) ── */}
         {step === 4 && (
           <div className="space-y-3">
             <div>
@@ -833,7 +803,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* ── STEP 5: Review & Project Name ── */}
         {step === 5 && (
           <div className="space-y-4">
             <div>
@@ -841,7 +810,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
               <p className="text-xs text-text-muted">Confirm the details and give your project a name</p>
             </div>
 
-            {/* Summary card */}
             <div className="bg-elevated border border-border rounded-lg p-4 space-y-2 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -903,7 +871,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
           </div>
         )}
 
-        {/* Wizard navigation */}
         <div className="flex items-center justify-between pt-2 border-t border-border">
           <button
             onClick={handleBack}

@@ -8,7 +8,6 @@ export function AnalyticsPage() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
 
-  // Theme-aware SVG text colors
   const svgColors = {
     label: isDark ? '#8B949E' : '#64748b',
     muted: isDark ? '#484F58' : '#94a3b8',
@@ -55,7 +54,6 @@ export function AnalyticsPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-text-primary">Analytics</h1>
 
-      {/* KPI Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Total Gross YTD', value: '$12,420,000' },
@@ -71,7 +69,6 @@ export function AnalyticsPage() {
         ))}
       </div>
 
-      {/* Monthly Gross Bar Chart */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Monthly Gross Revenue</h3>
         <svg width="100%" height="200" viewBox="0 0 700 200" preserveAspectRatio="xMidYMid meet">
@@ -97,7 +94,6 @@ export function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Shows by DMA */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Shows by DMA</h3>
           <div className="space-y-2">
@@ -113,7 +109,6 @@ export function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Engagement Status Donut */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Engagement Status Breakdown</h3>
           <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
@@ -147,7 +142,6 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Top Attractions */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Top Attractions by Revenue</h3>
         <div className="space-y-2">
@@ -167,7 +161,6 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Workflow Completion */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Workflow Completion Rate</h3>
         <div className="space-y-2">

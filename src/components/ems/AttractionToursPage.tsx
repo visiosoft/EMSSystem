@@ -4,8 +4,6 @@ import { StatusBadge, Avatar, SearchInput, TabBar, Drawer, Modal, FormField, Act
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Attraction, Tour, Company, Contact } from '@/data/constants';
 
-// ─── Plain-English option maps ────────────────────────────────────────────────
-
 export const TOUR_STATUS_OPTIONS = [
   { value: 'Draft', label: 'Draft' },
   { value: 'ActiveRouting', label: 'Active Routing' },
@@ -18,8 +16,6 @@ export const DEAL_TYPE_OPTIONS = [
   { value: 'GuaranteeVsSplit', label: 'Guarantee vs Split' },
   { value: 'FlatFee', label: 'Flat Fee' },
 ];
-
-// ─── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   onNavigate: (view: string, data?: any) => void;
@@ -227,16 +223,12 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
   );
 }
 
-// ─── TourForm — exported so it can be reused in the Create Project wizard ─────
-
 export interface TourFormProps {
   onSave: (t: Tour) => void;
   onCancel?: () => void;
   initial?: Tour;
   attractions: Attraction[];
-  /** When true, hides Cancel/Save buttons (wizard controls navigation) */
   wizardMode?: boolean;
-  /** Called in wizard mode whenever form state changes */
   onChange?: (data: Partial<Tour> & { isValid: boolean }) => void;
 }
 
@@ -254,7 +246,6 @@ export function TourForm({ onSave, onCancel, initial, attractions, wizardMode = 
 
   const isValid = !!name.trim() && !!startDate && !!endDate;
 
-  // Notify parent in wizard mode
   React.useEffect(() => {
     if (wizardMode && onChange) {
       onChange({

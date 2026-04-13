@@ -1,7 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { getStatusColor, getInitials } from '@/data/constants';
 
-// StatusBadge
 export function StatusBadge({ status }: { status: string }) {
   const { bg, text } = getStatusColor(status);
   const label = status.replace(/([A-Z])/g, ' $1').trim();
@@ -12,7 +11,6 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// Avatar
 export function Avatar({ name, size = 'md', color }: { name: string; size?: 'sm' | 'md' | 'lg'; color?: string }) {
   const sizes = { sm: 'w-6 h-6 text-[10px]', md: 'w-8 h-8 text-xs', lg: 'w-10 h-10 text-sm' };
   const colors = ['bg-ems-accent-dim text-ems-accent', 'bg-ems-blue-dim text-ems-blue', 'bg-ems-purple-dim text-ems-purple', 'bg-ems-amber-dim text-ems-amber', 'bg-ems-green-dim text-ems-green'];
@@ -24,7 +22,6 @@ export function Avatar({ name, size = 'md', color }: { name: string; size?: 'sm'
   );
 }
 
-// Toast system
 export interface ToastItem {
   id: string;
   message: string;
@@ -70,7 +67,6 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
   );
 }
 
-// Modal
 export function Modal({ title, children, onClose, width = 600 }: { title: string; children: React.ReactNode; onClose: () => void; width?: number }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -95,7 +91,6 @@ export function Modal({ title, children, onClose, width = 600 }: { title: string
   );
 }
 
-// Drawer
 export function Drawer({ title, children, onClose, width = 600 }: { title?: string; children: React.ReactNode; onClose: () => void; width?: number }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -119,7 +114,6 @@ export function Drawer({ title, children, onClose, width = 600 }: { title?: stri
   );
 }
 
-// TabBar
 export function TabBar({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (t: string) => void }) {
   return (
     <div className="flex border-b border-border overflow-x-auto">
@@ -140,7 +134,6 @@ export function TabBar({ tabs, active, onChange }: { tabs: string[]; active: str
   );
 }
 
-// SearchInput
 export function SearchInput({ value, onChange, placeholder = 'Search...' }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div className="relative">
@@ -156,7 +149,6 @@ export function SearchInput({ value, onChange, placeholder = 'Search...' }: { va
   );
 }
 
-// FilterChips — supports both string[] and {value, label}[] for plain English labels
 export function FilterChips({
   options,
   active,
@@ -188,7 +180,6 @@ export function FilterChips({
   );
 }
 
-// ProgressBar
 export function ProgressBar({ value, max, color = 'bg-ems-accent' }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
@@ -198,7 +189,6 @@ export function ProgressBar({ value, max, color = 'bg-ems-accent' }: { value: nu
   );
 }
 
-// SelectInput
 export function SelectInput({ options, value, onChange, placeholder }: { options: { value: string; label: string }[]; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <select
@@ -212,7 +202,6 @@ export function SelectInput({ options, value, onChange, placeholder }: { options
   );
 }
 
-// FormField
 export function FormField({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
@@ -225,7 +214,6 @@ export function FormField({ label, required, error, children }: { label: string;
   );
 }
 
-// ActionMenu (⋮)
 export function ActionMenu({ items }: { items: { label: string; onClick: () => void; danger?: boolean }[] }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);

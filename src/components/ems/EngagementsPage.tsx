@@ -5,7 +5,6 @@ import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
 import { Modal, FormField } from './Primitives';
 
-// Full date with day of week
 function formatEngDate(str: string | null | undefined): string {
   if (!str) return '—';
   const d = new Date(str + 'T00:00:00');

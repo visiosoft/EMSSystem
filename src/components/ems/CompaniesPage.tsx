@@ -519,8 +519,6 @@ function CompanyTicketingTab({
   );
 }
 
-// ─── Contact Form ─────────────────────────────────────────────────────────────
-
 const CONTACT_ROLES = ['Booking', 'BoxOffice', 'ProductionManager', 'Marketing', 'Settlement', 'TourManager', 'TourAccountant', 'Publicist', 'Other'];
 const DEPARTMENTS = ['Booking', 'Production', 'Marketing', 'Finance', 'Operations', 'Legal', 'Management', 'Other'];
 
@@ -574,8 +572,6 @@ function ContactForm({ onSave, onCancel, initial, companies, currentCompanyId }:
   );
 }
 
-// ─── Company Form ─────────────────────────────────────────────────────────────
-
 function CompanyForm({ onSave, onCancel, initial, dmas }: {
   onSave: (c: Company) => void;
   onCancel: () => void;
@@ -596,7 +592,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const [physicalPostalCode, setPhysicalPostalCode] = useState(initial?.physicalPostalCode || '');
   const [physicalCountry, setPhysicalCountry] = useState(initial?.physicalCountry || 'USA');
 
-  // Auto-fill DMA based on postal code
   useEffect(() => {
     if (physicalPostalCode && physicalPostalCode.length >= 5) {
       const autoDma = getDmaFromPostalCode(physicalPostalCode);
@@ -604,7 +599,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         setSelectedDmas(prev => [...prev, autoDma]);
       }
     } else if (!physicalPostalCode || physicalPostalCode.length < 5) {
-      // Clear all DMAs when postal code is empty or too short
       setSelectedDmas([]);
     }
   }, [physicalPostalCode]);
@@ -696,7 +690,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
     <div className="space-y-5">
       {errors.length > 0 && <div className="text-ems-coral text-sm bg-ems-coral-dim border border-ems-coral/20 rounded px-3 py-2">{errors.join(', ')}</div>}
 
-      {/* Row 1: Company Type + Status */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Company Type" required>
           <Select2 options={companyTypeOptions} value={type} onChange={setType} />
@@ -706,14 +699,11 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         </FormField>
       </div>
 
-      {/* Row 2: Company Name (full width) */}
       <FormField label="Company Name" required>
         <input className={inputCls} value={tradeName} onChange={e => setTradeName(e.target.value)} placeholder="e.g. Madison Square Garden" />
       </FormField>
 
-      {/* Row 3: Addresses side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Physical Address */}
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Physical Address</h3>
           <FormField label="Street Address">
@@ -774,7 +764,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
           </div>
         </div>
 
-        {/* Mailing Address */}
         <div className="space-y-3">
           <div className="flex items-center justify-between border-b border-border pb-2">
             <h3 className="text-sm font-semibold text-text-primary">Mailing Address</h3>
@@ -850,7 +839,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         </div>
       </div>
 
-      {/* Row 4: DMA selections side-by-side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <label className="text-xs font-medium text-text-secondary block mb-2">DMA(s) <span className="text-text-muted font-normal">(Auto-filled from postal code)</span></label>
@@ -888,7 +876,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         </div>
       </div>
 
-      {/* Footer actions */}
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <button onClick={onCancel} className="text-text-secondary px-5 py-1.5 hover:text-text-primary text-sm">Cancel</button>
         <button onClick={handleSave} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium">Save</button>

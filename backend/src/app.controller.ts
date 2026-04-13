@@ -18,7 +18,6 @@ export class AppController {
     return this.appService.getApiStatus();
   }
 
-  /** JSON — use from fetch, curl, or browser (shows raw JSON). */
   @Get('db-health')
   async getDbHealth() {
     const db = await this.appService.getDatabaseStatus();
@@ -28,7 +27,6 @@ export class AppController {
     };
   }
 
-  /** HTML — open in the browser for a clear pass/fail view. */
   @Get('db-check')
   @Header('Content-Type', 'text/html; charset=utf-8')
   async getDbCheckPage() {

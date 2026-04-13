@@ -129,7 +129,6 @@
   }
 }
 
-/* Theme transition — smooth but fast */
 html {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
@@ -139,12 +138,10 @@ html {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* Monospace utility */
 .font-mono {
   font-family: 'JetBrains Mono', monospace !important;
 }
 
-/* Scrollbar styling — adapts to theme via CSS vars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -160,23 +157,19 @@ html {
   background: hsl(var(--text-muted));
 }
 
-/* Transitions */
 button, a, input, select, textarea {
   transition: all 150ms ease;
 }
 
-/* Light mode: ensure cards and surfaces have proper shadow for depth */
 [data-theme="light"] .bg-card,
 [data-theme="light"] .bg-surface {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-/* Light mode table rows — subtle hover */
 [data-theme="light"] tbody tr:hover {
   background-color: hsl(var(--bg-hover)) !important;
 }
 
-/* Theme toggle animation */
 .theme-toggle-thumb {
   transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

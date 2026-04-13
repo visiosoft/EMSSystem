@@ -4,8 +4,6 @@ import { StatusBadge, Avatar, TabBar, Modal, ProgressBar, Drawer } from './Primi
 import { Select2, toOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
 
-// ─── Date Formatting ──────────────────────────────────────────────────────────
-
 function formatFullDate(str: string | null | undefined): string {
   if (!str) return '—';
   const d = new Date(str + 'T00:00:00');
@@ -26,8 +24,6 @@ function formatTimeDisplay(time: string): string {
   const disp = hr % 12 || 12;
   return `${disp}:${m} ${ampm}`;
 }
-
-// ─── Audit Log ────────────────────────────────────────────────────────────────
 
 interface AuditEntry {
   id: string;
@@ -63,8 +59,6 @@ const AUDIT_TYPE_COLORS: Record<string, string> = {
   status: 'bg-ems-amber-dim text-ems-amber',
   workflow: 'bg-elevated text-text-secondary',
 };
-
-// ─── Department Config ────────────────────────────────────────────────────────
 
 const DEPARTMENTS = [
   { key: 'marketing', label: 'Marketing', icon: '🎯', color: 'text-ems-blue' },
@@ -106,8 +100,6 @@ const DEPT_DOCS: Record<DeptKey, { name: string; type: string; by: string; date:
   ],
 };
 
-// ─── Props ────────────────────────────────────────────────────────────────────
-
 interface Props {
   engagement: Engagement;
   engagements: Engagement[];
@@ -121,8 +113,6 @@ interface Props {
   users: { id: string; name: string; email: string }[];
   contacts: { id: string; firstName: string; lastName: string; title: string; email: string; phone: string; companyId: string }[];
 }
-
-// ─── Main Component ───────────────────────────────────────────────────────────
 
 export function EngagementDetailPage({ engagement, engagements, onNavigate, addToast, onUpdateEngagement, onDeleteEngagement, companies, tours, attractions, users, contacts }: Props) {
   const [tab, setTab] = useState('Overview');
@@ -194,7 +184,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
     <div className="space-y-4">
       <button onClick={() => onNavigate('engagements')} className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1">← Back to Engagements</button>
 
-      {/* Header Card */}
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div>
@@ -230,12 +219,10 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       </div>
 
-      <TabBar tabs={['Overview', /* 'Departments', */ 'Contacts', 'Dates', 'Audit Log']} active={tab} onChange={setTab} />
+      <TabBar tabs={['Overview', 'Contacts', 'Dates', 'Audit Log']} active={tab} onChange={setTab} />
 
-      {/* ── OVERVIEW ── */}
       {tab === 'Overview' && (
         <div className="space-y-4">
-          {/* Department Overview Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {DEPARTMENTS.map(dept => {
               const wf = getWfForDept(dept.key);
@@ -259,15 +246,12 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             })}
           </div>
 
-          {/* Deal Structure + Venue Info */}
           <div className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-sm font-semibold text-text-primary mb-3">Deal Structure</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-text-muted text-xs block">Type</span><span className="text-text-primary">{engagement.dealType}</span></div>
-                <div><span className="text-text-muted text-xs block">Guarantee</span><span className="text-text-primary font-mono">{formatCurrency(engagement.guarantee)}</span></div>
-                {engagement.splitPct && <div><span className="text-text-muted text-xs block">Split</span><span className="text-text-primary">{engagement.splitPct}% artist / {100 - engagement.splitPct}% IAE</span></div>}
-                {engagement.breakeven && <div><span className="text-text-muted text-xs block">Break-Even</span><span className="text-text-primary font-mono">{formatCurrency(engagement.breakeven)}</span></div>}
+                {engagement.splitPct != null && <div><span className="text-text-muted text-xs block">Split</span><span className="text-text-primary">{engagement.splitPct}% artist / {100 - engagement.splitPct}% IAE</span></div>}
               </div>
             </div>
             <div className="bg-card border border-border rounded-lg p-4">
@@ -285,10 +269,8 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* ── DEPARTMENTS ── */}
       {tab === 'Departments' && (
         <div className="space-y-4">
-          {/* Dept selector */}
           <div className="flex gap-2 flex-wrap">
             {DEPARTMENTS.map(dept => {
               const wf = getWfForDept(dept.key);
@@ -306,7 +288,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             })}
           </div>
 
-          {/* Dept content */}
           {DEPARTMENTS.map(dept => {
             if (dept.key !== activeDept) return null;
             const wf = getWfForDept(dept.key);
@@ -315,12 +296,10 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             const pct = wf.milestonesTotal > 0 ? Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100) : 0;
             const assignee = users.find(u => u.id === wf.assigneeId);
 
-            // Finance tab — restricted
             if (dept.key === 'finance') {
               return (
                 <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
                   <div className="space-y-4">
-                    {/* Milestones */}
                     <div className="bg-card border border-border rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="text-sm font-semibold text-text-primary">Finance Checklist</h3>
@@ -339,7 +318,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                         ))}
                       </div>
                     </div>
-                    {/* Financial Summary — Finance only */}
                     <div className="bg-card border border-border rounded-lg p-4">
                       <h3 className="text-sm font-semibold text-text-primary mb-3">Financial Summary</h3>
                       <div className="overflow-x-auto">
@@ -375,7 +353,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                       <button onClick={() => setShowSettlement(true)} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-3">Generate Settlement Worksheet</button>
                     </div>
                   </div>
-                  {/* Documents */}
                   <DeptDocuments dept={dept.key} docs={docs} addToast={addToast} addAuditEntry={addAuditEntry} />
                 </div>
               );
@@ -383,7 +360,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
 
             return (
               <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
-                {/* Milestones */}
                 <div className="bg-card border border-border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-text-primary">{dept.label} Checklist</h3>
@@ -402,7 +378,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
                     ))}
                   </div>
                 </div>
-                {/* Documents */}
                 <DeptDocuments dept={dept.key} docs={docs} addToast={addToast} addAuditEntry={addAuditEntry} />
               </div>
             );
@@ -410,7 +385,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* ── CONTACTS ── */}
       {tab === 'Contacts' && (
         <div className="space-y-4">
           {[
@@ -449,7 +423,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* ── DATES ── */}
       {tab === 'Dates' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -478,7 +451,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* ── AUDIT LOG ── */}
       {tab === 'Audit Log' && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary">Activity & Audit Log</h3>
@@ -513,7 +485,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
         </div>
       )}
 
-      {/* Modals */}
       {showAddDate && (
         <Modal title="Add Show Date" onClose={() => setShowAddDate(false)} width={480}>
           <AddDateForm onSave={handleAddDate} onCancel={() => setShowAddDate(false)} />
@@ -535,8 +506,6 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
     </div>
   );
 }
-
-// ─── Department Documents Panel ───────────────────────────────────────────────
 
 function DeptDocuments({ dept, docs, addToast, addAuditEntry }: {
   dept: DeptKey;
@@ -578,8 +547,6 @@ function DeptDocuments({ dept, docs, addToast, addAuditEntry }: {
   );
 }
 
-// ─── Add Date Form ────────────────────────────────────────────────────────────
-
 function AddDateForm({ onSave, onCancel }: { onSave: (date: string, doorTime: string, showTime: string) => void; onCancel: () => void }) {
   const [date, setDate] = useState('');
   const [doorTime, setDoorTime] = useState('19:00');
@@ -611,8 +578,6 @@ function AddDateForm({ onSave, onCancel }: { onSave: (date: string, doorTime: st
   );
 }
 
-// ─── Cancel Modal ─────────────────────────────────────────────────────────────
-
 function CancelEngagementModal({ engagement, onConfirm, onClose }: { engagement: Engagement; onConfirm: (reason: string, party: string, date: string) => void; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [party, setParty] = useState('IAE');
@@ -637,8 +602,6 @@ function CancelEngagementModal({ engagement, onConfirm, onClose }: { engagement:
     </Modal>
   );
 }
-
-// ─── Settlement Modal ─────────────────────────────────────────────────────────
 
 function SettlementModal({ engagement, onClose, addToast, companies }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void; companies: { id: string; tradeName: string }[] }) {
   const venue = companies.find(c => c.id === engagement.venueId);

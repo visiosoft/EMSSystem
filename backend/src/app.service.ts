@@ -35,7 +35,6 @@ export class AppService {
   }> {
     const started = Date.now();
     try {
-      // TypeORM types query() as any; narrow manually for lint safety.
       const raw: unknown = await this.dataSource.query(
         'SELECT 1 AS ok, SYSDATETIME() AS server_time',
       );

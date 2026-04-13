@@ -16,9 +16,6 @@ const parseBoolean = (
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      // Support both run modes:
-      // - from backend directory: `.env`
-      // - from repo root (npm --prefix backend): `backend/.env`
       envFilePath: ['.env', 'backend/.env'],
     }),
     TypeOrmModule.forRootAsync({

@@ -13,7 +13,6 @@ interface Select2Props {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
-  /** Show a blank "placeholder" option at top */
   allowClear?: boolean;
 }
 
@@ -39,7 +38,6 @@ export function Select2({
     o.label.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -51,7 +49,6 @@ export function Select2({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Focus search when opened
   useEffect(() => {
     if (open && searchRef.current) {
       searchRef.current.focus();
@@ -59,7 +56,6 @@ export function Select2({
     }
   }, [open]);
 
-  // Scroll highlighted item into view
   useEffect(() => {
     if (highlightedIndex >= 0 && listRef.current) {
       const item = listRef.current.children[highlightedIndex] as HTMLElement;
@@ -100,7 +96,6 @@ export function Select2({
     setSearch('');
   };
 
-  // Determine dropdown direction
   const [dropUp, setDropUp] = useState(false);
   useEffect(() => {
     if (open && containerRef.current) {
@@ -116,7 +111,6 @@ export function Select2({
       className={`select2 relative ${className}`}
       onKeyDown={handleKeyDown}
     >
-      {/* Trigger */}
       <button
         type="button"
         disabled={disabled}
@@ -143,7 +137,6 @@ export function Select2({
         </span>
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div
           className={[
@@ -155,7 +148,6 @@ export function Select2({
           ].join(' ')}
           style={{ minWidth: '100%' }}
         >
-          {/* Search box */}
           <div className="select2-search p-2 border-b border-border">
             <div className="relative">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-xs select-none">⌕</span>
@@ -176,7 +168,6 @@ export function Select2({
             </div>
           </div>
 
-          {/* Options list */}
           <ul
             ref={listRef}
             role="listbox"
@@ -235,12 +226,10 @@ export function Select2({
   );
 }
 
-/** Helper to convert a list of strings into Select2Option[] */
 export function toOptions(items: string[]): Select2Option[] {
   return items.map(v => ({ value: v, label: v }));
 }
 
-/** Helper to convert an array of objects into Select2Option[] */
 export function toObjOptions<T extends { id: string }>(
   items: T[],
   labelFn: (item: T) => string

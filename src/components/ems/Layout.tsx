@@ -3,8 +3,6 @@ import { useTheme } from 'next-themes';
 import { Avatar } from './Primitives';
 import { CURRENT_USER } from '@/data/constants';
 
-/* ─── IAE Logo Component ─────────────────────────────────────────────── */
-
 function IaeLogo() {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -47,8 +45,6 @@ function IaeLogo() {
   );
 }
 
-/* ─── Full-size logo for header / splash use ─────────────────────────── */
-
 export function IaeLogoFull({ height = 28 }: { height?: number }) {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -74,8 +70,6 @@ export function IaeLogoFull({ height = 28 }: { height?: number }) {
   );
 }
 
-/* ─── Sidebar ────────────────────────────────────────────────────────── */
-
 interface SidebarProps {
   currentView: string;
   onNavigate: (view: string) => void;
@@ -84,8 +78,6 @@ interface SidebarProps {
 }
 
 const NAV_SECTIONS = [
-  // OVERVIEW section hidden — Dashboard disabled
-  // { label: 'OVERVIEW', items: [{ key: 'dashboard', label: 'Dashboard', icon: '◆' }] },
   { label: 'PRIMARY DATA', items: [
     { key: 'companies', label: 'Companies', icon: '⬡' },
     { key: 'attraction-tours', label: 'Attraction-Tours', icon: '⬡' },
@@ -96,8 +88,6 @@ const NAV_SECTIONS = [
     { key: 'engagements', label: 'Engagements', icon: '⬡' },
     { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
   ] },
-  // REPORTS section hidden — Analytics disabled
-  // { label: 'REPORTS', items: [{ key: 'analytics', label: 'Analytics', icon: '⬡' }] },
   { label: 'SYSTEM', items: [{ key: 'settings', label: 'Settings', icon: '⬡' }] },
 ];
 
@@ -109,7 +99,6 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
 
   return (
     <>
-      {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -119,7 +108,6 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
       <div className={`w-60 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200 ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       }`}>
-        {/* Logo + Brand */}
         <div className="h-14 flex items-center px-4 border-b border-border gap-2">
           <IaeLogo />
           <div className="flex flex-col leading-tight">
@@ -166,8 +154,6 @@ export function Sidebar({ currentView, onNavigate, mobileOpen, onMobileClose }: 
     </>
   );
 }
-
-/* ─── Animated Theme Toggle ─────────────────────────────────────────── */
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -257,8 +243,6 @@ function ThemeToggle() {
   );
 }
 
-/* ─── Header ─────────────────────────────────────────────────────────── */
-
 interface HeaderProps {
   breadcrumb: string[];
   onSearch?: (q: string) => void;
@@ -278,7 +262,6 @@ export function Header({ breadcrumb, onMenuToggle }: HeaderProps) {
   return (
     <div className="h-14 bg-surface border-b border-border flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
       <div className="flex items-center gap-2 min-w-0">
-        {/* Hamburger menu - visible on mobile/tablet only */}
         <button
           onClick={onMenuToggle}
           className="lg:hidden w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover text-text-secondary hover:text-text-primary transition-colors shrink-0"

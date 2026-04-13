@@ -11,7 +11,6 @@ interface DashboardProps {
   onNavigate: (view: string, data?: any) => void;
 }
 
-// Custom tooltip for Revenue Trend
 const RevenueTrendTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -30,7 +29,6 @@ const RevenueTrendTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-// Custom tooltip for Status Bar Chart
 const StatusBarTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -51,7 +49,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
 
-  // Theme-aware chart colors
   const chartColors = {
     grid: isDark ? 'hsl(215,12%,22%)' : 'hsl(215,20%,87%)',
     axisText: isDark ? 'hsl(215,10%,42%)' : 'hsl(215,14%,48%)',
@@ -106,7 +103,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     return { name: wt, counts };
   });
 
-  // Revenue trend data
   const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const revenueTrendData = monthLabels.map((month, idx) => {
     const monthEngs = engagements.filter(e => {
@@ -129,7 +125,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     };
   });
 
-  // Status bar chart data — Draft/Closed use theme-aware grays
   const statusBarColors: Record<string, string> = {
     Draft: isDark ? 'hsl(215,12%,36%)' : 'hsl(215,12%,62%)',
     Confirmed: 'hsl(130,52%,53%)',
@@ -145,7 +140,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
     label: s === 'OnSale' ? 'On Sale' : s,
   })).filter(d => d.count > 0);
 
-  // Custom bar label
   const renderBarLabel = (props: any) => {
     const { x, y, width, value } = props;
     if (!value) return null;
@@ -158,7 +152,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
 
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[
           { label: 'Active Engagements', value: activeEngs.length.toString(), sub: '● live', onClick: () => onNavigate('engagements') },
@@ -175,7 +168,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         ))}
       </div>
 
-      {/* Pipeline */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Engagement Status Pipeline</h3>
         <div className="flex h-8 rounded overflow-hidden">
@@ -196,9 +188,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         </div>
       </div>
 
-      {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-[62%_38%] gap-4">
-        {/* Revenue Trend — Area Chart */}
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-1">
             <div>
@@ -275,7 +265,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
           </ResponsiveContainer>
         </div>
 
-        {/* Engagement by Status — Bar Chart */}
         <div className="bg-card border border-border rounded-lg p-5">
           <div className="mb-1">
             <h3 className="text-sm font-semibold text-text-primary">Engagements by Status</h3>
@@ -327,7 +316,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
             </BarChart>
           </ResponsiveContainer>
 
-          {/* Legend pills */}
           <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
             {statusBarData.map((d, i) => (
               <span key={i} className="flex items-center gap-1.5 text-[10px] text-text-secondary">
@@ -339,9 +327,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         </div>
       </div>
 
-      {/* Row — Upcoming Shows + Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-[65%_35%] gap-4">
-        {/* Upcoming Shows */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Upcoming Shows (Next 30 Days)</h3>
           <div className="overflow-x-auto">
@@ -379,7 +365,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
           </div>
         </div>
 
-        {/* Activity Feed */}
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-medium text-text-primary mb-3">Recent Activity</h3>
           <div className="space-y-3 max-h-[300px] overflow-y-auto">
@@ -396,7 +381,6 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
         </div>
       </div>
 
-      {/* Workflow Health Grid */}
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-medium text-text-primary mb-3">Workflow Health Grid</h3>
         <div className="overflow-x-auto">
