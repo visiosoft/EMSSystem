@@ -12,8 +12,8 @@ const queryClient = new QueryClient();
 const App = () => (
   <ThemeProvider
     attribute="data-theme"
-    defaultTheme="dark"
-    themes={["dark", "light"]}
+    defaultTheme="light"
+    themes={["light", "dark"]}
     disableTransitionOnChange={false}
   >
     <QueryClientProvider client={queryClient}>
