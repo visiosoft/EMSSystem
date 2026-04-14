@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
 
 @Controller('lookups')
@@ -23,6 +23,16 @@ export class LookupsController {
   @Get('seating-types')
   seatingTypes() {
     return this.lookupsService.findSeatingTypes();
+  }
+
+  @Get('classes')
+  classes() {
+    return this.lookupsService.findClasses();
+  }
+
+  @Get('venue-types')
+  venueTypes() {
+    return this.lookupsService.findVenueTypes();
   }
 
   @Get('dma-by-postal/:postalCode')

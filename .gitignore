@@ -32,6 +32,9 @@ tmp
 temp
 *.tmp
 
+# App-created ID tracking (no DB migration; local to environment)
+backend/data/ems-app-created-ids.json
+
 # Local EMS reference (not committed; still present on disk for editors/agents)
 EMS_DATABASE_ARCHITECTURE.md
 EMS/EMS_DATABASE_ARCHITECTURE.md

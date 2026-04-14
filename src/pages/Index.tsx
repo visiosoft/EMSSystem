@@ -117,18 +117,7 @@ const Index = () => {
           {currentView === 'companies' && (
             <CompaniesPage addToast={addToast} />
           )}
-          {currentView === 'attraction-tours' && (
-            <AttractionToursPage
-              addToast={addToast}
-              attractions={attractions}
-              tours={tours}
-              companies={companies}
-              contacts={contacts}
-              dmas={dmas}
-              onUpdateAttractions={setAttractions}
-              onUpdateTours={setTours}
-            />
-          )}
+          {currentView === 'attraction-tours' && <AttractionToursPage addToast={addToast} />}
           {currentView === 'calendar' && <CalendarPage engagements={engagements} onNavigate={navigate} addToast={addToast} />}
           {currentView === 'projects' && (
             <ProjectsPage

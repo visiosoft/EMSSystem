@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
 import { CompanyModule } from './company/company.module';
 
 const parseBoolean = (
@@ -40,6 +41,7 @@ const parseBoolean = (
       }),
     }),
     CompanyModule,
+    AttractionToursModule,
   ],
   controllers: [AppController],
   providers: [AppService],

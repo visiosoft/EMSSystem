@@ -1,0 +1,85 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+
+interface StoreShape {
+  attractionIds: number[];
+  tourIds: number[];
+}
+
+/**
+ * Tracks Attraction/Tour rows created through this API so deletes can be
+ * restricted without altering the database schema (per product requirements).
+ */
+@Injectable()
+export class EmsAppCreatedStore implements OnModuleInit {
+  private readonly logger = new Logger(EmsAppCreatedStore.name);
+  private data: StoreShape = { attractionIds: [], tourIds: [] };
+
+  private get filePath(): string {
+    const cwd = process.cwd();
+    const base = cwd.endsWith('backend') ? cwd : join(cwd, 'backend');
+    const dir = join(base, 'data');
+    return join(dir, 'ems-app-created-ids.json');
+  }
+
+  onModuleInit() {
+    this.load();
+  }
+
+  private load() {
+    const fp = this.filePath;
+    try {
+      if (!existsSync(fp)) {
+        this.data = { attractionIds: [], tourIds: [] };
+        return;
+      }
+      const raw = readFileSync(fp, 'utf8');
+      const parsed = JSON.parse(raw) as Partial<StoreShape>;
+      this.data = {
+        attractionIds: Array.isArray(parsed.attractionIds)
+          ? parsed.attractionIds.map(Number).filter((n) => Number.isFinite(n))
+          : [],
+        tourIds: Array.isArray(parsed.tourIds)
+          ? parsed.tourIds.map(Number).filter((n) => Number.isFinite(n))
+          : [],
+      };
+    } catch (e) {
+      this.logger.warn(`Could not load ${fp}: ${e}`);
+      this.data = { attractionIds: [], tourIds: [] };
+    }
+  }
+
+  private persist() {
+    const fp = this.filePath;
+    try {
+      mkdirSync(dirname(fp), { recursive: true });
+      writeFileSync(fp, JSON.stringify(this.data, null, 2), 'utf8');
+    } catch (e) {
+      this.logger.error(`Could not persist EMS app-created IDs: ${e}`);
+      throw e;
+    }
+  }
+
+  recordAttraction(id: number) {
+    if (!this.data.attractionIds.includes(id)) {
+      this.data.attractionIds.push(id);
+      this.persist();
+    }
+  }
+
+  recordTour(id: number) {
+    if (!this.data.tourIds.includes(id)) {
+      this.data.tourIds.push(id);
+      this.persist();
+    }
+  }
+
+  canDeleteAttraction(id: number): boolean {
+    return this.data.attractionIds.includes(id);
+  }
+
+  canDeleteTour(id: number): boolean {
+    return this.data.tourIds.includes(id);
+  }
+}

@@ -8,7 +8,12 @@ export class Address {
   @Column({ name: 'AddressLine1', type: 'nvarchar', length: 200 })
   addressLine1: string;
 
-  @Column({ name: 'AddressLine2', type: 'nvarchar', length: 200, nullable: true })
+  @Column({
+    name: 'AddressLine2',
+    type: 'nvarchar',
+    length: 200,
+    nullable: true,
+  })
   addressLine2: string | null;
 
   @Column({ name: 'City', type: 'nvarchar', length: 100 })

@@ -15,6 +15,7 @@ import { Role } from '../entities/role.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { SeatingType } from '../entities/seating-type.entity';
 import { Tour } from '../entities/tour.entity';
+import { Class } from '../entities/class.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { Venue } from '../entities/venue.entity';
 import { LookupsController } from '../lookups/lookups.controller';
@@ -43,6 +44,7 @@ const entities = [
   SeatingType,
   VenueType,
   NonResidentWithholding,
+  Class,
 ];
 
 @Module({

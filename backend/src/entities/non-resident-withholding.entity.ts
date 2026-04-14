@@ -5,6 +5,11 @@ export class NonResidentWithholding {
   @PrimaryColumn({ name: 'WithholdingID', type: 'int' })
   withholdingId: number;
 
-  @Column({ name: 'WithholdingTaxRate', type: 'decimal', precision: 18, scale: 6 })
+  @Column({
+    name: 'WithholdingTaxRate',
+    type: 'decimal',
+    precision: 18,
+    scale: 6,
+  })
   withholdingTaxRate: string;
 }

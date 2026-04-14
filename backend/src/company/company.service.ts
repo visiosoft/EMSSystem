@@ -113,10 +113,9 @@ export class CompanyService {
     if (likeZip.length === 5) {
       const fuzzy = await this.dmaRepo
         .createQueryBuilder('d')
-        .where(
-          "REPLACE(REPLACE(d.postalCode, ' ', ''), '-', '') LIKE :z",
-          { z: `${likeZip}%` },
-        )
+        .where("REPLACE(REPLACE(d.postalCode, ' ', ''), '-', '') LIKE :z", {
+          z: `${likeZip}%`,
+        })
         .orderBy('d.dmaid', 'ASC')
         .getOne();
       return fuzzy?.dmaid ?? null;
@@ -263,7 +262,8 @@ export class CompanyService {
       where: { companyId },
       relations: { physicalAddress: true, mailingAddress: true },
     });
-    if (!existing) throw new NotFoundException(`Company ${companyId} not found`);
+    if (!existing)
+      throw new NotFoundException(`Company ${companyId} not found`);
 
     let mailingAddressId = existing.mailingAddressId;
     const physicalAddr = existing.physicalAddress;
@@ -441,7 +441,8 @@ export class CompanyService {
           statusCode: HttpStatus.CONFLICT,
           error: 'Conflict',
           message: 'This contact is already linked to this company.',
-          detail: 'A contact assignment already exists for this company/contact pair.',
+          detail:
+            'A contact assignment already exists for this company/contact pair.',
         });
       }
 
@@ -453,10 +454,7 @@ export class CompanyService {
       });
       const savedAsg = await em.save(ContactAssignment, assignment);
 
-      const row = await this.getContactRow(
-        savedAsg.contactAssignmentId,
-        em,
-      );
+      const row = await this.getContactRow(savedAsg.contactAssignmentId, em);
       if (!row) {
         throw new HttpException(
           {

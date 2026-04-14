@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToOne, PrimaryColumn } from 'typeorm';
+import {
+  Column,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToOne,
+  PrimaryColumn,
+} from 'typeorm';
 import { Address } from './address.entity';
 import { Company } from './company.entity';
 import { NonResidentWithholding } from './non-resident-withholding.entity';
@@ -20,7 +27,13 @@ export class Venue {
   @Column({ name: 'SeatingCapacity', type: 'int' })
   seatingCapacity: number;
 
-  @Column({ name: 'SalesTaxRate', type: 'decimal', precision: 18, scale: 6, nullable: true })
+  @Column({
+    name: 'SalesTaxRate',
+    type: 'decimal',
+    precision: 18,
+    scale: 6,
+    nullable: true,
+  })
   salesTaxRate: string | null;
 
   @Column({ name: 'TaxInCart', type: 'bit' })
@@ -29,7 +42,11 @@ export class Venue {
   @Column({ name: 'InsuranceLanguage', type: 'text', nullable: true })
   insuranceLanguage: string | null;
 
-  @Column({ name: 'InsurancePolicyCopyRequirements', type: 'text', nullable: true })
+  @Column({
+    name: 'InsurancePolicyCopyRequirements',
+    type: 'text',
+    nullable: true,
+  })
   insurancePolicyCopyRequirements: string | null;
 
   @Column({ name: 'VenueRelationshipIAE', type: 'nvarchar', length: 100 })

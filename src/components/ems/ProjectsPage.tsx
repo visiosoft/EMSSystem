@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatDate, getStatusColor, DEAL_TYPE_OPTIONS } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
-import { TourForm, TOUR_STATUS_OPTIONS } from './AttractionToursPage';
+import { TourForm, TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import type { Project, Offer, Engagement, Tour, Attraction } from '@/data/constants';
 import { Select2, toOptions, toObjOptions } from './Select2';
 
