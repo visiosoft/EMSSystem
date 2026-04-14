@@ -32,6 +32,10 @@ tmp
 temp
 *.tmp
 
+# Local EMS reference (not committed; still present on disk for editors/agents)
+EMS_DATABASE_ARCHITECTURE.md
+EMS/EMS_DATABASE_ARCHITECTURE.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
