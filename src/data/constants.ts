@@ -191,24 +191,43 @@ export const CONTACTS: Contact[] = [
   { id: 'ct-16', companyId: 'co-06', firstName: 'Damon', lastName: 'Pierce', title: 'General Manager', roles: ['Booking', 'BoxOffice'], email: 'd.pierce@fillmoredetroit.com', phone: '(313) 555-0155', status: 'Active' },
 ];
 
+/** Values for attraction genre multi-select and tour-type picklists */
+export const GENRE_OPTIONS = [
+  'Pop', 'R&B', 'Rock', 'Alternative', 'Comedy', 'Electronic', 'Indie', 'Country', 'Americana',
+  'Hip-Hop', 'Jazz', 'Latin', 'Folk', 'Metal', 'Soul', 'Blues', 'Classical',
+];
+
+export const DEAL_TYPE_OPTIONS = [
+  { value: 'Guarantee', label: 'Guarantee' },
+  { value: 'GuaranteeVsSplit', label: 'Guarantee vs Split' },
+  { value: 'FlatFee', label: 'Flat Fee' },
+];
+
+export const TOUR_TYPE_OR_GENRE_OPTIONS = [
+  { value: 'World Tour', label: 'World Tour' },
+  { value: 'Regional Tour', label: 'Regional Tour' },
+  { value: 'Residency', label: 'Residency' },
+  { value: 'Theater Run', label: 'Theater Run' },
+  { value: 'Arena Tour', label: 'Arena Tour' },
+  { value: 'Club Tour', label: 'Club Tour' },
+  { value: 'Festival Circuit', label: 'Festival Circuit' },
+  { value: 'Acoustic Tour', label: 'Acoustic Tour' },
+  ...GENRE_OPTIONS.map(g => ({ value: g, label: g })),
+];
+
 export interface Attraction {
   id: string;
   name: string;
   genres: string[];
-  marketTier: string;
-  agencyId: string;
-  primaryAgentContactId: string;
-  iaeStatus: string;
-  ownerId: string;
 }
 
 export const ATTRACTIONS: Attraction[] = [
-  { id: 'atr-01', name: 'Stella Vance', genres: ['Pop', 'R&B'], marketTier: 'Arena', agencyId: 'co-07', primaryAgentContactId: 'ct-04', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-02', name: 'Iron Meridian', genres: ['Rock', 'Alternative'], marketTier: 'Arena', agencyId: 'co-08', primaryAgentContactId: 'ct-06', iaeStatus: 'Active', ownerId: 'usr-03' },
-  { id: 'atr-03', name: 'Cleo & The Current', genres: ['Pop', 'Indie'], marketTier: 'Theater', agencyId: 'co-07', primaryAgentContactId: 'ct-05', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-04', name: 'Marcus Fontaine', genres: ['Comedy'], marketTier: 'Theater', agencyId: 'co-08', primaryAgentContactId: 'ct-07', iaeStatus: 'Active', ownerId: 'usr-02' },
-  { id: 'atr-05', name: 'Aurora Rising', genres: ['Electronic', 'Pop'], marketTier: 'Arena', agencyId: 'co-07', primaryAgentContactId: 'ct-04', iaeStatus: 'Prospective', ownerId: 'usr-03' },
-  { id: 'atr-06', name: 'The Blackwood Collective', genres: ['Country', 'Americana'], marketTier: 'Arena', agencyId: 'co-08', primaryAgentContactId: 'ct-06', iaeStatus: 'Active', ownerId: 'usr-03' },
+  { id: 'atr-01', name: 'Stella Vance', genres: ['Pop', 'R&B'] },
+  { id: 'atr-02', name: 'Iron Meridian', genres: ['Rock', 'Alternative'] },
+  { id: 'atr-03', name: 'Cleo & The Current', genres: ['Pop', 'Indie'] },
+  { id: 'atr-04', name: 'Marcus Fontaine', genres: ['Comedy'] },
+  { id: 'atr-05', name: 'Aurora Rising', genres: ['Electronic', 'Pop'] },
+  { id: 'atr-06', name: 'The Blackwood Collective', genres: ['Country', 'Americana'] },
 ];
 
 export interface TourContact {
@@ -224,8 +243,8 @@ export interface Tour {
   startDate: string;
   endDate: string;
   dmaIds: string[];
-  dealType: string;
-  guarantee: number | null;
+  talentAgentContactId: string;
+  tourTypeOrGenre: string;
   splitPct: number | null;
   breakeven: number | null;
   radiusMiles: number;
@@ -244,7 +263,7 @@ export interface Tour {
 export const TOURS: Tour[] = [
   { id: 'tour-01', attractionId: 'atr-01', name: 'Afterglow World Tour', status: 'ActiveRouting',
     startDate: '2025-01-15', endDate: '2025-12-15', dmaIds: ['dma-01','dma-02','dma-03','dma-04','dma-07','dma-09','dma-10','dma-11'],
-    dealType: 'GuaranteeVsSplit', guarantee: 175000, splitPct: 85, breakeven: 320000,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'World Tour', splitPct: 85, breakeven: 320000,
     radiusMiles: 90, radiusDays: 30, stageWidth: 60, stageDepth: 40, riggingLoad: 40000, trucks: 8, crew: 42,
     technicalRider: 'Stage 60W×40D. Touring PA required, no house system. Touring lighting rig required. 400A 3-phase power. 6 loading docks minimum.',
     hospitalityRider: '4 dressing rooms. 1 private artist suite. Hot catering for 50. 20 hotel rooms 3-star min.',
@@ -252,41 +271,41 @@ export const TOURS: Tour[] = [
     contacts: [{ contactId: 'ct-08', role: 'TourManager' }, { contactId: 'ct-09', role: 'ProductionManager' }, { contactId: 'ct-10', role: 'TourAccountant' }, { contactId: 'ct-11', role: 'Publicist' }] },
   { id: 'tour-02', attractionId: 'atr-01', name: 'Afterglow: The Residency', status: 'ActiveRouting',
     startDate: '2025-03-01', endDate: '2025-06-30', dmaIds: ['dma-12'],
-    dealType: 'FlatFee', guarantee: 220000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'Residency', splitPct: null, breakeven: null,
     radiusMiles: 0, radiusDays: 0, stageWidth: 60, stageDepth: 40, riggingLoad: 40000, trucks: 8, crew: 42,
     technicalRider: 'Same as Afterglow World Tour.', hospitalityRider: 'Same as Afterglow World Tour.', dressingRooms: 4 },
   { id: 'tour-03', attractionId: 'atr-02', name: 'Fault Lines Tour', status: 'ActiveRouting',
     startDate: '2025-02-01', endDate: '2025-11-30', dmaIds: ['dma-01','dma-02','dma-03','dma-06','dma-11'],
-    dealType: 'Guarantee', guarantee: 95000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Arena Tour', splitPct: null, breakeven: null,
     radiusMiles: 75, radiusDays: 21, stageWidth: 48, stageDepth: 32, riggingLoad: 30000, trucks: 6, crew: 35,
     technicalRider: 'Stage 48W×32D. Touring PA required. House lighting acceptable. 200A single-phase.',
     hospitalityRider: '3 dressing rooms. Hot meal for 40.', dressingRooms: 3,
     contacts: [{ contactId: 'ct-06', role: 'TourManager' }] },
   { id: 'tour-04', attractionId: 'atr-02', name: 'Acoustic Sessions', status: 'Announced',
     startDate: '2025-09-01', endDate: '2025-12-15', dmaIds: ['dma-01','dma-03','dma-11'],
-    dealType: 'FlatFee', guarantee: 45000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Acoustic Tour', splitPct: null, breakeven: null,
     radiusMiles: 50, radiusDays: 14, stageWidth: 24, stageDepth: 20, riggingLoad: 5000, trucks: 2, crew: 12,
     technicalRider: 'Minimal production. House PA acceptable.', hospitalityRider: '2 dressing rooms.', dressingRooms: 2 },
   { id: 'tour-05', attractionId: 'atr-03', name: 'Electric Spring Tour', status: 'ActiveRouting',
     startDate: '2025-04-01', endDate: '2025-08-31', dmaIds: ['dma-03','dma-15','dma-07','dma-08'],
-    dealType: 'GuaranteeVsSplit', guarantee: 35000, splitPct: 80, breakeven: 85000,
+    talentAgentContactId: 'ct-05', tourTypeOrGenre: 'Theater Run', splitPct: 80, breakeven: 85000,
     radiusMiles: 60, radiusDays: 14, stageWidth: 32, stageDepth: 24, riggingLoad: 12000, trucks: 3, crew: 18,
     technicalRider: 'Theater-scale production. House PA acceptable.', hospitalityRider: '2 dressing rooms. Catering for 22.', dressingRooms: 2 },
   { id: 'tour-06', attractionId: 'atr-04', name: 'Oversharing Tour', status: 'ActiveRouting',
     startDate: '2025-01-01', endDate: '2025-12-31', dmaIds: ['dma-01','dma-02','dma-03','dma-04','dma-05','dma-06','dma-07','dma-08','dma-09','dma-10','dma-11','dma-12','dma-13','dma-14','dma-15'],
-    dealType: 'FlatFee', guarantee: 28000, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-07', tourTypeOrGenre: 'Comedy', splitPct: null, breakeven: null,
     radiusMiles: 30, radiusDays: 7, stageWidth: 20, stageDepth: 16, riggingLoad: 3000, trucks: 1, crew: 8,
     technicalRider: 'Minimal. Stool, mic, basic lighting. House PA required.', hospitalityRider: '1 dressing room. Rider: 6-pack IPA, cheese plate.', dressingRooms: 1 },
   { id: 'tour-07', attractionId: 'atr-06', name: 'Heartland Highway', status: 'ActiveRouting',
     startDate: '2025-03-15', endDate: '2025-10-31', dmaIds: ['dma-04','dma-05','dma-08','dma-13','dma-14'],
-    dealType: 'GuaranteeVsSplit', guarantee: 130000, splitPct: 85, breakeven: 260000,
+    talentAgentContactId: 'ct-06', tourTypeOrGenre: 'Country', splitPct: 85, breakeven: 260000,
     radiusMiles: 100, radiusDays: 28, stageWidth: 52, stageDepth: 36, riggingLoad: 35000, trucks: 7, crew: 38,
     technicalRider: 'Country-scale production. Full touring rig. Steel guitar, fiddle monitors required.',
     hospitalityRider: '4 dressing rooms. Southern catering for 45.', dressingRooms: 4,
     contacts: [{ contactId: 'ct-07', role: 'TourManager' }] },
   { id: 'tour-08', attractionId: 'atr-05', name: 'Neon Drift', status: 'Announced',
     startDate: '2025-06-01', endDate: '2025-12-31', dmaIds: ['dma-02','dma-09','dma-12'],
-    dealType: 'GuaranteeVsSplit', guarantee: null, splitPct: null, breakeven: null,
+    talentAgentContactId: 'ct-04', tourTypeOrGenre: 'Electronic', splitPct: null, breakeven: null,
     radiusMiles: 90, radiusDays: 21, stageWidth: null, stageDepth: null, riggingLoad: null, trucks: null, crew: null,
     technicalRider: 'TBD — advance pending.', hospitalityRider: 'TBD.', dressingRooms: null },
 ];

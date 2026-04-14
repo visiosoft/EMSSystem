@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatCurrency, getWorkflowDotColor } from '@/data/constants';
+import { formatCurrency, getWorkflowDotColor, DEAL_TYPE_OPTIONS } from '@/data/constants';
 import { StatusBadge, SearchInput, FilterChips, ActionMenu } from './Primitives';
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
@@ -108,6 +108,8 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
   const [bookerId, setBookerId] = useState(users[0]?.id || '');
   const [date, setDate] = useState('');
   const [status, setStatus] = useState('Draft');
+  const [dealType, setDealType] = useState('Guarantee');
+  const [guarantee, setGuarantee] = useState('0');
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
@@ -122,6 +124,10 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
         <FormField label="Booker"><Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} /></FormField>
         <FormField label="Status"><Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} /></FormField>
       </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <FormField label="Deal Type"><Select2 options={DEAL_TYPE_OPTIONS} value={dealType} onChange={setDealType} /></FormField>
+        <FormField label="Guarantee Amount ($)"><input type="number" className={inputCls} value={guarantee} onChange={e => setGuarantee(e.target.value)} placeholder="0" /></FormField>
+      </div>
       <FormField label="Show Date">
         <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
         {date && <div className="text-xs text-text-muted mt-1">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>}
@@ -135,7 +141,7 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
           projectId: 'manual', offerId: null,
           showDates: [{ date, doorTime: '19:00', showTime: '20:00', runtime: 120 }],
           showCount: 1, status,
-          dealType: 'Guarantee', guarantee: 0, splitPct: null, breakeven: null,
+          dealType, guarantee: Number(guarantee) || 0, splitPct: null, breakeven: null,
           projectedGross: 0, projectedMargin: 0, actualGross: null, actualMargin: null,
           workflows: {
             marketing: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },

@@ -127,14 +127,12 @@ const Index = () => {
           )}
           {currentView === 'attraction-tours' && (
             <AttractionToursPage
-              onNavigate={navigate}
               addToast={addToast}
               attractions={attractions}
               tours={tours}
               companies={companies}
               contacts={contacts}
               dmas={dmas}
-              users={users}
               onUpdateAttractions={setAttractions}
               onUpdateTours={setTours}
             />

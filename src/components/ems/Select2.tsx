@@ -236,3 +236,148 @@ export function toObjOptions<T extends { id: string }>(
 ): Select2Option[] {
   return items.map(item => ({ value: item.id, label: labelFn(item) }));
 }
+
+interface Select2MultiProps {
+  options: Select2Option[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+  className?: string;
+}
+
+export function Select2Multi({
+  options,
+  values,
+  onChange,
+  placeholder = 'Select...',
+  className = '',
+}: Select2MultiProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = options.filter(o =>
+    o.label.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggle = (v: string) => {
+    if (values.includes(v)) onChange(values.filter(x => x !== v));
+    else onChange([...values, v]);
+  };
+
+  const summary = values.length === 0
+    ? placeholder
+    : values.map(v => options.find(o => o.value === v)?.label || v).join(', ');
+
+  const [dropUp, setDropUp] = useState(false);
+  useEffect(() => {
+    if (open && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setDropUp(spaceBelow < 220 && rect.top > 220);
+    }
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className={`select2 relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={[
+          'select2-selection',
+          'w-full flex items-center justify-between gap-2',
+          'bg-surface border border-border rounded px-3 py-1.5',
+          'text-sm text-left transition-colors',
+          'cursor-pointer hover:border-ems-accent/60',
+          open ? 'border-ems-accent ring-1 ring-ems-accent/30' : '',
+        ].filter(Boolean).join(' ')}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className={`min-w-0 flex-1 truncate ${values.length === 0 ? 'text-text-muted' : 'text-text-primary'}`}>
+          {summary}
+        </span>
+        <span
+          className="select2-arrow ml-2 flex-shrink-0 text-text-muted transition-transform duration-150"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', fontSize: 10 }}
+        >
+          ▼
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className={[
+            'select2-dropdown',
+            'absolute z-[200] w-full',
+            'bg-elevated border border-border rounded-md shadow-xl',
+            'overflow-hidden',
+            dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
+          ].join(' ')}
+          style={{ minWidth: '100%' }}
+        >
+          <div className="select2-search p-2 border-b border-border">
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-xs select-none">⌕</span>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search..."
+                className={[
+                  'select2-search__field',
+                  'w-full pl-7 pr-3 py-1.5',
+                  'bg-surface border border-border rounded text-sm',
+                  'text-text-primary placeholder:text-text-muted',
+                  'focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30',
+                ].join(' ')}
+              />
+            </div>
+          </div>
+
+          <ul role="listbox" className="select2-results max-h-48 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
+                No results found
+              </li>
+            ) : (
+              filtered.map(opt => {
+                const selected = values.includes(opt.value);
+                return (
+                  <li
+                    key={opt.value}
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => !opt.disabled && toggle(opt.value)}
+                    className={[
+                      'select2-results__option',
+                      'px-3 py-2 text-sm transition-colors select-none',
+                      opt.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
+                      selected
+                        ? 'bg-ems-accent-dim text-ems-accent font-medium'
+                        : 'text-text-primary hover:bg-hover',
+                    ].filter(Boolean).join(' ')}
+                  >
+                    <span className="mr-2 text-xs w-4 inline-block text-center">{selected ? '✓' : ''}</span>
+                    {opt.label}
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

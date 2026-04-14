@@ -67,18 +67,35 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
   );
 }
 
-export function Modal({ title, children, onClose, width = 600 }: { title: string; children: React.ReactNode; onClose: () => void; width?: number }) {
+export function Modal({
+  title,
+  children,
+  onClose,
+  width = 600,
+  /** Use for dialogs with portaled-style dropdowns: avoids max-h + overflow-y clipping and inner scrollbars */
+  allowContentOverflow = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+  width?: number;
+  allowContentOverflow?: boolean;
+}) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  const dialogScrollCls = allowContentOverflow
+    ? 'overflow-visible max-h-none'
+    : 'max-h-[90vh] overflow-y-auto';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className={`fixed inset-0 z-50 flex justify-center ${allowContentOverflow ? 'items-start pt-10 sm:pt-16 pb-10 overflow-y-auto' : 'items-center'}`}>
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div
-        className="relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl max-h-[90vh] overflow-y-auto box-border"
+        className={`relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl box-border ${dialogScrollCls}`}
         style={{ width: `min(${width}px, 95vw)` }}
       >
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-elevated z-10">

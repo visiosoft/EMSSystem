@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatCurrency } from '@/data/constants';
+import { formatCurrency, DEAL_TYPE_OPTIONS } from '@/data/constants';
 import { StatusBadge, Avatar, TabBar, Modal, ProgressBar, Drawer } from './Primitives';
 import { Select2, toOptions } from './Select2';
 import type { Engagement } from '@/data/constants';
@@ -250,7 +250,8 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
             <div className="bg-card border border-border rounded-lg p-4">
               <h3 className="text-sm font-semibold text-text-primary mb-3">Deal Structure</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-text-muted text-xs block">Type</span><span className="text-text-primary">{engagement.dealType}</span></div>
+                <div><span className="text-text-muted text-xs block">Deal Type</span><span className="text-text-primary">{DEAL_TYPE_OPTIONS.find(d => d.value === engagement.dealType)?.label || engagement.dealType}</span></div>
+                <div><span className="text-text-muted text-xs block">Guarantee</span><span className="text-text-primary">{formatCurrency(engagement.guarantee)}</span></div>
                 {engagement.splitPct != null && <div><span className="text-text-muted text-xs block">Split</span><span className="text-text-primary">{engagement.splitPct}% artist / {100 - engagement.splitPct}% IAE</span></div>}
               </div>
             </div>

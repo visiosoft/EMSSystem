@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatDate, getStatusColor } from '@/data/constants';
+import { TOURS, ATTRACTIONS, COMPANIES, CONTACTS, DMAS, USERS, formatDate, getStatusColor, DEAL_TYPE_OPTIONS } from '@/data/constants';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Modal, FormField, ActionMenu } from './Primitives';
-import { TourForm, TOUR_STATUS_OPTIONS, DEAL_TYPE_OPTIONS } from './AttractionToursPage';
+import { TourForm, TOUR_STATUS_OPTIONS } from './AttractionToursPage';
 import type { Project, Offer, Engagement, Tour, Attraction } from '@/data/constants';
 import { Select2, toOptions, toObjOptions } from './Select2';
 
@@ -467,7 +467,7 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
           const config = venue?.venueProfile?.configurations.find((c: any) => c.isDefault);
           onSave({
             id: `ofr-${Date.now()}`, venueId, configName: config?.name || 'Default', proposedDates: [date], showTime: time,
-            dealType: tour?.dealType || 'Guarantee', guarantee: tour?.guarantee || 0, splitPct: tour?.splitPct || null, breakeven: tour?.breakeven || null,
+            dealType: 'Guarantee', guarantee: 0, splitPct: tour?.splitPct || null, breakeven: tour?.breakeven || null,
             marketingCoOp: 0, status: 'Draft',
           });
         }} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Add to Project</button>
@@ -483,8 +483,8 @@ interface PendingTour {
   status: string;
   startDate: string;
   endDate: string;
-  dealType: string;
-  guarantee: number;
+  talentAgentContactId: string;
+  tourTypeOrGenre: string;
   dmaIds: string[];
   attractionId: string;
   isValid: boolean;
@@ -499,7 +499,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
   const [tourId, setTourId] = useState('');
   const [pendingTour, setPendingTour] = useState<PendingTour>({
     name: '', status: 'ActiveRouting', startDate: '', endDate: '',
-    dealType: 'Guarantee', guarantee: 0, dmaIds: [], attractionId: '', isValid: false,
+    talentAgentContactId: '', tourTypeOrGenre: '', dmaIds: [], attractionId: '', isValid: false,
   });
 
   const [agentId, setAgentId] = useState('');
@@ -512,10 +512,10 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
   const selectedAttraction = ATTRACTIONS.find(a => a.id === attractionId);
   const attractionTours = TOURS.filter(t => t.attractionId === attractionId);
 
-  const agencyContacts = useMemo(() => {
-    if (!selectedAttraction) return [];
-    return CONTACTS.filter(c => c.companyId === selectedAttraction.agencyId);
-  }, [selectedAttraction]);
+  const agencyContacts = useMemo(
+    () => CONTACTS.filter(c => COMPANIES.find(co => co.id === c.companyId && co.type === 'TalentAgency')),
+    []
+  );
 
   const handleSelectAttraction = (id: string) => {
     setAttractionId(id);
@@ -605,7 +605,6 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
             </div>
             <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
               {ATTRACTIONS.map(a => {
-                const agency = COMPANIES.find(c => c.id === a.agencyId);
                 const tourCount = TOURS.filter(t => t.attractionId === a.id).length;
                 return (
                   <button
@@ -619,13 +618,12 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-text-primary font-medium text-sm">{a.name}</span>
-                      <StatusBadge status={a.iaeStatus} />
                     </div>
                     <div className="text-xs text-text-secondary mt-1">
-                      {a.genres.join(', ')} · {a.marketTier}
+                      {a.genres.join(', ')}
                     </div>
                     <div className="text-xs text-text-muted mt-0.5">
-                      {agency?.name} · {tourCount} tour{tourCount !== 1 ? 's' : ''}
+                      {tourCount} tour{tourCount !== 1 ? 's' : ''}
                     </div>
                   </button>
                 );
@@ -671,7 +669,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                     No existing tours for this artist. Switch to "Create New Tour" to add one.
                   </div>
                 ) : attractionTours.map(t => {
-                  const dealLabel = DEAL_TYPE_OPTIONS.find(d => d.value === t.dealType)?.label || t.dealType;
+                  const agent = CONTACTS.find(c => c.id === t.talentAgentContactId);
                   const statusLabel = TOUR_STATUS_OPTIONS.find(s => s.value === t.status)?.label || t.status;
                   return (
                     <button
@@ -690,7 +688,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                         </span>
                       </div>
                       <div className="text-xs text-text-secondary mt-1">
-                        {dealLabel} · {t.guarantee ? `$${t.guarantee.toLocaleString()} guarantee` : 'No guarantee set'}
+                        {t.tourTypeOrGenre}{agent ? ` · ${agent.firstName} ${agent.lastName}` : ''}
                       </div>
                       <div className="text-xs text-text-muted">
                         {t.startDate} → {t.endDate}
@@ -709,7 +707,8 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                 </div>
                 <TourForm
                   attractions={[selectedAttraction]}
-                  dmas={DMAS}
+                  companies={COMPANIES}
+                  contacts={CONTACTS}
                   wizardMode={true}
                   onChange={(data) => {
                     setPendingTour(prev => ({
@@ -733,7 +732,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Talent Agent</h3>
               <p className="text-xs text-text-muted">
-                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.name || 'the agency'} for this tour
+                Select a talent agent for this project
               </p>
             </div>
             {agencyContacts.length === 0 ? (
@@ -839,8 +838,8 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                       <span className="text-text-primary">{TOUR_STATUS_OPTIONS.find(s => s.value === pendingTour.status)?.label}</span>
                     </div>
                     <div>
-                      <span className="text-text-muted text-xs block">Deal Type</span>
-                      <span className="text-text-primary">{DEAL_TYPE_OPTIONS.find(d => d.value === pendingTour.dealType)?.label}</span>
+                      <span className="text-text-muted text-xs block">Tour Type / Genre</span>
+                      <span className="text-text-primary">{pendingTour.tourTypeOrGenre || '—'}</span>
                     </div>
                   </>
                 )}
