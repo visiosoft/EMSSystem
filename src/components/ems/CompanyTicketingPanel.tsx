@@ -76,7 +76,7 @@ export function CompanyTicketingPanel({
       });
       if (!res.updated) {
         addToast(
-          'No venue record for this company — seating type is only saved when a venue exists.',
+          'Add a venue profile on the Venue Profile tab before seating type can be saved.',
           'warning',
         );
         return;
@@ -97,8 +97,8 @@ export function CompanyTicketingPanel({
         </h3>
         <p className="text-sm text-text-secondary leading-relaxed max-w-2xl">
           Only <strong className="text-text-primary font-medium">seating type</strong> is
-          saved for companies that have a venue record. Other fields below are optional and
-          are not stored in the database.
+          saved for venues that already have a venue profile. Other fields below are
+          optional and are not saved yet.
         </p>
       </header>
 
@@ -106,7 +106,7 @@ export function CompanyTicketingPanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <span className={labelCls}>Ticketing system</span>
-            <p className={subCls}>Optional — not stored in the database.</p>
+            <p className={subCls}>Optional — not saved yet.</p>
             <Select2
               options={toOptions(TICKETING_SYSTEM_OPTIONS)}
               value={ticketingSystem}
@@ -127,7 +127,7 @@ export function CompanyTicketingPanel({
                   <span>Loading venue details…</span>
                 </>
               ) : vq.data == null ? (
-                'No venue row — save will show a warning.'
+                'No venue profile yet — save will show a warning.'
               ) : (
                 `Current: ${vq.data.seatingTypeName ?? '—'}`
               )}
@@ -142,7 +142,7 @@ export function CompanyTicketingPanel({
           </div>
           <div className="md:col-span-2">
             <span className={labelCls}>Venue website</span>
-            <p className={subCls}>Optional — not stored in the database.</p>
+            <p className={subCls}>Optional — not saved yet.</p>
             <input
               className={inputCls}
               type="url"

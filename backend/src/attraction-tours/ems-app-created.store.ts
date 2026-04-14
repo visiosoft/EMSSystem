@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 interface StoreShape {
   attractionIds: number[];
   tourIds: number[];
+  engagementIds: number[];
 }
 
 /**
@@ -14,7 +15,11 @@ interface StoreShape {
 @Injectable()
 export class EmsAppCreatedStore implements OnModuleInit {
   private readonly logger = new Logger(EmsAppCreatedStore.name);
-  private data: StoreShape = { attractionIds: [], tourIds: [] };
+  private data: StoreShape = {
+    attractionIds: [],
+    tourIds: [],
+    engagementIds: [],
+  };
 
   private get filePath(): string {
     const cwd = process.cwd();
@@ -31,7 +36,7 @@ export class EmsAppCreatedStore implements OnModuleInit {
     const fp = this.filePath;
     try {
       if (!existsSync(fp)) {
-        this.data = { attractionIds: [], tourIds: [] };
+        this.data = { attractionIds: [], tourIds: [], engagementIds: [] };
         return;
       }
       const raw = readFileSync(fp, 'utf8');
@@ -43,10 +48,13 @@ export class EmsAppCreatedStore implements OnModuleInit {
         tourIds: Array.isArray(parsed.tourIds)
           ? parsed.tourIds.map(Number).filter((n) => Number.isFinite(n))
           : [],
+        engagementIds: Array.isArray(parsed.engagementIds)
+          ? parsed.engagementIds.map(Number).filter((n) => Number.isFinite(n))
+          : [],
       };
     } catch (e) {
       this.logger.warn(`Could not load ${fp}: ${e}`);
-      this.data = { attractionIds: [], tourIds: [] };
+      this.data = { attractionIds: [], tourIds: [], engagementIds: [] };
     }
   }
 
@@ -75,11 +83,22 @@ export class EmsAppCreatedStore implements OnModuleInit {
     }
   }
 
+  recordEngagement(id: number) {
+    if (!this.data.engagementIds.includes(id)) {
+      this.data.engagementIds.push(id);
+      this.persist();
+    }
+  }
+
   canDeleteAttraction(id: number): boolean {
     return this.data.attractionIds.includes(id);
   }
 
   canDeleteTour(id: number): boolean {
     return this.data.tourIds.includes(id);
+  }
+
+  canDeleteEngagement(id: number): boolean {
+    return this.data.engagementIds.includes(id);
   }
 }

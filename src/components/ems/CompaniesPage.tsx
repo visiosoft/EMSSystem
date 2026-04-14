@@ -36,6 +36,7 @@ import {
 } from '@/api/companyApi';
 import { mapApiCompanyToCompany } from './companyMapping';
 import { CompanyTicketingPanel } from './CompanyTicketingPanel';
+import { CompanyVenueProfilePanel } from './CompanyVenueProfilePanel';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -1102,6 +1103,7 @@ export function CompaniesPage({ addToast }: Props) {
 
   const companies = companiesQuery.data ?? [];
   const seatingTypes: ApiSeatingType[] = lookupsQuery.data?.seatingTypes ?? [];
+  const venueTypes = lookupsQuery.data?.venueTypes ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
   const departments: ApiDepartment[] = lookupsQuery.data?.departments ?? [];
 
@@ -1117,6 +1119,23 @@ export function CompaniesPage({ addToast }: Props) {
   const selectedCompany = selectedCompanyId
     ? companies.find((c) => c.id === selectedCompanyId) ?? null
     : null;
+
+  const isVenueCompany =
+    selectedCompany?.type?.trim().toLowerCase() === 'venue';
+
+  const drawerTabs = useMemo(() => {
+    const base: string[] = ['Overview', 'Contacts', 'Engagements', 'Documents'];
+    return isVenueCompany ? [...base, 'Venue Profile', 'Ticketing'] : base;
+  }, [isVenueCompany]);
+
+  useEffect(() => {
+    if (
+      !isVenueCompany &&
+      (drawerTab === 'Venue Profile' || drawerTab === 'Ticketing')
+    ) {
+      setDrawerTab('Overview');
+    }
+  }, [isVenueCompany, drawerTab]);
 
   const contactsQuery = useQuery({
     queryKey: ['companies', selectedCompanyId, 'contacts'],
@@ -1444,11 +1463,7 @@ export function CompaniesPage({ addToast }: Props) {
             </button>
           </div>
 
-          <TabBar
-            tabs={['Overview', 'Contacts', 'Engagements', 'Documents', 'Ticketing']}
-            active={drawerTab}
-            onChange={setDrawerTab}
-          />
+          <TabBar tabs={drawerTabs} active={drawerTab} onChange={setDrawerTab} />
 
           <div className="p-4">
             {drawerTab === 'Overview' && (
@@ -1604,7 +1619,16 @@ export function CompaniesPage({ addToast }: Props) {
               </div>
             )}
 
-            {drawerTab === 'Ticketing' && lookupsQuery.data && (
+            {drawerTab === 'Venue Profile' && isVenueCompany && lookupsQuery.data && (
+              <CompanyVenueProfilePanel
+                company={selectedCompany}
+                venueTypes={venueTypes}
+                seatingTypes={seatingTypes}
+                addToast={addToast}
+              />
+            )}
+
+            {drawerTab === 'Ticketing' && isVenueCompany && lookupsQuery.data && (
               <CompanyTicketingPanel
                 company={selectedCompany}
                 seatingTypes={seatingTypes}

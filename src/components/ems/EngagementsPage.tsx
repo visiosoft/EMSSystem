@@ -1,158 +1,605 @@
-import React, { useState } from 'react';
-import { formatCurrency, getWorkflowDotColor, DEAL_TYPE_OPTIONS } from '@/data/constants';
-import { StatusBadge, SearchInput, FilterChips, ActionMenu } from './Primitives';
-import { Select2, toOptions, toObjOptions } from './Select2';
-import type { Engagement } from '@/data/constants';
-import { Modal, FormField } from './Primitives';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
+import {
+  SearchInput,
+  FilterChips,
+  Modal,
+  FormField,
+  ActionMenu,
+  StatusBadge,
+} from './Primitives';
+import { Select2, toOptions } from './Select2';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  createEngagement,
+  deleteEngagement,
+  fetchEngagements,
+  type ApiEngagementListRow,
+} from '@/api/engagementApi';
+import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
+import { fetchCompanies } from '@/api/companyApi';
+import { friendlyApiError } from '@/lib/friendlyApiError';
+import { DEAL_TYPE_OPTIONS, USERS } from '@/data/constants';
+import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
-function formatEngDate(str: string | null | undefined): string {
-  if (!str) return '—';
-  const d = new Date(str + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-}
+const PAGE_SIZE = 15;
 
 interface Props {
-  engagements: Engagement[];
-  companies: { id: string; name: string; city: string }[];
-  users: { id: string; name: string }[];
-  tours: { id: string; name: string }[];
-  onNavigate: (view: string, data?: any) => void;
+  onNavigate: (view: string, data?: Record<string, unknown>) => void;
   statusFilter?: string;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  onCreateEngagement: (engagement: Engagement) => void;
-  onDeleteEngagement: (engagementId: string) => void;
 }
 
-export function EngagementsPage({ engagements, companies, users, tours, onNavigate, statusFilter: initFilter, addToast, onCreateEngagement, onDeleteEngagement }: Props) {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
-  const [showCreate, setShowCreate] = useState(false);
-
-  const filtered = engagements.filter(e => {
-    if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (statusFilter !== 'All' && e.status !== statusFilter) return false;
-    return true;
-  });
-
-  const workflowKeys = ['marketing', 'production', 'eventBusiness', 'creative', 'sales', 'finance'] as const;
-  const workflowLabels = ['Marketing', 'Production', 'Event Business', 'Creative', 'Sales', 'Finance'];
-
+function EngagementsTableSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-xl font-semibold text-text-primary">Engagements</h1>
-        <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary">{filtered.length}</span>
-        <button onClick={() => setShowCreate(true)} className="bg-ems-accent hover:bg-ems-accent/80 text-background px-3 py-1 rounded text-xs font-medium">+ Create</button>
+    <div
+      className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 border-b border-border bg-surface/40">
+        <Loader2 className="h-11 w-11 text-ems-accent animate-spin shrink-0" aria-hidden />
+        <div className="text-center max-w-sm space-y-1">
+          <p className="text-sm font-semibold text-text-primary">Loading engagements</p>
+          <p className="text-xs text-text-muted leading-relaxed">
+            This may take a moment on large lists.
+          </p>
+        </div>
       </div>
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="w-full sm:w-64"><SearchInput value={search} onChange={setSearch} /></div>
-        <FilterChips options={['All', 'Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled']} active={statusFilter} onChange={setStatusFilter} />
-      </div>
-      <div className="bg-card border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm min-w-[800px]">
-          <thead><tr className="text-text-muted text-xs border-b border-border bg-surface">
-            <th className="text-left py-2.5 px-3">ID</th>
-            <th className="text-left py-2.5 px-3">Engagement</th>
-            <th className="text-left py-2.5 px-3">Show Date</th>
-            <th className="text-left py-2.5 px-3">Venue</th>
-            <th className="text-left py-2.5 px-3">Market</th>
-            <th className="text-left py-2.5 px-3">Booker</th>
-            <th className="text-right py-2.5 px-3">Proj. Gross</th>
-            <th className="text-center py-2.5 px-3">Depts</th>
-            <th className="text-left py-2.5 px-3">Status</th>
-          </tr></thead>
+      <div className="overflow-x-auto overflow-y-clip">
+        <table className="w-full text-sm min-w-[900px]">
+          <thead>
+            <tr className="text-text-muted text-xs border-b border-border bg-surface">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <th key={i} className="text-left py-2.5 px-3">
+                  <Skeleton className="h-3 w-16" />
+                </th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
-            {filtered.map(eng => {
-              const venue = companies.find(c => c.id === eng.venueId);
-              const booker = users.find(u => u.id === eng.bookerId);
-              return (
-                <tr key={eng.id} onClick={() => onNavigate('engagement-detail', { engagementId: eng.id })}
-                  className="border-b border-border/50 hover:bg-hover cursor-pointer">
-                  <td className="py-2.5 px-3 font-mono text-xs text-text-muted">{eng.id.toUpperCase()}</td>
-                  <td className="py-2.5 px-3 text-text-primary font-medium max-w-[250px] truncate">{eng.name}</td>
-                  <td className="py-2.5 px-3 text-xs text-text-secondary whitespace-nowrap">{formatEngDate(eng.showDates[0]?.date)}{eng.showDates.length > 1 && <span className="ml-1 text-text-muted">+{eng.showDates.length - 1}</span>}</td>
-                  <td className="py-2.5 px-3 text-text-secondary">{venue?.name}</td>
-                  <td className="py-2.5 px-3 text-text-secondary text-xs">{venue?.city}</td>
-                  <td className="py-2.5 px-3 text-text-secondary">{booker?.name}</td>
-                  <td className="py-2.5 px-3 text-right font-mono text-xs">{formatCurrency(eng.projectedGross)}</td>
-                  <td className="py-2.5 px-3">
-                    <div className="flex items-center justify-center gap-1" title={workflowKeys.map((k, i) => `${workflowLabels[i]}: ${eng.workflows[k].status}`).join('\n')}>
-                      {workflowKeys.map(k => (
-                        <div key={k} className={`w-2.5 h-2.5 rounded-full ${getWorkflowDotColor(eng.workflows[k].status)}`} />
-                      ))}
-                    </div>
+            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+              <tr key={i} className="border-b border-border/50">
+                {Array.from({ length: 9 }).map((__, j) => (
+                  <td key={j} className="py-2.5 px-3">
+                    <Skeleton className="h-4 w-full max-w-[10rem]" />
                   </td>
-                  <td className="py-2.5 px-3"><StatusBadge status={eng.status} /></td>
-                  <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
-                    <ActionMenu items={[{ label: 'Delete', onClick: () => { onDeleteEngagement(eng.id); addToast('Engagement deleted', 'warning'); }, danger: true }]} />
-                  </td>
-                </tr>
-              );
-            })}
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      {showCreate && (
-        <Modal title="Create Engagement" onClose={() => setShowCreate(false)} width={600}>
-          <CreateEngagementForm companies={companies} users={users} tours={tours} onSave={(eng) => { onCreateEngagement(eng); setShowCreate(false); addToast('Engagement created', 'success'); }} onCancel={() => setShowCreate(false)} />
-        </Modal>
-      )}
     </div>
   );
 }
 
-function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { onSave: (e: Engagement) => void; onCancel: () => void; companies: { id: string; name: string }[]; users: { id: string; name: string }[]; tours: { id: string; name: string }[] }) {
-  const [name, setName] = useState('');
-  const [tourId, setTourId] = useState(tours[0]?.id || '');
-  const [venueId, setVenueId] = useState(companies[0]?.id || '');
-  const [bookerId, setBookerId] = useState(users[0]?.id || '');
-  const [date, setDate] = useState('');
-  const [status, setStatus] = useState('Draft');
-  const [dealType, setDealType] = useState('Guarantee');
-  const [guarantee, setGuarantee] = useState('0');
+export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast }: Props) {
+  const qc = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
+  const [page, setPage] = useState(1);
+  const [showCreate, setShowCreate] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<ApiEngagementListRow | null>(null);
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+  useEffect(() => {
+    if (initFilter) setStatusFilter(initFilter);
+  }, [initFilter]);
+
+  const engagementsQuery = useQuery({
+    queryKey: ['engagements'],
+    queryFn: fetchEngagements,
+  });
+
+  const lookupsQuery = useQuery({
+    queryKey: ['engagements-lookups'],
+    queryFn: async () => {
+      const [attractions, tours, companies] = await Promise.all([
+        fetchAttractions(),
+        fetchTours(),
+        fetchCompanies(),
+      ]);
+      return { attractions, tours, companies };
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteEngagement(id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements'] });
+      addToast('Engagement removed.', 'success');
+      setPendingDelete(null);
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const rows = engagementsQuery.data ?? [];
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (statusFilter !== 'All' && r.engagementStatus !== statusFilter) return false;
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      const hay = [
+        r.displayTitle,
+        r.attractionName,
+        r.tourName ?? '',
+        r.venueCompanyName ?? '',
+        r.venueName ?? '',
+        r.dmaMarketName ?? '',
+        r.engagementStatus,
+        String(r.engagementId),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [rows, search, statusFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageClamped = Math.min(page, pageCount);
+  const pageRows = filtered.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE);
+  const rangeStart = filtered.length === 0 ? 0 : (pageClamped - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(pageClamped * PAGE_SIZE, filtered.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const loading = engagementsQuery.isPending || lookupsQuery.isPending;
+  const refreshing =
+    (engagementsQuery.isFetching && !engagementsQuery.isPending) ||
+    (lookupsQuery.isFetching && !lookupsQuery.isPending);
+  const error = engagementsQuery.error || lookupsQuery.error;
 
   return (
-    <div className="space-y-3">
-      <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Tour"><Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} /></FormField>
-        <FormField label="Venue"><Select2 options={toObjOptions(companies, c => c.name)} value={venueId} onChange={setVenueId} /></FormField>
+    <div className="space-y-4">
+      {refreshing && !loading && (
+        <div
+          className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden"
+          aria-hidden
+        >
+          <div className="h-full w-1/3 animate-pulse bg-ems-accent/90" />
+        </div>
+      )}
+
+      {error && (
+        <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
+          Could not load engagements. {friendlyApiError(error)}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-xl font-semibold text-text-primary">Engagements</h1>
+          {loading ? (
+            <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
+          ) : (
+            <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
+              {filtered.length}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          disabled={loading || !lookupsQuery.data}
+          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          + Add Engagement
+        </button>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Booker"><Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} /></FormField>
-        <FormField label="Status"><Select2 options={toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled'])} value={status} onChange={setStatus} /></FormField>
+
+      <div className="flex flex-col gap-3">
+        <div className="w-full sm:w-64">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search engagements..."
+            disabled={loading}
+          />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterChips
+            options={['All', ...ENGAGEMENT_STATUS_ENUM]}
+            active={statusFilter}
+            onChange={setStatusFilter}
+            disabled={loading}
+          />
+        </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <FormField label="Deal Type"><Select2 options={DEAL_TYPE_OPTIONS} value={dealType} onChange={setDealType} /></FormField>
-        <FormField label="Guarantee Amount ($)"><input type="number" className={inputCls} value={guarantee} onChange={e => setGuarantee(e.target.value)} placeholder="0" /></FormField>
-      </div>
-      <FormField label="Show Date">
-        <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
-        {date && <div className="text-xs text-text-muted mt-1">{new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>}
-      </FormField>
-      <div className="flex justify-end gap-2 pt-2 border-t border-border">
-        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
-        <button onClick={() => onSave({
-          id: `eng-${Date.now()}`,
-          name: name || 'New Engagement',
-          tourId, venueId, configName: 'Default', bookerId,
-          projectId: 'manual', offerId: null,
-          showDates: [{ date, doorTime: '19:00', showTime: '20:00', runtime: 120 }],
-          showCount: 1, status,
-          dealType, guarantee: Number(guarantee) || 0, splitPct: null, breakeven: null,
-          projectedGross: 0, projectedMargin: 0, actualGross: null, actualMargin: null,
-          workflows: {
-            marketing: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-            production: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 6 },
-            eventBusiness: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 6 },
-            creative: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-            sales: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 4 },
-            finance: { status: 'NotStarted', assigneeId: bookerId, notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-          },
-        })} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Create</button>
-      </div>
+
+      {loading ? (
+        <EngagementsTableSkeleton />
+      ) : (
+        <>
+          <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+            <table className="w-full text-sm min-w-[960px]">
+              <thead>
+                <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                  <th className="text-left py-2.5 px-3">ID</th>
+                  <th className="text-left py-2.5 px-3">Engagement</th>
+                  <th className="text-left py-2.5 px-3">Attraction</th>
+                  <th className="text-left py-2.5 px-3">Tour</th>
+                  <th className="text-left py-2.5 px-3">Venue</th>
+                  <th className="text-left py-2.5 px-3">Market</th>
+                  <th className="text-left py-2.5 px-3">Status</th>
+                  <th className="text-left py-2.5 px-3">Scaling</th>
+                  <th className="w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && !engagementsQuery.isError && (
+                  <tr>
+                    <td colSpan={9} className="py-12 px-3 text-center text-sm text-text-muted">
+                      {rows.length === 0
+                        ? 'No engagements loaded yet.'
+                        : 'No engagements match your search or filters.'}
+                    </td>
+                  </tr>
+                )}
+                {pageRows.map((r) => (
+                  <tr
+                    key={r.engagementId}
+                    onClick={() =>
+                      onNavigate('engagement-detail', { engagementId: r.engagementId })
+                    }
+                    className="border-b border-border/50 hover:bg-hover cursor-pointer"
+                  >
+                    <td className="py-2.5 px-3 font-mono text-xs text-text-muted tabular-nums">
+                      #{r.engagementId}
+                    </td>
+                    <td className="py-2.5 px-3 text-text-primary font-medium max-w-[280px] truncate" title={r.displayTitle}>
+                      {r.displayTitle}
+                    </td>
+                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">{r.attractionName}</td>
+                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">{r.tourName ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-text-secondary max-w-[180px] truncate">
+                      {r.venueCompanyName ?? r.venueName ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-xs text-text-secondary max-w-[140px] truncate">
+                      {r.dmaMarketName ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <StatusBadge status={r.engagementStatus} />
+                    </td>
+                    <td className="py-2.5 px-3 text-xs text-text-muted">{r.engagementScaling ?? '—'}</td>
+                    <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'View details',
+                            onClick: () =>
+                              onNavigate('engagement-detail', { engagementId: r.engagementId }),
+                          },
+                          ...(r.appCreated
+                            ? [
+                                {
+                                  label: 'Delete',
+                                  danger: true as const,
+                                  onClick: () => setPendingDelete(r),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {filtered.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
+              <p className="tabular-nums">
+                Showing{' '}
+                <span className="text-text-primary font-medium">
+                  {rangeStart}–{rangeEnd}
+                </span>{' '}
+                of <span className="text-text-primary font-medium">{filtered.length}</span>
+                {filtered.length > PAGE_SIZE && (
+                  <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                )}
+              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={pageClamped <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <span className="text-text-muted tabular-nums px-1">
+                  Page {pageClamped} / {pageCount}
+                </span>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={pageClamped >= pageCount}
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {showCreate && lookupsQuery.data && (
+        <CreateEngagementModal
+          attractions={lookupsQuery.data.attractions}
+          tours={lookupsQuery.data.tours}
+          companies={lookupsQuery.data.companies}
+          onClose={() => setShowCreate(false)}
+          addToast={addToast}
+          onCreated={async () => {
+            await qc.invalidateQueries({ queryKey: ['engagements'] });
+            setShowCreate(false);
+          }}
+        />
+      )}
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete engagement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes engagement #{pendingDelete?.engagementId}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.engagementId)}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+function CreateEngagementModal({
+  attractions,
+  tours,
+  companies,
+  onClose,
+  addToast,
+  onCreated,
+}: {
+  attractions: { attractionId: number; attractionName: string }[];
+  tours: { tourId: number; tourName: string; attractionId: number }[];
+  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  onClose: () => void;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onCreated: () => Promise<void>;
+}) {
+  const venueCompanies = useMemo(
+    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    [companies],
+  );
+
+  const attractionOptions = useMemo(() => {
+    return [...attractions]
+      .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
+      .map((a) => ({ value: String(a.attractionId), label: a.attractionName }));
+  }, [attractions]);
+
+  const venueOptions = useMemo(() => {
+    return [...venueCompanies]
+      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
+      .map((v) => ({ value: String(v.companyId), label: v.companyName }));
+  }, [venueCompanies]);
+
+  const dealTypeOptions = useMemo(
+    () => DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    [],
+  );
+
+  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
+
+  const bookerOptions = useMemo(
+    () => USERS.map((u) => ({ value: u.id, label: `${u.name} (${u.role})` })),
+    [],
+  );
+
+  const [attractionId, setAttractionId] = useState<string>(
+    attractions[0] ? String(attractions[0].attractionId) : '',
+  );
+  const [tourId, setTourId] = useState<string>('');
+  const [primaryVenueId, setPrimaryVenueId] = useState<string>(
+    venueCompanies[0] ? String(venueCompanies[0].companyId) : '',
+  );
+  const [recordStatus, setRecordStatus] = useState<string>('Unknown');
+  const [engagementName, setEngagementName] = useState('');
+  const [bookerId, setBookerId] = useState<string>('');
+  const [dealType, setDealType] = useState(DEAL_TYPE_OPTIONS[0]?.value ?? 'Guarantee');
+  const [guarantee, setGuarantee] = useState('');
+  const [showDate, setShowDate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const attractionIdNum = attractionId ? Number(attractionId) : NaN;
+
+  const toursForAttraction = useMemo(() => {
+    if (!Number.isFinite(attractionIdNum)) return [];
+    return tours.filter((t) => t.attractionId === attractionIdNum);
+  }, [tours, attractionIdNum]);
+
+  const tourOptions = useMemo(
+    () => toursForAttraction.map((t) => ({ value: String(t.tourId), label: t.tourName })),
+    [toursForAttraction],
+  );
+
+  useEffect(() => {
+    setTourId('');
+  }, [attractionId]);
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+
+  const handleSubmit = async () => {
+    if (!attractionId || !primaryVenueId) {
+      addToast('Select an attraction and a primary venue.', 'warning');
+      return;
+    }
+    if (!recordStatus.trim()) {
+      addToast('Status is required.', 'warning');
+      return;
+    }
+    if (recordStatus.trim().length > 50) {
+      addToast('Status must be at most 50 characters.', 'warning');
+      return;
+    }
+    const tid = tourId ? Number(tourId) : null;
+    if (tourId && !Number.isFinite(tid)) {
+      addToast('Invalid tour.', 'warning');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createEngagement({
+        engagementStatus: recordStatus.trim(),
+        engagementScaling: null,
+        attractionId: Number(attractionId),
+        tourId: tid,
+        primaryVenueCompanyId: Number(primaryVenueId),
+      });
+      addToast('Engagement created.', 'success');
+      await onCreated();
+    } catch (e) {
+      addToast(friendlyApiError(e), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title="Create Engagement" onClose={onClose} width={960} allowContentOverflow>
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Status" required>
+            <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
+          </FormField>
+          <FormField label="Engagement name (optional)">
+            <input
+              className={inputCls}
+              value={engagementName}
+              onChange={(e) => setEngagementName(e.target.value)}
+              placeholder="Display name for your team"
+              maxLength={300}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction" required>
+            <Select2
+              options={attractionOptions}
+              value={attractionId}
+              onChange={setAttractionId}
+              placeholder="Select attraction…"
+            />
+          </FormField>
+          <FormField label="Tour (optional)">
+            <Select2
+              options={tourOptions}
+              value={tourId}
+              onChange={setTourId}
+              placeholder="No tour"
+              allowClear
+              disabled={!attractionId}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Primary venue" required>
+            <Select2
+              options={venueOptions}
+              value={primaryVenueId}
+              onChange={setPrimaryVenueId}
+              placeholder="Select venue…"
+            />
+          </FormField>
+          <FormField label="Booker (optional)">
+            <Select2
+              options={bookerOptions}
+              value={bookerId}
+              onChange={setBookerId}
+              placeholder="Select booker…"
+              allowClear
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Deal type (optional)">
+            <Select2
+              options={dealTypeOptions}
+              value={dealType}
+              onChange={setDealType}
+              placeholder="Select…"
+            />
+          </FormField>
+          <FormField label="Guarantee (optional)">
+            <input
+              type="number"
+              className={inputCls}
+              value={guarantee}
+              onChange={(e) => setGuarantee(e.target.value)}
+              placeholder="0"
+              min={0}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Show date (optional)">
+            <input type="date" className={inputCls} value={showDate} onChange={(e) => setShowDate(e.target.value)} />
+          </FormField>
+        </div>
+
+        <div className="flex gap-2 justify-end pt-4 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+            disabled={submitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={submitting}
+            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Saving…' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

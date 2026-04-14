@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
 import { CompanyModule } from './company/company.module';
+import { EngagementsModule } from './engagements/engagements.module';
 
 const parseBoolean = (
   value: string | undefined,
@@ -42,6 +43,7 @@ const parseBoolean = (
     }),
     CompanyModule,
     AttractionToursModule,
+    EngagementsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

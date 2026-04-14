@@ -43,6 +43,29 @@ export interface ApiSeatingType {
   seatingName: string;
 }
 
+export interface ApiVenueType {
+  venueTypeId: number;
+  venueTypeName: string;
+}
+
+export type ApiVenueProfileResponse =
+  | { missing: true }
+  | {
+      missing: false;
+      companyId: number;
+      venueName: string;
+      seatingCapacity: number;
+      salesTaxRate: string | null;
+      taxInCart: boolean;
+      insuranceLanguage: string | null;
+      insurancePolicyCopyRequirements: string | null;
+      venueRelationshipIae: string;
+      venueTypeId: number | null;
+      venueTypeName: string | null;
+      seatingTypeId: number | null;
+      seatingTypeName: string | null;
+    };
+
 export interface ApiCompanyContact {
   contactAssignmentId: number;
   contactId: number;
@@ -184,6 +207,39 @@ export function fetchVenueTicketing(companyId: number) {
   );
 }
 
+export function fetchVenueProfile(companyId: number) {
+  return apiFetch<ApiVenueProfileResponse>(
+    `/companies/${companyId}/venue-profile`,
+  );
+}
+
+export function provisionVenueProfile(companyId: number) {
+  return apiFetch<{ created: boolean }>(
+    `/companies/${companyId}/venue-profile/provision`,
+    { method: 'POST' },
+  );
+}
+
+export function updateVenueProfile(
+  companyId: number,
+  body: Partial<{
+    venueName: string;
+    seatingCapacity: number;
+    salesTaxRate: string | null;
+    taxInCart: boolean;
+    insuranceLanguage: string | null;
+    insurancePolicyCopyRequirements: string | null;
+    venueRelationshipIae: string;
+    venueTypeId: number | null;
+    seatingTypeId: number | null;
+  }>,
+) {
+  return apiFetch<void>(`/companies/${companyId}/venue-profile`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
 export function updateVenueTicketing(
   companyId: number,
   body: { seatingTypeId?: number | null },
@@ -200,11 +256,13 @@ export function fetchLookups() {
     apiFetch<ApiRole[]>('/lookups/roles'),
     apiFetch<ApiDepartment[]>('/lookups/departments'),
     apiFetch<ApiSeatingType[]>('/lookups/seating-types'),
-  ]).then(([companyTypes, roles, departments, seatingTypes]) => ({
+    apiFetch<ApiVenueType[]>('/lookups/venue-types'),
+  ]).then(([companyTypes, roles, departments, seatingTypes, venueTypes]) => ({
     companyTypes,
     roles,
     departments,
     seatingTypes,
+    venueTypes,
   }));
 }
 

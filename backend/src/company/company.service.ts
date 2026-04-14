@@ -10,6 +10,7 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { Address } from '../entities/address.entity';
+import { CompanyType } from '../entities/company-type.entity';
 import { Company } from '../entities/company.entity';
 import { ContactAssignment } from '../entities/contact-assignment.entity';
 import { ContactInfo } from '../entities/contact-info.entity';
@@ -25,6 +26,7 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateVenueTicketingDto } from './dto/update-venue-ticketing.dto';
+import { UpdateVenueProfileDto } from './dto/update-venue-profile.dto';
 
 export interface CompanyListRow {
   companyId: number;
@@ -253,8 +255,146 @@ export class CompanyService {
         mailingAddressId: mailingId,
         dmaid: dmaId,
       });
-      return em.save(Company, company);
+      const saved = await em.save(Company, company);
+      await this.ensureVenueRowForNewVenueCompany(em, saved);
+      return saved;
     });
+  }
+
+  /** Default dbo.Venue row when registering a company whose type is Venue (1:1 with Company). */
+  private newVenuePayload(companyId: number, companyName: string): Partial<Venue> {
+    return {
+      companyId,
+      venueName: companyName.trim().slice(0, 200),
+      seatingCapacity: 0,
+      salesTaxRate: null,
+      taxInCart: false,
+      insuranceLanguage: null,
+      insurancePolicyCopyRequirements: null,
+      venueRelationshipIae: 'Standard',
+      venueTypeId: null,
+      seatingTypeId: null,
+      loadDockAddressId: null,
+      nonResidentWithholdingId: null,
+    };
+  }
+
+  private async ensureVenueRowForNewVenueCompany(
+    em: EntityManager,
+    company: Company,
+  ): Promise<void> {
+    const ct = await em.findOne(CompanyType, {
+      where: { companyTypeId: company.companyTypeId },
+    });
+    if (!ct || ct.companyTypeName.trim().toLowerCase() !== 'venue') {
+      return;
+    }
+    const existing = await em.findOne(Venue, {
+      where: { companyId: company.companyId },
+    });
+    if (existing) return;
+    const venue = em.create(Venue, this.newVenuePayload(company.companyId, company.companyName));
+    await em.save(Venue, venue);
+  }
+
+  private async assertVenueCompanyForProfile(companyId: number): Promise<Company> {
+    const c = await this.companyRepo.findOne({
+      where: { companyId },
+      relations: { companyType: true },
+    });
+    if (!c) {
+      throw new NotFoundException(`Company ${companyId} not found`);
+    }
+    if (c.companyType.companyTypeName.trim().toLowerCase() !== 'venue') {
+      throw new BadRequestException(
+        'Venue profile is only available for companies with type Venue.',
+      );
+    }
+    return c;
+  }
+
+  async getVenueProfile(companyId: number) {
+    await this.assertVenueCompanyForProfile(companyId);
+    const venue = await this.venueRepo.findOne({
+      where: { companyId },
+      relations: { venueType: true, seatingType: true },
+    });
+    if (!venue) {
+      return { missing: true as const };
+    }
+    return {
+      missing: false as const,
+      companyId: venue.companyId,
+      venueName: venue.venueName,
+      seatingCapacity: venue.seatingCapacity,
+      salesTaxRate: venue.salesTaxRate,
+      taxInCart: venue.taxInCart,
+      insuranceLanguage: venue.insuranceLanguage,
+      insurancePolicyCopyRequirements: venue.insurancePolicyCopyRequirements,
+      venueRelationshipIae: venue.venueRelationshipIae,
+      venueTypeId: venue.venueTypeId,
+      venueTypeName: venue.venueType?.venueTypeName ?? null,
+      seatingTypeId: venue.seatingTypeId,
+      seatingTypeName: venue.seatingType?.seatingName ?? null,
+    };
+  }
+
+  async provisionVenueProfile(
+    companyId: number,
+  ): Promise<{ created: boolean }> {
+    const c = await this.assertVenueCompanyForProfile(companyId);
+    const existing = await this.venueRepo.findOne({ where: { companyId } });
+    if (existing) {
+      return { created: false };
+    }
+    const venue = this.venueRepo.create(
+      this.newVenuePayload(companyId, c.companyName),
+    );
+    await this.venueRepo.save(venue);
+    return { created: true };
+  }
+
+  async updateVenueProfile(
+    companyId: number,
+    dto: UpdateVenueProfileDto,
+  ): Promise<void> {
+    await this.assertVenueCompanyForProfile(companyId);
+    const venue = await this.venueRepo.findOne({ where: { companyId } });
+    if (!venue) {
+      throw new NotFoundException({
+        message:
+          'No venue profile exists for this company yet. Use Create venue profile first.',
+      });
+    }
+    if (dto.venueName !== undefined) {
+      venue.venueName = dto.venueName.trim().slice(0, 200);
+    }
+    if (dto.seatingCapacity !== undefined) {
+      venue.seatingCapacity = dto.seatingCapacity;
+    }
+    if (dto.salesTaxRate !== undefined) {
+      venue.salesTaxRate = dto.salesTaxRate?.trim() || null;
+    }
+    if (dto.taxInCart !== undefined) {
+      venue.taxInCart = dto.taxInCart;
+    }
+    if (dto.insuranceLanguage !== undefined) {
+      venue.insuranceLanguage = dto.insuranceLanguage?.trim() || null;
+    }
+    if (dto.insurancePolicyCopyRequirements !== undefined) {
+      venue.insurancePolicyCopyRequirements =
+        dto.insurancePolicyCopyRequirements?.trim() || null;
+    }
+    if (dto.venueRelationshipIae !== undefined) {
+      venue.venueRelationshipIae = dto.venueRelationshipIae.trim().slice(0, 100);
+    }
+    if (dto.venueTypeId !== undefined) {
+      venue.venueTypeId = dto.venueTypeId;
+    }
+    if (dto.seatingTypeId !== undefined) {
+      venue.seatingTypeId = dto.seatingTypeId;
+    }
+    await this.venueRepo.save(venue);
   }
 
   async update(companyId: number, dto: UpdateCompanyDto): Promise<Company> {

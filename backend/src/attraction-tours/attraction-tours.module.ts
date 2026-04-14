@@ -25,5 +25,6 @@ import { TourService } from './tour.service';
   ],
   controllers: [AttractionController, TourController],
   providers: [AttractionService, TourService, EmsAppCreatedStore],
+  exports: [AttractionService, TourService, EmsAppCreatedStore],
 })
 export class AttractionToursModule {}

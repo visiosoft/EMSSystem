@@ -1,632 +1,873 @@
-import React, { useState } from 'react';
-import { formatCurrency, DEAL_TYPE_OPTIONS } from '@/data/constants';
-import { StatusBadge, Avatar, TabBar, Modal, ProgressBar, Drawer } from './Primitives';
-import { Select2, toOptions } from './Select2';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Engagement } from '@/data/constants';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
+import { Modal, FormField, TabBar } from './Primitives';
+import { Select2, toOptions } from './Select2';
+import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  createEngagementPerformance,
+  deleteEngagement,
+  fetchEngagement,
+  fetchEngagementPerformances,
+  updateEngagement,
+  type ApiEngagementListRow,
+} from '@/api/engagementApi';
+import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
+import { fetchCompanies, fetchCompanyContacts } from '@/api/companyApi';
+import { friendlyApiError } from '@/lib/friendlyApiError';
+import { DEAL_TYPE_OPTIONS, USERS } from '@/data/constants';
+import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
-function formatFullDate(str: string | null | undefined): string {
-  if (!str) return '—';
-  const d = new Date(str + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+function formatPerformanceDateDisplay(isoDate: string): string {
+  try {
+    const d = new Date(`${isoDate}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return isoDate;
+    return d.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return isoDate;
+  }
 }
 
-function formatShortDate(str: string | null | undefined): string {
-  if (!str) return '—';
-  const d = new Date(str + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+function formatPerformanceTimeDisplay(sqlTime: string): string {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(sqlTime.trim());
+  if (!m) return sqlTime;
+  const d = new Date();
+  d.setHours(Number(m[1]), Number(m[2]), m[3] != null ? Number(m[3]) : 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
-
-function formatTimeDisplay(time: string): string {
-  if (!time) return '';
-  const [h, m] = time.split(':');
-  const hr = parseInt(h);
-  const ampm = hr >= 12 ? 'PM' : 'AM';
-  const disp = hr % 12 || 12;
-  return `${disp}:${m} ${ampm}`;
-}
-
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: string;
-  details: string;
-  type: 'create' | 'update' | 'delete' | 'upload' | 'status' | 'workflow';
-}
-
-const INITIAL_AUDIT: AuditEntry[] = [
-  { id: 'a1', timestamp: '2025-10-01T08:03:00', user: 'S. Kim', action: 'Status changed', details: 'Confirmed → On Sale', type: 'status' },
-  { id: 'a2', timestamp: '2025-09-29T15:15:00', user: 'J. Okafor', action: 'Document uploaded', details: 'Contract - Draft v2.docx', type: 'upload' },
-  { id: 'a3', timestamp: '2025-09-28T11:22:00', user: 'M. Thompson', action: 'Workflow updated', details: 'Production: Audio advance complete', type: 'workflow' },
-  { id: 'a4', timestamp: '2025-09-25T09:44:00', user: 'A. Rivera', action: 'Creative asset approved', details: 'Event Poster - Final.tiff', type: 'upload' },
-  { id: 'a5', timestamp: '2025-09-22T14:30:00', user: 'J. Okafor', action: 'Contract updated', details: 'Sent → Awaiting execution', type: 'update' },
-  { id: 'a6', timestamp: '2025-09-18T10:15:00', user: 'S. Kim', action: 'Contact assigned', details: 'Jake Morrison (Tour Manager)', type: 'update' },
-  { id: 'a7', timestamp: '2025-09-15T16:00:00', user: 'S. Kim', action: 'Status changed', details: 'Draft → Confirmed', type: 'status' },
-  { id: 'a8', timestamp: '2025-09-15T15:58:00', user: 'System', action: 'Engagement created', details: 'Created from Offer OFR-001', type: 'create' },
-];
-
-function formatAuditTimestamp(ts: string): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' +
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
-const AUDIT_TYPE_COLORS: Record<string, string> = {
-  create: 'bg-ems-green-dim text-ems-green',
-  update: 'bg-ems-blue-dim text-ems-blue',
-  delete: 'bg-ems-coral-dim text-ems-coral',
-  upload: 'bg-ems-purple-dim text-ems-purple',
-  status: 'bg-ems-amber-dim text-ems-amber',
-  workflow: 'bg-elevated text-text-secondary',
-};
-
-const DEPARTMENTS = [
-  { key: 'marketing', label: 'Marketing', icon: '🎯', color: 'text-ems-blue' },
-  { key: 'production', label: 'Production', icon: '🔧', color: 'text-ems-amber' },
-  { key: 'business', label: 'Business', icon: '📋', color: 'text-ems-accent' },
-  { key: 'creative', label: 'Creative', icon: '🎨', color: 'text-ems-purple' },
-  { key: 'finance', label: 'Finance', icon: '💰', color: 'text-ems-green' },
-] as const;
-
-type DeptKey = 'marketing' | 'production' | 'business' | 'creative' | 'finance';
-
-const DEPT_MILESTONES: Record<DeptKey, string[]> = {
-  marketing: ['On-sale announcement drafted', 'Social media campaign launched', 'Media buy executed', 'Press release distributed', 'Final marketing recap'],
-  production: ['Rider delivered to venue', 'Advance call completed', 'Stage plot approved', 'Audio advance complete', 'Lighting advance', 'Power advance'],
-  business: ['Deal memo signed', 'Contract drafted', 'Contract sent', 'Contract executed', 'Ticketing manifest finalized', 'Insurance COIs received'],
-  creative: ['Event poster received', 'IAE review complete', 'Artist approval received', 'Digital assets deployed', 'In-venue signage deployed'],
-  finance: ['Budget approved', 'Venue deposit paid', 'Talent guarantee scheduled', 'Labor invoices processed', 'Post-show settlement'],
-};
-
-const DEPT_DOCS: Record<DeptKey, { name: string; type: string; by: string; date: string; size: string }[]> = {
-  marketing: [
-    { name: 'Media Buy Plan Q4.pdf', type: 'PDF', by: 'S. Kim', date: 'Oct 1', size: '312 KB' },
-    { name: 'Social Assets Pack.zip', type: 'ZIP', by: 'A. Rivera', date: 'Oct 3', size: '45 MB' },
-  ],
-  production: [
-    { name: 'Technical Rider - Afterglow.pdf', type: 'PDF', by: 'M. Thompson', date: 'Apr 16', size: '1.2 MB' },
-    { name: 'Stage Plot.pdf', type: 'PDF', by: 'M. Thompson', date: 'Apr 16', size: '890 KB' },
-  ],
-  business: [
-    { name: 'Deal Memo - Signed.pdf', type: 'PDF', by: 'J. Okafor', date: 'Apr 15', size: '248 KB' },
-    { name: 'Contract - Draft v2.docx', type: 'DOCX', by: 'J. Okafor', date: 'Apr 18', size: '312 KB' },
-    { name: 'Artist Insurance COI.pdf', type: 'PDF', by: 'J. Okafor', date: 'Apr 19', size: '198 KB' },
-  ],
-  creative: [
-    { name: 'Event Poster - Final.tiff', type: 'TIFF', by: 'A. Rivera', date: 'Apr 20', size: '45 MB' },
-  ],
-  finance: [
-    { name: 'Settlement Worksheet Draft.xlsx', type: 'XLSX', by: 'P. Sharma', date: 'Apr 22', size: '128 KB' },
-  ],
-};
 
 interface Props {
-  engagement: Engagement;
-  engagements: Engagement[];
-  onNavigate: (view: string, data?: any) => void;
+  engagementId: number;
+  onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  onUpdateEngagement: (eng: Engagement) => void;
-  onDeleteEngagement: (engagementId: string) => void;
-  companies: { id: string; name: string; city: string; state: string; venueProfile?: any }[];
-  tours: { id: string; name: string; attractionId: string; contacts?: { contactId: string; role: string }[] }[];
-  attractions: { id: string; name: string }[];
-  users: { id: string; name: string; email: string }[];
-  contacts: { id: string; firstName: string; lastName: string; title: string; email: string; phone: string; companyId: string }[];
 }
 
-export function EngagementDetailPage({ engagement, engagements, onNavigate, addToast, onUpdateEngagement, onDeleteEngagement, companies, tours, attractions, users, contacts }: Props) {
+/** Local demo engagement (string id) — open a numeric engagement from the list for saved details. */
+export function LegacyEngagementDetailPage({
+  engagement,
+  onNavigate,
+}: {
+  engagement: Engagement;
+  onNavigate: (view: string, data?: Record<string, unknown>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => onNavigate('engagements')}
+        className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1"
+      >
+        ← Back to Engagements
+      </button>
+      <div className="bg-card border border-amber-500/25 rounded-lg p-4 space-y-2">
+        <p className="text-xs text-amber-800 dark:text-amber-400/90">
+          This engagement uses a local demo id. Use an engagement from the main list for full detail.
+        </p>
+        <h1 className="text-lg font-semibold text-text-primary">{engagement.name}</h1>
+        <p className="text-xs text-text-muted">ID {engagement.id}</p>
+        <div className="text-sm text-text-secondary pt-2 border-t border-border">Status: {engagement.status}</div>
+      </div>
+    </div>
+  );
+}
+
+export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Props) {
+  const qc = useQueryClient();
   const [tab, setTab] = useState('Overview');
-  const [activeDept, setActiveDept] = useState<DeptKey>('marketing');
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showSettlement, setShowSettlement] = useState(false);
-  const [showAddDate, setShowAddDate] = useState(false);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>(INITIAL_AUDIT);
+  const [showEdit, setShowEdit] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
+  /** Optional — not saved with this screen. */
+  const [overviewNotes, setOverviewNotes] = useState('');
 
-  const venue = companies.find(c => c.id === engagement.venueId);
-  const tour = tours.find(t => t.id === engagement.tourId);
-  const attr = tour ? attractions.find(a => a.id === tour.attractionId) : null;
-  const booker = users.find(u => u.id === engagement.bookerId);
+  const detailQuery = useQuery({
+    queryKey: ['engagements', engagementId],
+    queryFn: () => fetchEngagement(engagementId),
+  });
 
-  const addAuditEntry = (action: string, details: string, type: AuditEntry['type']) => {
-    const entry: AuditEntry = {
-      id: `audit-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      user: 'T. Wallace',
-      action, details, type,
-    };
-    setAuditLog(prev => [entry, ...prev]);
+  useEffect(() => {
+    setOverviewNotes('');
+    setTab('Overview');
+  }, [engagementId]);
+
+  const lookupsQuery = useQuery({
+    queryKey: ['engagements-lookups'],
+    queryFn: async () => {
+      const [attractions, tours, companies] = await Promise.all([
+        fetchAttractions(),
+        fetchTours(),
+        fetchCompanies(),
+      ]);
+      return { attractions, tours, companies };
+    },
+  });
+
+  const venueId = detailQuery.data?.primaryVenueCompanyId;
+
+  const tourMgmtCompanyId = useMemo(() => {
+    const r = detailQuery.data;
+    if (r?.tourId == null) return null as number | null;
+    const tours = lookupsQuery.data?.tours;
+    if (tours === undefined) return undefined as number | null | undefined;
+    const t = tours.find((x) => x.tourId === r.tourId);
+    return t?.tourManagementCompanyId ?? null;
+  }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
+
+  const venueContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'venue', venueId],
+    queryFn: () => fetchCompanyContacts(venueId!),
+    enabled: tab === 'Contacts' && venueId != null && venueId > 0,
+  });
+
+  const tourContactsQuery = useQuery({
+    queryKey: ['company-contacts', 'tour-mgmt', tourMgmtCompanyId],
+    queryFn: () => fetchCompanyContacts(tourMgmtCompanyId as number),
+    enabled:
+      tab === 'Contacts' &&
+      typeof tourMgmtCompanyId === 'number' &&
+      tourMgmtCompanyId > 0,
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: (body: Parameters<typeof updateEngagement>[1]) =>
+      updateEngagement(engagementId, body),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements'] });
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteEngagement(engagementId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements'] });
+      addToast('Engagement removed.', 'warning');
+      onNavigate('engagements');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
+
+  const row = detailQuery.data;
+
+  const handleStatusChange = (next: string) => {
+    if (!next.trim() || next.length > 50) {
+      addToast('Status must be 1–50 characters.', 'warning');
+      return;
+    }
+    patchMutation.mutate(
+      { engagementStatus: next },
+      {
+        onSuccess: () => addToast('Status updated.', 'success'),
+      },
+    );
   };
 
-  const handleStatusChange = (newStatus: string) => {
-    const old = engagement.status;
-    onUpdateEngagement({ ...engagement, status: newStatus });
-    addAuditEntry('Status changed', `${old} → ${newStatus}`, 'status');
-    addToast(`Status changed to ${newStatus}`, 'success');
-  };
+  const statusSelectOptions = useMemo(() => {
+    const merged = new Set<string>([...ENGAGEMENT_STATUS_ENUM, row?.engagementStatus ?? ''].filter(Boolean));
+    return toOptions(Array.from(merged));
+  }, [row?.engagementStatus]);
 
-  const handleAddDate = (date: string, doorTime: string, showTime: string) => {
-    const newDates = [...engagement.showDates, { date, doorTime, showTime, runtime: 120 }];
-    onUpdateEngagement({ ...engagement, showDates: newDates });
-    addAuditEntry('Show date added', formatShortDate(date), 'update');
-    addToast('Show date added', 'success');
-    setShowAddDate(false);
-  };
+  const performancesQuery = useQuery({
+    queryKey: ['engagements', engagementId, 'performances'],
+    queryFn: () => fetchEngagementPerformances(engagementId),
+    enabled: tab === 'Dates',
+  });
 
-  const handleRemoveDate = (idx: number) => {
-    if (engagement.showDates.length <= 1) { addToast('At least one show date is required', 'warning'); return; }
-    const removed = engagement.showDates[idx];
-    const newDates = engagement.showDates.filter((_, i) => i !== idx);
-    onUpdateEngagement({ ...engagement, showDates: newDates });
-    addAuditEntry('Show date removed', formatShortDate(removed.date), 'update');
-    addToast('Show date removed', 'warning');
-  };
+  const [showAddPerformance, setShowAddPerformance] = useState(false);
+  const [pfDate, setPfDate] = useState('');
+  const [pfDoor, setPfDoor] = useState('19:00');
+  const [pfShow, setPfShow] = useState('20:00');
+  const [pfRuntime, setPfRuntime] = useState('120');
 
-  const toggleMilestone = (deptKey: DeptKey, idx: number) => {
-    const wfKey = deptKey === 'business' ? 'eventBusiness' : deptKey;
-    const wf = engagement.workflows[wfKey as keyof typeof engagement.workflows];
-    const newComplete = idx < wf.milestonesComplete ? idx : idx + 1;
-    const newStatus = newComplete >= wf.milestonesTotal ? 'Complete' : newComplete > 0 ? 'InProgress' : 'NotStarted';
-    onUpdateEngagement({
-      ...engagement,
-      workflows: { ...engagement.workflows, [wfKey]: { ...wf, milestonesComplete: newComplete, status: newStatus } },
-    });
-    addAuditEntry('Workflow milestone updated', `${DEPARTMENTS.find(d => d.key === deptKey)?.label}: ${DEPT_MILESTONES[deptKey][idx]}`, 'workflow');
-  };
+  const createPerformanceMut = useMutation({
+    mutationFn: (body: { performanceDate: string; performanceTime: string }) =>
+      createEngagementPerformance(engagementId, body),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
+      addToast('Show date saved.', 'success');
+      setShowAddPerformance(false);
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
+  });
 
-  const getWfForDept = (deptKey: DeptKey) => {
-    const wfKey = deptKey === 'business' ? 'eventBusiness' : deptKey;
-    return engagement.workflows[wfKey as keyof typeof engagement.workflows];
-  };
+  const inputClsModal =
+    'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20';
 
-  const statusOptions = toOptions(['Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed']);
+  if (detailQuery.isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-text-muted">
+        <Loader2 className="h-10 w-10 animate-spin text-ems-accent" aria-hidden />
+        <p className="text-sm">Loading engagement…</p>
+      </div>
+    );
+  }
+
+  if (detailQuery.error || !row) {
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => onNavigate('engagements')}
+          className="text-text-muted hover:text-text-primary text-sm"
+        >
+          ← Back to Engagements
+        </button>
+        <div className="text-ems-coral text-sm border border-ems-coral/30 rounded-lg px-3 py-2">
+          {detailQuery.error ? friendlyApiError(detailQuery.error) : 'Engagement not found.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <button onClick={() => onNavigate('engagements')} className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1">← Back to Engagements</button>
+      <button
+        type="button"
+        onClick={() => onNavigate('engagements')}
+        className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1"
+      >
+        ← Back to Engagements
+      </button>
 
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-text-primary">{engagement.name}</h1>
-            <div className="flex flex-wrap gap-2 mt-1">
-              {engagement.showDates.map((sd, i) => (
-                <span key={i} className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary font-mono">
-                  {formatShortDate(sd.date)} · {formatTimeDisplay(sd.showTime)}
-                </span>
-              ))}
-            </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-text-primary break-words">{row.displayTitle}</h1>
+            <p className="text-xs text-text-muted mt-1">Engagement #{row.engagementId}</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="w-40">
-              <Select2 options={statusOptions} value={engagement.status} onChange={handleStatusChange} placeholder="Status..." />
+            <div className="w-44">
+              <Select2
+                options={statusSelectOptions}
+                value={row.engagementStatus}
+                onChange={handleStatusChange}
+                placeholder="Status…"
+                disabled={patchMutation.isPending}
+              />
             </div>
-            <button onClick={() => setShowCancelModal(true)} className="text-ems-coral text-xs hover:underline">Cancel</button>
-            <button onClick={() => { onDeleteEngagement(engagement.id); addToast('Engagement deleted', 'warning'); onNavigate('engagements'); }} className="text-ems-coral text-xs hover:underline">Delete</button>
+            <Button variant="outline" size="sm" onClick={() => setShowEdit(true)} disabled={!lookupsQuery.data}>
+              Edit details
+            </Button>
+            {row.appCreated && (
+              <button
+                type="button"
+                onClick={() => setPendingDelete(true)}
+                className="text-ems-coral text-xs hover:underline"
+              >
+                Delete
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-3 pt-3 border-t border-border text-xs">
-          <div><span className="text-text-muted block mb-0.5">Attraction — Tour</span><span className="text-text-primary font-medium">{attr?.name}</span><br/><span className="text-text-secondary">{tour?.name}</span></div>
-          <div><span className="text-text-muted block mb-0.5">Venue</span><span className="text-text-primary font-medium">{venue?.name}</span><br/><span className="text-text-secondary">{venue?.city}, {venue?.state}</span></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-border text-sm">
           <div>
-            <span className="text-text-muted block mb-0.5">Show Date(s)</span>
-            {engagement.showDates.map((sd, i) => (
-              <div key={i} className="text-text-primary">{formatShortDate(sd.date)}<span className="text-text-secondary"> · Show {formatTimeDisplay(sd.showTime)}</span></div>
-            ))}
+            <span className="text-text-muted text-xs block mb-0.5">Attraction</span>
+            <span className="text-text-primary font-medium">{row.attractionName}</span>
           </div>
-          <div><span className="text-text-muted block mb-0.5">Capacity</span><span className="text-text-primary font-medium">{venue?.venueProfile?.configurations.find((c: any) => c.name === engagement.configName)?.totalCap?.toLocaleString()}</span><br/><span className="text-text-secondary">{engagement.configName}</span></div>
-          <div><span className="text-text-muted block mb-0.5">Booker</span><span className="text-text-primary font-medium">{booker?.name}</span><br/><span className="text-text-secondary">{booker?.email}</span></div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5">Tour</span>
+            <span className="text-text-primary font-medium">{row.tourName ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5">Primary venue</span>
+            <span className="text-text-primary font-medium">
+              {row.venueCompanyName ?? row.venueName ?? '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5">Location</span>
+            <span className="text-text-secondary">
+              {[row.city, row.stateProvince].filter(Boolean).join(', ') || '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5">Market (DMA)</span>
+            <span className="text-text-secondary">{row.dmaMarketName ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-text-muted text-xs block mb-0.5">Scaling</span>
+            <span className="text-text-secondary">{row.engagementScaling ?? '—'}</span>
+          </div>
         </div>
       </div>
 
-      <TabBar tabs={['Overview', 'Contacts', 'Dates', 'Audit Log']} active={tab} onChange={setTab} />
+      <TabBar
+        tabs={['Overview', 'Contacts', 'Dates', 'Audit Log']}
+        active={tab}
+        onChange={setTab}
+      />
 
       {tab === 'Overview' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {DEPARTMENTS.map(dept => {
-              const wf = getWfForDept(dept.key);
-              const pct = wf.milestonesTotal > 0 ? Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100) : 0;
-              const docs = DEPT_DOCS[dept.key] || [];
-              return (
-                <button
-                  key={dept.key}
-                  onClick={() => { setTab('Departments'); setActiveDept(dept.key); }}
-                  className="bg-card border border-border rounded-lg p-3 text-left hover:border-ems-accent/40 transition-colors group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-base">{dept.icon}</span>
-                    <StatusBadge status={wf.status} />
-                  </div>
-                  <div className="text-sm font-medium text-text-primary mb-1">{dept.label}</div>
-                  <div className="mb-1.5"><ProgressBar value={wf.milestonesComplete} max={wf.milestonesTotal} /></div>
-                  <div className="text-xs text-text-muted">{pct}% · {docs.length} doc{docs.length !== 1 ? 's' : ''}</div>
-                </button>
-              );
-            })}
+        <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+          <div>
+            <label className="text-xs font-medium text-text-secondary block mb-1.5">Notes (optional)</label>
+            <textarea
+              className="w-full min-h-[100px] bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent resize-y"
+              placeholder="Add notes for your team…"
+              value={overviewNotes}
+              onChange={(e) => setOverviewNotes(e.target.value)}
+            />
           </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
-            <div className="bg-card border border-border rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-text-primary mb-3">Deal Structure</h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-text-muted text-xs block">Deal Type</span><span className="text-text-primary">{DEAL_TYPE_OPTIONS.find(d => d.value === engagement.dealType)?.label || engagement.dealType}</span></div>
-                <div><span className="text-text-muted text-xs block">Guarantee</span><span className="text-text-primary">{formatCurrency(engagement.guarantee)}</span></div>
-                {engagement.splitPct != null && <div><span className="text-text-muted text-xs block">Split</span><span className="text-text-primary">{engagement.splitPct}% artist / {100 - engagement.splitPct}% IAE</span></div>}
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm border-t border-border pt-4">
+            <div>
+              <span className="text-text-muted text-xs block mb-0.5">Deal type (optional)</span>
+              <span className="text-text-secondary">—</span>
             </div>
-            <div className="bg-card border border-border rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-text-primary mb-3">{venue?.name}</h3>
-              <div className="text-xs text-text-secondary space-y-1">
-                <div>{venue?.city}, {venue?.state}</div>
-                <div>Config: {engagement.configName} · {venue?.venueProfile?.configurations.find((c: any) => c.name === engagement.configName)?.totalCap?.toLocaleString()} cap</div>
-                {venue?.venueProfile && <>
-                  <div>Audio: {venue.venueProfile.inHouseAudio ? '✓ In-house' : '✗ Not available'} · Lighting: {venue.venueProfile.inHouseLighting ? '✓ In-house' : '✗ Not available'}</div>
-                </>}
-                <button onClick={() => onNavigate('project-detail', { projectId: engagement.projectId })} className="text-ems-accent hover:underline mt-1 block">↗ View Project {engagement.projectId}</button>
-              </div>
+            <div>
+              <span className="text-text-muted text-xs block mb-0.5">Guarantee (optional)</span>
+              <span className="text-text-secondary">—</span>
+            </div>
+            <div>
+              <span className="text-text-muted text-xs block mb-0.5">Show date (optional)</span>
+              <span className="text-text-secondary">—</span>
+            </div>
+            <div>
+              <span className="text-text-muted text-xs block mb-0.5">Booker (optional)</span>
+              <span className="text-text-secondary">—</span>
             </div>
           </div>
-        </div>
-      )}
-
-      {tab === 'Departments' && (
-        <div className="space-y-4">
-          <div className="flex gap-2 flex-wrap">
-            {DEPARTMENTS.map(dept => {
-              const wf = getWfForDept(dept.key);
-              return (
-                <button
-                  key={dept.key}
-                  onClick={() => setActiveDept(dept.key)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${activeDept === dept.key ? 'bg-ems-accent-dim text-ems-accent border-ems-accent/30' : 'bg-elevated text-text-secondary border-border hover:bg-hover'}`}
-                >
-                  <span>{dept.icon}</span>
-                  <span>{dept.label}</span>
-                  <StatusBadge status={wf.status} />
-                </button>
-              );
-            })}
-          </div>
-
-          {DEPARTMENTS.map(dept => {
-            if (dept.key !== activeDept) return null;
-            const wf = getWfForDept(dept.key);
-            const milestones = DEPT_MILESTONES[dept.key];
-            const docs = DEPT_DOCS[dept.key] || [];
-            const pct = wf.milestonesTotal > 0 ? Math.round((wf.milestonesComplete / wf.milestonesTotal) * 100) : 0;
-            const assignee = users.find(u => u.id === wf.assigneeId);
-
-            if (dept.key === 'finance') {
-              return (
-                <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
-                  <div className="space-y-4">
-                    <div className="bg-card border border-border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-text-primary">Finance Checklist</h3>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={wf.status} />
-                          <span className="text-xs text-text-muted">{pct}% · {assignee?.name}</span>
-                        </div>
-                      </div>
-                      <ProgressBar value={wf.milestonesComplete} max={wf.milestonesTotal} />
-                      <div className="space-y-1 mt-3">
-                        {milestones.map((m, i) => (
-                          <label key={i} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-hover rounded px-2 py-1.5">
-                            <input type="checkbox" checked={i < wf.milestonesComplete} onChange={() => toggleMilestone(dept.key, i)} className="accent-ems-accent w-4 h-4 flex-shrink-0" />
-                            <span className={i < wf.milestonesComplete ? 'text-text-muted line-through' : 'text-text-primary'}>{m}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="bg-card border border-border rounded-lg p-4">
-                      <h3 className="text-sm font-semibold text-text-primary mb-3">Financial Summary</h3>
-                      <div className="overflow-x-auto">
-                      <table className="w-full text-xs min-w-[400px]">
-                        <thead><tr className="text-text-muted border-b border-border">
-                          <th className="text-left py-1.5">Category</th><th className="text-right py-1.5">Projected</th><th className="text-right py-1.5">Actual</th><th className="text-right py-1.5">Variance</th>
-                        </tr></thead>
-                        <tbody>
-                          {[
-                            { cat: 'Gross Revenue', proj: 620000, act: 598500 },
-                            { cat: 'Guarantee Paid', proj: 175000, act: 175000 },
-                            { cat: 'Venue Rent', proj: 45000, act: 45000 },
-                            { cat: 'Marketing Spend', proj: 38000, act: 41200 },
-                            { cat: 'Labor (Production)', proj: 28000, act: 31400 },
-                            { cat: 'Ticketing Fees', proj: 37200, act: 35910 },
-                            { cat: 'IAE Net Margin', proj: engagement.projectedMargin, act: engagement.actualMargin },
-                          ].map((r, i) => {
-                            const variance = r.act != null ? r.act - r.proj : null;
-                            const isCost = ['Venue Rent', 'Marketing Spend', 'Labor (Production)', 'Ticketing Fees', 'Guarantee Paid'].includes(r.cat);
-                            const favorable = variance != null ? (isCost ? variance < 0 : variance > 0) : null;
-                            return (
-                              <tr key={i} className="border-b border-border/50">
-                                <td className="py-1.5 text-text-primary">{r.cat}</td>
-                                <td className="py-1.5 text-right font-mono">{formatCurrency(r.proj)}</td>
-                                <td className="py-1.5 text-right font-mono">{r.act != null ? formatCurrency(r.act) : '—'}</td>
-                                <td className={`py-1.5 text-right font-mono ${favorable === true ? 'text-ems-green' : favorable === false ? 'text-ems-coral' : 'text-text-muted'}`}>{variance != null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance)}` : '—'}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      </div>
-                      <button onClick={() => setShowSettlement(true)} className="bg-ems-accent text-background text-xs px-3 py-1.5 rounded mt-3">Generate Settlement Worksheet</button>
-                    </div>
-                  </div>
-                  <DeptDocuments dept={dept.key} docs={docs} addToast={addToast} addAuditEntry={addAuditEntry} />
-                </div>
-              );
-            }
-
-            return (
-              <div key={dept.key} className="grid grid-cols-1 lg:grid-cols-[55%_45%] gap-4">
-                <div className="bg-card border border-border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-text-primary">{dept.label} Checklist</h3>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={wf.status} />
-                      <span className="text-xs text-text-muted">{pct}% · {assignee?.name}</span>
-                    </div>
-                  </div>
-                  <ProgressBar value={wf.milestonesComplete} max={wf.milestonesTotal} />
-                  <div className="space-y-1 mt-3">
-                    {milestones.map((m, i) => (
-                      <label key={i} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-hover rounded px-2 py-1.5">
-                        <input type="checkbox" checked={i < wf.milestonesComplete} onChange={() => toggleMilestone(dept.key, i)} className="accent-ems-accent w-4 h-4 flex-shrink-0" />
-                        <span className={i < wf.milestonesComplete ? 'text-text-muted line-through' : 'text-text-primary'}>{m}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <DeptDocuments dept={dept.key} docs={docs} addToast={addToast} addAuditEntry={addAuditEntry} />
-              </div>
-            );
-          })}
         </div>
       )}
 
       {tab === 'Contacts' && (
-        <div className="space-y-4">
-          {[
-            { title: 'Attraction-Tour Contacts', contacts: (tour?.contacts || []).map(tc => contacts.find(c => c.id === tc.contactId)).filter(Boolean) },
-            { title: 'Venue Contacts', contacts: contacts.filter(c => c.companyId === engagement.venueId) },
-            { title: 'IAE Internal', contacts: ['marketing', 'production', 'eventBusiness', 'creative', 'sales', 'finance'].map(k => users.find(u => u.id === engagement.workflows[k as keyof typeof engagement.workflows].assigneeId)).filter(Boolean) },
-          ].map((section, si) => (
-            <div key={si}>
-              <h3 className="text-sm font-semibold text-text-primary mb-2">{section.title}</h3>
-              <div className="bg-card border border-border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary mb-2">Venue contacts</h3>
+          {!venueId ? (
+            <p className="text-sm text-text-muted">No primary venue is linked.</p>
+          ) : venueContactsQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading contacts…
+            </div>
+          ) : venueContactsQuery.error ? (
+            <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
+          ) : (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[400px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2 px-3">Name</th>
-                      <th className="text-left py-2 px-3">Title/Role</th>
+                      <th className="text-left py-2 px-3">Role</th>
                       <th className="text-left py-2 px-3">Email</th>
                       <th className="text-left py-2 px-3">Phone</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {section.contacts.map((ct: any, i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td className="py-2 px-3 text-text-primary">{ct.firstName || ct.name} {ct.lastName || ''}</td>
-                        <td className="py-2 px-3 text-text-secondary text-xs">{ct.title || ct.role}</td>
-                        <td className="py-2 px-3 text-ems-blue text-xs">{ct.email}</td>
-                        <td className="py-2 px-3 text-text-secondary text-xs">{ct.phone || '—'}</td>
+                    {(venueContactsQuery.data ?? []).length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center text-text-muted text-sm">
+                          No contacts for this venue.
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      (venueContactsQuery.data ?? []).map((c) => (
+                        <tr key={c.contactAssignmentId} className="border-b border-border/50">
+                          <td className="py-2 px-3 text-text-primary">
+                            {c.firstName} {c.lastName}
+                          </td>
+                          <td className="py-2 px-3 text-text-secondary text-xs">
+                            {c.roleName} · {c.departmentName}
+                          </td>
+                          <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
+                          <td className="py-2 px-3 text-text-secondary text-xs">
+                            {c.cellPhone || c.workPhone || '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
-                </div>
               </div>
             </div>
-          ))}
+          )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary mb-2">Tour contacts</h3>
+            <p className="text-xs text-text-muted mb-2">
+              Contacts for the talent agent company assigned to this tour.
+            </p>
+            {row.tourId == null ? (
+              <p className="text-sm text-text-muted">No tour is linked to this engagement.</p>
+            ) : lookupsQuery.isPending || lookupsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading tour details…
+              </div>
+            ) : tourMgmtCompanyId === null ? (
+              <p className="text-sm text-text-muted">
+                No talent agent company is assigned to this tour.
+              </p>
+            ) : tourContactsQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading contacts…
+              </div>
+            ) : tourContactsQuery.error ? (
+              <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
+            ) : (
+              <div className="bg-card border border-border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[400px]">
+                    <thead>
+                      <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                        <th className="text-left py-2 px-3">Name</th>
+                        <th className="text-left py-2 px-3">Role</th>
+                        <th className="text-left py-2 px-3">Email</th>
+                        <th className="text-left py-2 px-3">Phone</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(tourContactsQuery.data ?? []).length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-6 text-center text-text-muted text-sm">
+                            No contacts for this company.
+                          </td>
+                        </tr>
+                      ) : (
+                        (tourContactsQuery.data ?? []).map((c) => (
+                          <tr key={c.contactAssignmentId} className="border-b border-border/50">
+                            <td className="py-2 px-3 text-text-primary">
+                              {c.firstName} {c.lastName}
+                            </td>
+                            <td className="py-2 px-3 text-text-secondary text-xs">
+                              {c.roleName} · {c.departmentName}
+                            </td>
+                            <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
+                            <td className="py-2 px-3 text-text-secondary text-xs">
+                              {c.cellPhone || c.workPhone || '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {tab === 'Dates' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-text-primary">Show Dates & Performances</h3>
-            <button onClick={() => setShowAddDate(true)} className="text-ems-accent text-sm hover:underline">+ Add Date</button>
+        <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Show dates & performances</h3>
+              <p className="text-xs text-text-muted mt-1 max-w-xl">
+                Add one row per show. An engagement can include multiple performances (multiple
+                dates or times).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddPerformance(true)}
+              className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:opacity-95"
+            >
+              + Add date
+            </button>
           </div>
-          <div className="space-y-2">
-            {engagement.showDates.map((sd, i) => (
-              <div key={i} className="bg-card border border-border rounded-lg p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-text-primary font-medium">{formatFullDate(sd.date)}</div>
-                  <div className="text-xs text-text-secondary mt-0.5">
-                    Doors {formatTimeDisplay(sd.doorTime)} · Show {formatTimeDisplay(sd.showTime)} · {sd.runtime} min runtime
+          {performancesQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-text-muted text-sm py-6">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading performances…
+            </div>
+          ) : performancesQuery.error ? (
+            <p className="text-sm text-ems-coral">{friendlyApiError(performancesQuery.error)}</p>
+          ) : (performancesQuery.data ?? []).length === 0 ? (
+            <p className="text-sm text-text-muted py-4">
+              No performances yet. Add a show date to create the first performance for this
+              engagement.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {(performancesQuery.data ?? []).map((p, idx) => (
+                <li
+                  key={p.performanceId}
+                  className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-lg px-4 py-3 bg-surface/40"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">
+                      {formatPerformanceDateDisplay(p.performanceDate)}
+                    </div>
+                    <div className="text-xs text-text-secondary mt-0.5">
+                      Show {formatPerformanceTimeDisplay(p.performanceTime)} · {p.performanceStatus}
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {i === 0 && <span className="text-xs bg-ems-accent-dim text-ems-accent px-2 py-0.5 rounded">Primary</span>}
-                  {engagement.showDates.length > 1 && (
-                    <button onClick={() => handleRemoveDate(i)} className="text-ems-coral text-xs hover:underline">Remove</button>
+                  {idx === 0 && (
+                    <span className="text-xs font-medium bg-ems-accent/15 text-ems-accent px-2 py-0.5 rounded">
+                      Primary
+                    </span>
                   )}
-                </div>
-              </div>
-            ))}
-          </div>
-          {engagement.showDates.length === 0 && <div className="text-text-muted text-sm">No show dates added.</div>}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
       {tab === 'Audit Log' && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary">Activity & Audit Log</h3>
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[400px]">
-              <thead>
-                <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Timestamp</th>
-                  <th className="text-left py-2.5 px-3">User</th>
-                  <th className="text-left py-2.5 px-3">Action</th>
-                  <th className="text-left py-2.5 px-3">Details</th>
-                  <th className="text-left py-2.5 px-3">Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditLog.map((entry) => (
-                  <tr key={entry.id} className="border-b border-border/50">
-                    <td className="py-2 px-3 font-mono text-xs text-text-muted whitespace-nowrap">{formatAuditTimestamp(entry.timestamp)}</td>
-                    <td className="py-2 px-3 text-text-primary text-xs font-medium">{entry.user}</td>
-                    <td className="py-2 px-3 text-text-secondary text-xs">{entry.action}</td>
-                    <td className="py-2 px-3 text-text-secondary text-xs">{entry.details}</td>
-                    <td className="py-2 px-3">
-                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${AUDIT_TYPE_COLORS[entry.type]}`}>{entry.type}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
+        <div className="bg-card border border-border rounded-lg p-8 text-center text-sm text-text-muted">
+          No activity history is available in this app yet.
         </div>
       )}
 
-      {showAddDate && (
-        <Modal title="Add Show Date" onClose={() => setShowAddDate(false)} width={480}>
-          <AddDateForm onSave={handleAddDate} onCancel={() => setShowAddDate(false)} />
+      {showAddPerformance && (
+        <Modal
+          title="Add show date"
+          onClose={() => !createPerformanceMut.isPending && setShowAddPerformance(false)}
+          width={560}
+          allowContentOverflow
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-text-muted">
+              Door time and runtime help your team plan; only show date and curtain time are saved
+              to the database today.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Show date" required>
+                <input
+                  type="date"
+                  className={inputClsModal}
+                  value={pfDate}
+                  onChange={(e) => setPfDate(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Door time">
+                <input
+                  type="time"
+                  className={inputClsModal}
+                  value={pfDoor}
+                  onChange={(e) => setPfDoor(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Show time" required>
+                <input
+                  type="time"
+                  className={inputClsModal}
+                  value={pfShow}
+                  onChange={(e) => setPfShow(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Runtime (minutes)">
+                <input
+                  type="number"
+                  min={0}
+                  className={inputClsModal}
+                  value={pfRuntime}
+                  onChange={(e) => setPfRuntime(e.target.value)}
+                />
+              </FormField>
+            </div>
+            <div className="flex gap-2 justify-end pt-4 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowAddPerformance(false)}
+                disabled={createPerformanceMut.isPending}
+                className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={createPerformanceMut.isPending}
+                onClick={() => {
+                  if (!pfDate.trim()) {
+                    addToast('Choose a show date.', 'warning');
+                    return;
+                  }
+                  if (!pfShow.trim()) {
+                    addToast('Choose a show time.', 'warning');
+                    return;
+                  }
+                  createPerformanceMut.mutate({
+                    performanceDate: pfDate,
+                    performanceTime: pfShow,
+                  });
+                }}
+                className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60"
+              >
+                {createPerformanceMut.isPending ? 'Saving…' : 'Add date'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
-      {showCancelModal && (
-        <CancelEngagementModal engagement={engagement} onConfirm={(reason, party, date) => {
-          onUpdateEngagement({ ...engagement, status: 'Cancelled', cancellationReason: reason, cancellingParty: party, cancellationDate: date });
-          addAuditEntry('Engagement cancelled', `Party: ${party}. ${reason}`, 'update');
-          setShowCancelModal(false);
-          addToast('Engagement cancelled', 'warning');
-        }} onClose={() => setShowCancelModal(false)} />
+      {showEdit && lookupsQuery.data && (
+        <EditEngagementModal
+          row={row}
+          attractions={lookupsQuery.data.attractions}
+          tours={lookupsQuery.data.tours}
+          companies={lookupsQuery.data.companies}
+          onClose={() => setShowEdit(false)}
+          onSave={async (payload) => {
+            await updateEngagement(engagementId, payload);
+            await qc.invalidateQueries({ queryKey: ['engagements'] });
+            await qc.invalidateQueries({ queryKey: ['engagements', engagementId] });
+            addToast('Engagement updated.', 'success');
+            setShowEdit(false);
+          }}
+          addToast={addToast}
+        />
       )}
 
-      {showSettlement && (
-        <SettlementModal engagement={engagement} onClose={() => setShowSettlement(false)} addToast={addToast} companies={companies} />
-      )}
+      <AlertDialog open={pendingDelete} onOpenChange={setPendingDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this engagement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Only engagements created in this app can be deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function DeptDocuments({ dept, docs, addToast, addAuditEntry }: {
-  dept: DeptKey;
-  docs: { name: string; type: string; by: string; date: string; size: string }[];
-  addToast: (msg: string, type: any) => void;
-  addAuditEntry: (action: string, details: string, type: any) => void;
+function EditEngagementModal({
+  row,
+  attractions,
+  tours,
+  companies,
+  onClose,
+  onSave,
+  addToast,
+}: {
+  row: ApiEngagementListRow;
+  attractions: { attractionId: number; attractionName: string }[];
+  tours: { tourId: number; tourName: string; attractionId: number }[];
+  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  onClose: () => void;
+  onSave: (p: import('@/api/engagementApi').UpdateEngagementPayload) => Promise<void>;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
-  return (
-    <div className="bg-card border border-border rounded-lg p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-text-primary">Documents</h3>
-        <button
-          onClick={() => { addToast('Upload simulated', 'success'); addAuditEntry('Document uploaded', 'New document', 'upload'); }}
-          className="text-ems-accent text-xs hover:underline"
-        >+ Upload</button>
-      </div>
-      {docs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-24 border-2 border-dashed border-border rounded-lg">
-          <span className="text-text-muted text-sm">No documents yet</span>
-          <button onClick={() => addToast('Upload simulated', 'success')} className="text-ems-accent text-xs mt-1 hover:underline">Upload a file</button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {docs.map((f, i) => (
-            <div key={i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-              <div className="flex-1 min-w-0">
-                <div className="text-text-primary text-xs font-medium truncate">{f.name}</div>
-                <div className="text-text-muted text-[10px] mt-0.5">{f.type} · {f.by} · {f.date} · {f.size}</div>
-              </div>
-              <div className="flex gap-2 ml-2 flex-shrink-0">
-                <button onClick={() => addToast('Download started', 'info')} className="text-ems-blue text-xs hover:underline">⬇</button>
-                <button onClick={() => addToast('File deleted', 'warning')} className="text-ems-coral text-xs hover:underline">🗑</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+  const venueCompanies = useMemo(
+    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    [companies],
   );
-}
 
-function AddDateForm({ onSave, onCancel }: { onSave: (date: string, doorTime: string, showTime: string) => void; onCancel: () => void }) {
-  const [date, setDate] = useState('');
-  const [doorTime, setDoorTime] = useState('19:00');
-  const [showTime, setShowTime] = useState('20:00');
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
-
-  return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-text-secondary">Show Date <span className="text-ems-coral">*</span></label>
-        <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
-        {date && <div className="text-xs text-text-muted mt-1">{formatFullDate(date)}</div>}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-text-secondary">Door Time</label>
-          <input type="time" className={inputCls} value={doorTime} onChange={e => setDoorTime(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-text-secondary">Show Time</label>
-          <input type="time" className={inputCls} value={showTime} onChange={e => setShowTime(e.target.value)} />
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end pt-2 border-t border-border">
-        <button onClick={onCancel} className="text-text-secondary px-4 py-1.5 text-sm hover:text-text-primary">Cancel</button>
-        <button onClick={() => { if (date) onSave(date, doorTime, showTime); }} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Add Date</button>
-      </div>
-    </div>
+  const attractionOptions = useMemo(
+    () =>
+      [...attractions]
+        .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
+        .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [attractions],
   );
-}
 
-function CancelEngagementModal({ engagement, onConfirm, onClose }: { engagement: Engagement; onConfirm: (reason: string, party: string, date: string) => void; onClose: () => void }) {
-  const [reason, setReason] = useState('');
-  const [party, setParty] = useState('IAE');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-
-  return (
-    <Modal title="Cancel Engagement" onClose={onClose} width={500}>
-      <div className="space-y-3">
-        <div className="text-sm text-ems-coral bg-ems-coral-dim border border-ems-coral/20 rounded px-3 py-2">⚠️ This action cannot be undone.</div>
-        <div><label className="text-xs font-medium text-text-secondary block mb-1">Reason *</label><textarea className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary h-20 resize-none focus:outline-none focus:border-ems-accent" value={reason} onChange={e => setReason(e.target.value)} /></div>
-        <div><label className="text-xs font-medium text-text-secondary block mb-1">Cancelling Party *</label>
-          <div className="flex gap-4 mt-1">{['IAE', 'Attraction', 'Venue', 'Force Majeure'].map(p => (
-            <label key={p} className="flex items-center gap-1.5 text-sm text-text-primary cursor-pointer"><input type="radio" checked={party === p} onChange={() => setParty(p)} className="accent-ems-accent" />{p}</label>
-          ))}</div>
-        </div>
-        <div><label className="text-xs font-medium text-text-secondary block mb-1">Date *</label><input type="date" className="w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent" value={date} onChange={e => setDate(e.target.value)} /></div>
-        <div className="flex gap-2 justify-end pt-2 border-t border-border">
-          <button onClick={onClose} className="text-text-secondary px-4 py-1.5 text-sm">Cancel</button>
-          <button onClick={() => { if (reason) onConfirm(reason, party, date); }} className="bg-ems-coral text-background px-4 py-1.5 rounded-md text-sm font-medium">Confirm Cancellation</button>
-        </div>
-      </div>
-    </Modal>
+  const venueOptions = useMemo(
+    () =>
+      [...venueCompanies]
+        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
+        .map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    [venueCompanies],
   );
-}
 
-function SettlementModal({ engagement, onClose, addToast, companies }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void; companies: { id: string; name: string }[] }) {
-  const venue = companies.find(c => c.id === engagement.venueId);
-  const primaryDate = engagement.showDates[0];
+  const dealTypeOptions = useMemo(
+    () => DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+    [],
+  );
+
+  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
+
+  const bookerOptions = useMemo(
+    () => USERS.map((u) => ({ value: u.id, label: `${u.name} (${u.role})` })),
+    [],
+  );
+
+  const [attractionId, setAttractionId] = useState(String(row.attractionId));
+  const [tourId, setTourId] = useState<string>(row.tourId != null ? String(row.tourId) : '');
+  const [primaryVenueId, setPrimaryVenueId] = useState<string>(
+    String(row.primaryVenueCompanyId ?? venueCompanies[0]?.companyId ?? ''),
+  );
+  const [recordStatus, setRecordStatus] = useState(row.engagementStatus);
+  const [engagementName, setEngagementName] = useState('');
+  const [bookerId, setBookerId] = useState<string>('');
+  const [dealType, setDealType] = useState(DEAL_TYPE_OPTIONS[0]?.value ?? 'Guarantee');
+  const [guarantee, setGuarantee] = useState('');
+  const [showDate, setShowDate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const attractionIdNum = Number(attractionId);
+
+  const toursForAttraction = useMemo(
+    () => (Number.isFinite(attractionIdNum) ? tours.filter((t) => t.attractionId === attractionIdNum) : []),
+    [tours, attractionIdNum],
+  );
+
+  const tourOptions = useMemo(
+    () => toursForAttraction.map((t) => ({ value: String(t.tourId), label: t.tourName })),
+    [toursForAttraction],
+  );
+
+  const skipTourResetOnMount = useRef(true);
+  useEffect(() => {
+    if (skipTourResetOnMount.current) {
+      skipTourResetOnMount.current = false;
+      return;
+    }
+    setTourId('');
+  }, [attractionId]);
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+
+  const handleSubmit = async () => {
+    if (!recordStatus.trim() || recordStatus.length > 50) {
+      addToast('Status is required (max 50 characters).', 'warning');
+      return;
+    }
+    const tid = tourId ? Number(tourId) : null;
+    if (tourId && !Number.isFinite(tid)) {
+      addToast('Invalid tour.', 'warning');
+      return;
+    }
+    if (!primaryVenueId) {
+      addToast('Select a primary venue.', 'warning');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSave({
+        engagementStatus: recordStatus.trim(),
+        engagementScaling: null,
+        attractionId: Number(attractionId),
+        tourId: tid,
+        primaryVenueCompanyId: Number(primaryVenueId),
+      });
+    } catch (e) {
+      addToast(friendlyApiError(e), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <Modal title={`Settlement Worksheet — ${engagement.id.toUpperCase()}`} onClose={onClose} width={600}>
-      <div className="space-y-3 text-sm">
-        <div className="text-text-secondary">{engagement.name} · {formatShortDate(primaryDate?.date)}</div>
-        <table className="w-full text-xs">
-          <tbody>
-            <tr className="border-b border-border"><td colSpan={2} className="py-1.5 font-semibold text-text-primary">GROSS RECEIPTS</td></tr>
-            <tr><td className="py-1 text-text-secondary">Ticket Sales (12,843 × avg $46.54)</td><td className="py-1 text-right font-mono text-text-primary">$598,500</td></tr>
-            <tr><td className="py-1 text-text-secondary">VIP Revenue</td><td className="py-1 text-right font-mono text-text-primary">$62,300</td></tr>
-            <tr className="border-t border-border font-semibold"><td className="py-1.5 text-text-primary">TOTAL GROSS</td><td className="py-1.5 text-right font-mono text-ems-accent">$711,800</td></tr>
-            <tr className="border-t border-border"><td colSpan={2} className="py-1.5 font-semibold text-text-primary">DEDUCTIONS</td></tr>
-            <tr><td className="py-1 text-text-secondary">Ticketing Fees (6%)</td><td className="py-1 text-right font-mono text-ems-coral">-$35,910</td></tr>
-            <tr><td className="py-1 text-text-secondary">Venue Rent</td><td className="py-1 text-right font-mono text-ems-coral">-$45,000</td></tr>
-            <tr className="border-t-2 border-ems-accent bg-ems-accent-dim"><td className="py-2 text-ems-accent font-semibold">IAE NET</td><td className="py-2 text-right font-mono text-ems-accent font-semibold">$178,898</td></tr>
-          </tbody>
-        </table>
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="text-text-secondary px-4 py-1.5 text-sm">Close</button>
-          <button onClick={() => addToast('PDF export simulated', 'info')} className="bg-elevated text-text-primary px-4 py-1.5 rounded border border-border text-sm">Export PDF</button>
-          <button onClick={() => addToast('Settlement finalized', 'success')} className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium">Finalize</button>
+    <Modal title="Edit engagement" onClose={onClose} width={960} allowContentOverflow>
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Status" required>
+            <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
+          </FormField>
+          <FormField label="Engagement name (optional)">
+            <input
+              className={inputCls}
+              value={engagementName}
+              onChange={(e) => setEngagementName(e.target.value)}
+              placeholder="Display name for your team"
+              maxLength={300}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction" required>
+            <Select2
+              options={attractionOptions}
+              value={attractionId}
+              onChange={setAttractionId}
+              placeholder="Select attraction…"
+            />
+          </FormField>
+          <FormField label="Tour (optional)">
+            <Select2
+              options={tourOptions}
+              value={tourId}
+              onChange={setTourId}
+              placeholder="No tour"
+              allowClear
+              disabled={!attractionId}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Primary venue" required>
+            <Select2
+              options={venueOptions}
+              value={primaryVenueId}
+              onChange={setPrimaryVenueId}
+              placeholder="Select venue…"
+            />
+          </FormField>
+          <FormField label="Booker (optional)">
+            <Select2
+              options={bookerOptions}
+              value={bookerId}
+              onChange={setBookerId}
+              placeholder="Select booker…"
+              allowClear
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Deal type (optional)">
+            <Select2 options={dealTypeOptions} value={dealType} onChange={setDealType} placeholder="Select…" />
+          </FormField>
+          <FormField label="Guarantee (optional)">
+            <input
+              type="number"
+              className={inputCls}
+              value={guarantee}
+              onChange={(e) => setGuarantee(e.target.value)}
+              min={0}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Show date (optional)">
+            <input type="date" className={inputCls} value={showDate} onChange={(e) => setShowDate(e.target.value)} />
+          </FormField>
+        </div>
+
+        <div className="flex gap-2 justify-end pt-4 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+            disabled={submitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={submitting}
+            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Saving…' : 'Save'}
+          </button>
         </div>
       </div>
     </Modal>
