@@ -6,6 +6,19 @@ export interface AddressParts {
   country?: string;
 }
 
+/**
+ * Places Details: physical (visit / street) vs mailing (formatted / postal-style).
+ * Google does not expose a separate "mailing" field; we derive mailing from
+ * `formatted_address` (geocoded) and `post_box` in `address_components` when present.
+ */
+export interface PlaceDetailsResult {
+  placeName?: string;
+  /** Full formatted address string from Places (mailing-label style line). */
+  formattedAddress?: string;
+  physical: AddressParts;
+  mailing: AddressParts;
+}
+
 export interface AddressPrediction {
   placeId: string;
   description: string;
@@ -42,30 +55,84 @@ function normalizeCountry(longName?: string, shortName?: string): string | undef
   return longName || shortName;
 }
 
+function componentByType(addressComponents: any[] | undefined, type: string) {
+  return addressComponents?.find((comp) => comp.types?.includes(type));
+}
+
+/** Structured line for the place’s street / premises (visit location). */
+function extractPhysicalFromComponents(addressComponents: any[] | undefined): AddressParts {
+  if (!addressComponents || !addressComponents.length) return {};
+
+  const premise = componentByType(addressComponents, 'premise')?.long_name || '';
+  const subpremise = componentByType(addressComponents, 'subpremise')?.long_name || '';
+  const streetNumber = componentByType(addressComponents, 'street_number')?.long_name || '';
+  const route = componentByType(addressComponents, 'route')?.long_name || '';
+  const poBox = componentByType(addressComponents, 'post_box')?.long_name || '';
+
+  const city =
+    componentByType(addressComponents, 'locality')?.long_name ||
+    componentByType(addressComponents, 'postal_town')?.long_name ||
+    componentByType(addressComponents, 'sublocality')?.long_name ||
+    componentByType(addressComponents, 'administrative_area_level_2')?.long_name ||
+    undefined;
+
+  const state = componentByType(addressComponents, 'administrative_area_level_1')?.short_name || undefined;
+  const postalCode = componentByType(addressComponents, 'postal_code')?.long_name || undefined;
+  const country = normalizeCountry(
+    componentByType(addressComponents, 'country')?.long_name,
+    componentByType(addressComponents, 'country')?.short_name,
+  );
+
+  const streetCore = [premise, subpremise, streetNumber, route].filter(Boolean).join(' ').trim();
+  const street =
+    streetCore ||
+    (poBox ? `P.O. Box ${poBox}` : undefined) ||
+    undefined;
+
+  return { street, city, state, postalCode, country };
+}
+
 function extractAddressParts(addressComponents: any[] | undefined): AddressParts {
   if (!addressComponents || !addressComponents.length) return {};
 
-  const componentByType = (type: string) => addressComponents.find((comp) => comp.types?.includes(type));
-  const streetNumber = componentByType('street_number')?.long_name || '';
-  const route = componentByType('route')?.long_name || '';
+  const subpremise = componentByType(addressComponents, 'subpremise')?.long_name || '';
+  const streetNumber = componentByType(addressComponents, 'street_number')?.long_name || '';
+  const route = componentByType(addressComponents, 'route')?.long_name || '';
 
   const city =
-    componentByType('locality')?.long_name ||
-    componentByType('postal_town')?.long_name ||
-    componentByType('sublocality')?.long_name ||
-    componentByType('administrative_area_level_2')?.long_name ||
+    componentByType(addressComponents, 'locality')?.long_name ||
+    componentByType(addressComponents, 'postal_town')?.long_name ||
+    componentByType(addressComponents, 'sublocality')?.long_name ||
+    componentByType(addressComponents, 'administrative_area_level_2')?.long_name ||
     undefined;
 
-  const state = componentByType('administrative_area_level_1')?.short_name || undefined;
-  const postalCode = componentByType('postal_code')?.long_name || undefined;
+  const state = componentByType(addressComponents, 'administrative_area_level_1')?.short_name || undefined;
+  const postalCode = componentByType(addressComponents, 'postal_code')?.long_name || undefined;
   const country = normalizeCountry(
-    componentByType('country')?.long_name,
-    componentByType('country')?.short_name,
+    componentByType(addressComponents, 'country')?.long_name,
+    componentByType(addressComponents, 'country')?.short_name,
   );
 
-  const street = [streetNumber, route].filter(Boolean).join(' ').trim() || undefined;
+  const street =
+    [subpremise, streetNumber, route].filter(Boolean).join(' ').trim() || undefined;
 
   return { street, city, state, postalCode, country };
+}
+
+async function geocodeFormattedAddress(formattedAddress: string): Promise<AddressParts | null> {
+  const geocoder = await getGeocoderService();
+  if (!geocoder) return null;
+
+  return new Promise((resolve) => {
+    geocoder.geocode({ address: formattedAddress }, (results: any[] | null, status: string) => {
+      const google = getWindowGoogle();
+      if (status !== google?.maps?.GeocoderStatus?.OK || !results?.length) {
+        resolve(null);
+        return;
+      }
+      resolve(extractAddressParts(results[0].address_components));
+    });
+  });
 }
 
 async function loadGoogleMapsPlacesSdk(): Promise<void> {
@@ -121,6 +188,33 @@ async function getPlacesDetailsService() {
   return placesDetailsService;
 }
 
+/** Autocomplete for company / venue search: establishments, addresses, and geocodes (no `types` filter). */
+export async function fetchCompanyPlacePredictions(input: string): Promise<AddressPrediction[]> {
+  if (!isGooglePlacesConfigured()) return [];
+  const query = input.trim();
+  if (query.length < 2) return [];
+
+  const service = await getAutocompleteService();
+  if (!service) return [];
+
+  return new Promise((resolve) => {
+    service.getPlacePredictions({ input: query }, (predictions: any[] | null, status: string) => {
+      const google = getWindowGoogle();
+      if (status !== google?.maps?.places?.PlacesServiceStatus?.OK || !predictions?.length) {
+        resolve([]);
+        return;
+      }
+
+      resolve(
+        predictions.map((prediction) => ({
+          placeId: prediction.place_id,
+          description: prediction.description,
+        })),
+      );
+    });
+  });
+}
+
 export async function fetchAddressPredictions(input: string, country?: string): Promise<AddressPrediction[]> {
   if (!isGooglePlacesConfigured()) return [];
   const query = input.trim();
@@ -154,7 +248,7 @@ export async function fetchAddressPredictions(input: string, country?: string): 
   });
 }
 
-export async function fetchAddressByPlaceId(placeId: string): Promise<AddressParts | null> {
+export async function fetchPlaceDetailsByPlaceId(placeId: string): Promise<PlaceDetailsResult | null> {
   if (!isGooglePlacesConfigured() || !placeId) return null;
   const service = await getPlacesDetailsService();
   if (!service) return null;
@@ -163,18 +257,47 @@ export async function fetchAddressByPlaceId(placeId: string): Promise<AddressPar
     service.getDetails(
       {
         placeId,
-        fields: ['address_components'],
+        fields: ['address_components', 'name', 'formatted_address'],
       },
-      (place: any, status: string) => {
+      async (place: any, status: string) => {
         const google = getWindowGoogle();
         if (status !== google?.maps?.places?.PlacesServiceStatus?.OK || !place?.address_components) {
           resolve(null);
           return;
         }
-        resolve(extractAddressParts(place.address_components));
+
+        try {
+          const physical = extractPhysicalFromComponents(place.address_components);
+          const postBox = componentByType(place.address_components, 'post_box')?.long_name;
+
+          let mailing: AddressParts = extractAddressParts(place.address_components);
+          if (postBox) {
+            mailing = {
+              ...mailing,
+              street: `P.O. Box ${postBox}`.replace(/^P\.O\. Box P\.O\. Box /, 'P.O. Box '),
+            };
+          } else if (typeof place.formatted_address === 'string' && place.formatted_address.trim()) {
+            const geocoded = await geocodeFormattedAddress(place.formatted_address);
+            if (geocoded) mailing = geocoded;
+          }
+
+          resolve({
+            placeName: typeof place.name === 'string' ? place.name : undefined,
+            formattedAddress: typeof place.formatted_address === 'string' ? place.formatted_address : undefined,
+            physical,
+            mailing,
+          });
+        } catch {
+          resolve(null);
+        }
       },
     );
   });
+}
+
+export async function fetchAddressByPlaceId(placeId: string): Promise<AddressParts | null> {
+  const full = await fetchPlaceDetailsByPlaceId(placeId);
+  return full?.physical ?? null;
 }
 
 export async function fetchAddressByPostalCode(postalCode: string, country?: string): Promise<AddressParts | null> {

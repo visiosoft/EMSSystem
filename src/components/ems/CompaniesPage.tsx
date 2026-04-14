@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { StatusBadge, Avatar, SearchInput, FilterChips, TabBar, Drawer, Modal, FormField, ActionMenu } from './Primitives';
 import { Select2, toOptions, toObjOptions } from './Select2';
 import type { Company, Contact, CompanyTicketing } from '@/data/constants';
-import { getDmaFromPostalCode } from '@/data/constants';
+import { lookupDmasForPostal } from '@/data/constants';
 import { useAddressAutofill } from '@/hooks/useAddressAutofill';
+import { useCompanyPlaceSearch } from '@/hooks/useCompanyPlaceSearch';
+import type { PlaceDetailsResult } from '@/lib/googlePlaces';
 
 interface Props {
   onNavigate: (view: string, data?: any) => void;
@@ -13,6 +15,83 @@ interface Props {
   dmas: { id: string; name: string; status: string }[];
   onUpdateCompanies: (companies: Company[]) => void;
   onUpdateContacts: (contacts: Contact[]) => void;
+}
+
+const overviewLabelCls = 'text-text-muted text-xs';
+const overviewValueCls = 'text-text-primary mt-0.5';
+
+function renderPhysicalAddressValue(c: Company) {
+  const hasPhysical = !!(c.physicalStreet || c.physicalCity || c.physicalState || c.physicalPostalCode || c.physicalCountry);
+  if (hasPhysical) {
+    const cityState = [c.physicalCity, c.physicalState].filter(Boolean).join(', ');
+    const line2 = [cityState, c.physicalPostalCode].filter(Boolean).join(' ');
+    return (
+      <div className={overviewValueCls}>
+        {c.physicalStreet ? <>{c.physicalStreet}<br /></> : null}
+        {line2 ? <>{line2}<br /></> : null}
+        {c.physicalCountry || null}
+      </div>
+    );
+  }
+  if (c.city || c.state) {
+    return <div className={overviewValueCls}>{[c.city, c.state].filter(Boolean).join(', ')}</div>;
+  }
+  return <div className={`${overviewValueCls} text-text-muted`}>—</div>;
+}
+
+function renderMailingAddressValue(c: Company) {
+  const hasMailing = !!(c.mailingStreet || c.mailingCity || c.mailingState || c.mailingPostalCode || c.mailingCountry);
+  if (hasMailing) {
+    const cityState = [c.mailingCity, c.mailingState].filter(Boolean).join(', ');
+    const line2 = [cityState, c.mailingPostalCode].filter(Boolean).join(' ');
+    return (
+      <div className={overviewValueCls}>
+        {c.mailingStreet ? <>{c.mailingStreet}<br /></> : null}
+        {line2 ? <>{line2}<br /></> : null}
+        {c.mailingCountry || null}
+      </div>
+    );
+  }
+  return renderPhysicalAddressValue(c);
+}
+
+function OverviewFields({ selectedCompany, dmas }: { selectedCompany: Company; dmas: { id: string; name: string; status: string }[] }) {
+  const c = selectedCompany;
+  const dmaNames = c.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—';
+  const serviceNames = (c.serviceAreaDmaIds || c.dmaIds).map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—';
+
+  return (
+    <div className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+      <div>
+        <span className={overviewLabelCls}>Company Type</span>
+        <div className={overviewValueCls}>{c.types.join(', ') || '—'}</div>
+      </div>
+      <div>
+        <span className={overviewLabelCls}>Status</span>
+        <div className={overviewValueCls}>{c.status}</div>
+      </div>
+      <div className="sm:col-span-2">
+        <span className={overviewLabelCls}>Company Name</span>
+        <div className={`${overviewValueCls} font-medium`}>{c.tradeName}</div>
+      </div>
+      <div className="min-w-0">
+        <span className={overviewLabelCls}>Physical Address</span>
+        {renderPhysicalAddressValue(c)}
+      </div>
+      <div className="min-w-0">
+        <span className={overviewLabelCls}>Mailing Address</span>
+        {renderMailingAddressValue(c)}
+      </div>
+      <div>
+        <span className={overviewLabelCls}>DMA(s)</span>
+        <div className={overviewValueCls}>{dmaNames}</div>
+      </div>
+      <div>
+        <span className={overviewLabelCls}>Service Area DMA(s)</span>
+        <div className={overviewValueCls}>{serviceNames}</div>
+      </div>
+    </div>
+  );
 }
 
 export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCompanies, onUpdateContacts }: Props) {
@@ -102,36 +181,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
 
           <div className="p-4">
             {drawerTab === 'Overview' && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-text-muted text-xs">Legal Name</span><div className="text-text-primary">{selectedCompany.legalName}</div></div>
-                  <div><span className="text-text-muted text-xs">Trade Name</span><div className="text-text-primary">{selectedCompany.tradeName}</div></div>
-                  <div><span className="text-text-muted text-xs">City/State</span><div className="text-text-primary">{selectedCompany.city}, {selectedCompany.state}</div></div>
-                  <div><span className="text-text-muted text-xs">Status</span><div className="text-text-primary">{selectedCompany.status}</div></div>
-                  <div><span className="text-text-muted text-xs">DMA(s)</span><div className="text-text-primary">{selectedCompany.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</div></div>
-                  <div><span className="text-text-muted text-xs">Service Area DMA(s)</span><div className="text-text-primary">{(selectedCompany.serviceAreaDmaIds || selectedCompany.dmaIds).map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</div></div>
-                </div>
-                {selectedCompany.physicalStreet && (
-                  <div>
-                    <span className="text-text-muted text-xs block mb-1">Physical Address</span>
-                    <div className="text-text-primary text-sm">
-                      {selectedCompany.physicalStreet}<br />
-                      {selectedCompany.physicalCity}{selectedCompany.physicalCity && selectedCompany.physicalState ? ', ' : ''}{selectedCompany.physicalState} {selectedCompany.physicalPostalCode}<br />
-                      {selectedCompany.physicalCountry}
-                    </div>
-                  </div>
-                )}
-                {selectedCompany.mailingStreet && (
-                  <div>
-                    <span className="text-text-muted text-xs block mb-1">Mailing Address</span>
-                    <div className="text-text-primary text-sm">
-                      {selectedCompany.mailingStreet}<br />
-                      {selectedCompany.mailingCity}{selectedCompany.mailingCity && selectedCompany.mailingState ? ', ' : ''}{selectedCompany.mailingState} {selectedCompany.mailingPostalCode}<br />
-                      {selectedCompany.mailingCountry}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <OverviewFields selectedCompany={selectedCompany} dmas={dmas} />
             )}
 
             {drawerTab === 'Contacts' && (
@@ -586,22 +636,21 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const [selectedServiceDmas, setSelectedServiceDmas] = useState<string[]>(initial?.serviceAreaDmaIds || initial?.dmaIds || []);
   const [errors, setErrors] = useState<string[]>([]);
 
-  const [physicalStreet, setPhysicalStreet] = useState(initial?.physicalStreet || '123 Main St');
+  const [physicalStreet, setPhysicalStreet] = useState(initial?.physicalStreet || '');
   const [physicalCity, setPhysicalCity] = useState(initial?.physicalCity || '');
   const [physicalState, setPhysicalState] = useState(initial?.physicalState || '');
   const [physicalPostalCode, setPhysicalPostalCode] = useState(initial?.physicalPostalCode || '');
   const [physicalCountry, setPhysicalCountry] = useState(initial?.physicalCountry || 'USA');
+  const [lastGoogleFormattedMailing, setLastGoogleFormattedMailing] = useState('');
 
   useEffect(() => {
-    if (physicalPostalCode && physicalPostalCode.length >= 5) {
-      const autoDma = getDmaFromPostalCode(physicalPostalCode);
-      if (autoDma && !selectedDmas.includes(autoDma)) {
-        setSelectedDmas(prev => [...prev, autoDma]);
-      }
-    } else if (!physicalPostalCode || physicalPostalCode.length < 5) {
-      setSelectedDmas([]);
-    }
-  }, [physicalPostalCode]);
+    const digits = physicalPostalCode.replace(/\D/g, '');
+    if (digits.length < 3) return;
+    const { dmaIds } = lookupDmasForPostal(physicalPostalCode, physicalCountry);
+    dmaIds.forEach((id) => {
+      setSelectedDmas((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    });
+  }, [physicalPostalCode, physicalCountry]);
 
   const [mailingEnabled, setMailingEnabled] = useState(!!(initial?.mailingStreet || initial?.mailingCity));
   const [mailingStreet, setMailingStreet] = useState(initial?.mailingStreet || '');
@@ -610,21 +659,53 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const [mailingPostalCode, setMailingPostalCode] = useState(initial?.mailingPostalCode || '');
   const [mailingCountry, setMailingCountry] = useState(initial?.mailingCountry || 'USA');
 
-  const patchPhysicalAddress = (patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
+  const patchPhysicalAddress = useCallback((patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
     if (patch.street !== undefined) setPhysicalStreet(patch.street);
     if (patch.city !== undefined) setPhysicalCity(patch.city);
     if (patch.state !== undefined) setPhysicalState(patch.state);
     if (patch.postalCode !== undefined) setPhysicalPostalCode(patch.postalCode);
     if (patch.country !== undefined) setPhysicalCountry(patch.country);
-  };
+  }, []);
 
-  const patchMailingAddress = (patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
+  const patchMailingAddress = useCallback((patch: Partial<{ street: string; city: string; state: string; postalCode: string; country: string }>) => {
     if (patch.street !== undefined) setMailingStreet(patch.street);
     if (patch.city !== undefined) setMailingCity(patch.city);
     if (patch.state !== undefined) setMailingState(patch.state);
     if (patch.postalCode !== undefined) setMailingPostalCode(patch.postalCode);
     if (patch.country !== undefined) setMailingCountry(patch.country);
-  };
+  }, []);
+
+  const onPlaceResolved = useCallback(
+    (details: PlaceDetailsResult) => {
+      const name = details.placeName?.trim();
+      if (name) setTradeName(name);
+      patchPhysicalAddress({
+        street: details.physical.street || '',
+        city: details.physical.city || '',
+        state: details.physical.state || '',
+        postalCode: details.physical.postalCode || '',
+        country: details.physical.country || 'USA',
+      });
+      patchMailingAddress({
+        street: details.mailing.street || '',
+        city: details.mailing.city || '',
+        state: details.mailing.state || '',
+        postalCode: details.mailing.postalCode || '',
+        country: details.mailing.country || 'USA',
+      });
+      setLastGoogleFormattedMailing(details.formattedAddress?.trim() || '');
+      const pc = details.physical.postalCode;
+      if (pc) {
+        const { dmaIds } = lookupDmasForPostal(pc, details.physical.country);
+        dmaIds.forEach((id) => {
+          setSelectedDmas((prev) => (prev.includes(id) ? prev : [...prev, id]));
+        });
+      }
+    },
+    [patchPhysicalAddress, patchMailingAddress],
+  );
+
+  const companyPlace = useCompanyPlaceSearch({ query: tradeName, onPlaceResolved });
 
   const physicalAutofill = useAddressAutofill({
     value: {
@@ -635,7 +716,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       country: physicalCountry,
     },
     onPatch: patchPhysicalAddress,
-    enabled: true,
+    enabled: false,
   });
 
   const mailingAutofill = useAddressAutofill({
@@ -649,6 +730,12 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
     onPatch: patchMailingAddress,
     enabled: mailingEnabled,
   });
+
+  const postalDmaLookup = useMemo(
+    () => lookupDmasForPostal(physicalPostalCode, physicalCountry),
+    [physicalPostalCode, physicalCountry],
+  );
+  const postalDigits = useMemo(() => physicalPostalCode.replace(/\D/g, ''), [physicalPostalCode]);
 
   const handleSave = () => {
     if (!tradeName.trim()) { setErrors(['Company Name is required']); return; }
@@ -700,46 +787,53 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
       </div>
 
       <FormField label="Company Name" required>
-        <input className={inputCls} value={tradeName} onChange={e => setTradeName(e.target.value)} placeholder="e.g. Madison Square Garden" />
+        <div className="relative">
+          <input
+            className={inputCls}
+            value={tradeName}
+            onChange={e => setTradeName(e.target.value)}
+            onFocus={companyPlace.onNameFocus}
+            onBlur={companyPlace.onNameBlur}
+            placeholder="Search venue or address…"
+            autoComplete="off"
+          />
+          {companyPlace.menuOpen && (
+            <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto">
+              {companyPlace.loading && companyPlace.suggestions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-text-muted">Searching…</div>
+              )}
+              {companyPlace.suggestions.map(s => (
+                <button
+                  key={s.placeId}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                  onMouseDown={e => {
+                    e.preventDefault();
+                    companyPlace.selectPrediction(s);
+                  }}
+                >
+                  {s.description}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </FormField>
+      {!companyPlace.configured && (
+        <p className="text-[11px] text-text-muted -mt-3">Add a Places API key to search by name.</p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-text-primary border-b border-border pb-2">Physical Address</h3>
           <FormField label="Street Address">
-            <div className="relative">
-              <input
-                className={inputCls}
-                value={physicalStreet}
-                onChange={e => setPhysicalStreet(e.target.value)}
-                onFocus={physicalAutofill.onStreetFocus}
-                onBlur={physicalAutofill.onStreetBlur}
-                placeholder="Start typing street address..."
-              />
-              {physicalAutofill.showSuggestions && (
-                <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-auto">
-                  {physicalAutofill.suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        physicalAutofill.selectSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <input
+              className={inputCls}
+              value={physicalStreet}
+              onChange={e => setPhysicalStreet(e.target.value)}
+              placeholder="Filled from company search, or edit"
+            />
           </FormField>
-          <p className="text-[11px] text-text-muted -mt-2">
-            {physicalAutofill.configured
-              ? 'City, state, postal code, and country are auto-filled from Google Places.'
-              : 'Set VITE_GOOGLE_PLACES_API_KEY to enable Google Places autofill.'}
-          </p>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="City">
               <input className={inputCls} value={physicalCity} onChange={e => setPhysicalCity(e.target.value)} disabled />
@@ -809,11 +903,6 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
                   )}
                 </div>
               </FormField>
-              <p className="text-[11px] text-text-muted -mt-2">
-                {mailingAutofill.configured
-                  ? 'Street and postal code selections auto-fill city/state/country.'
-                  : 'Set VITE_GOOGLE_PLACES_API_KEY to enable Google Places autofill.'}
-              </p>
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="City"><input className={inputCls} value={mailingCity} onChange={e => setMailingCity(e.target.value)} disabled /></FormField>
                 <FormField label="State"><input className={inputCls} value={mailingState} onChange={e => setMailingState(e.target.value)} disabled /></FormField>
@@ -832,8 +921,10 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-center h-[152px] bg-surface rounded-lg border border-dashed border-border">
-              <span className="text-xs text-text-muted">Mailing address same as physical</span>
+            <div className="min-h-[120px] bg-surface rounded-lg border border-dashed border-border p-3 flex items-center">
+              <p className="text-xs text-text-secondary leading-relaxed break-words w-full">
+                {lastGoogleFormattedMailing || '—'}
+              </p>
             </div>
           )}
         </div>
@@ -841,7 +932,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <label className="text-xs font-medium text-text-secondary block mb-2">DMA(s) <span className="text-text-muted font-normal">(Auto-filled from postal code)</span></label>
+          <label className="text-xs font-medium text-text-secondary block mb-2">DMA(s)</label>
           {selectedDmas.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {selectedDmas
@@ -857,13 +948,17 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
                 ))}
             </div>
           ) : (
-            <div className="text-xs text-text-muted bg-surface border border-dashed border-border rounded-md px-3 py-2">
-              Enter or select a postal code to auto-select DMA.
+            <div className="text-xs bg-surface border border-dashed border-border rounded-md px-3 py-2">
+              {postalDigits.length >= 3 && postalDmaLookup.dmaIds.length === 0 ? (
+                <span className="text-ems-coral/90">No market matched for this postal code.</span>
+              ) : (
+                <span className="text-text-muted">—</span>
+              )}
             </div>
           )}
         </div>
         <div>
-          <label className="text-xs font-medium text-text-secondary block mb-2">Service Area DMA(s) <span className="text-text-muted font-normal">(Manual selection)</span></label>
+          <label className="text-xs font-medium text-text-secondary block mb-2">Service area</label>
           <div className="flex flex-wrap gap-1.5">
             {dmas.map(d => (
               <button key={d.id} type="button"

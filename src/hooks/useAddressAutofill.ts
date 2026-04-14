@@ -95,7 +95,7 @@ export function useAddressAutofill({ value, onPatch, enabled = true }: UseAddres
   };
 
   const resolveByPostalCode = async () => {
-    if (!enabled || !configured) return;
+    if (!configured) return;
     const postalCode = value.postalCode.trim();
     if (postalCode.length < 3) return;
 
