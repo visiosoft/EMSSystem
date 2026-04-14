@@ -115,15 +115,7 @@ const Index = () => {
         <Header breadcrumb={getBreadcrumb()} onMenuToggle={() => setMobileSidebarOpen(prev => !prev)} />
         <main className="p-4 lg:p-6">
           {currentView === 'companies' && (
-            <CompaniesPage
-              onNavigate={navigate}
-              addToast={addToast}
-              companies={companies}
-              contacts={contacts}
-              dmas={dmas}
-              onUpdateCompanies={setCompanies}
-              onUpdateContacts={setContacts}
-            />
+            <CompaniesPage addToast={addToast} />
           )}
           {currentView === 'attraction-tours' && (
             <AttractionToursPage

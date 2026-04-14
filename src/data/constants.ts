@@ -75,6 +75,12 @@ export interface Company {
   dmaIds: string[];
   serviceAreaDmaIds: string[];
   status: string;
+  /** dbo.Company.CompanyTypeID when loaded from API */
+  companyTypeId?: number;
+  /** dbo.Company.DMAID when loaded from API */
+  dmaId?: number;
+  /** dbo.DMA.MarketName for the company's DMAID (display). */
+  dmaMarketName?: string;
   venueProfile?: VenueProfile;
   ticketing?: CompanyTicketing;
   physicalStreet?: string;
@@ -170,6 +176,13 @@ export interface Contact {
   cellPhone?: string;
   workEmail?: string;
   workPhone?: string;
+  /** dbo.ContactAssignment.ContactAssignmentID */
+  contactAssignmentId?: number;
+  /** dbo.Contact.ContactID */
+  contactId?: number;
+  roleId?: number;
+  departmentId?: number;
+  departmentName?: string;
 }
 
 export const CONTACTS: Contact[] = [
