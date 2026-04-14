@@ -48,7 +48,7 @@ const Index = () => {
     const venue = companies.find(c => c.id === offer.venueId);
     const id = `eng-${Date.now().toString().slice(-4)}`;
     const newEng: Engagement = {
-      id, name: `${attr?.name} — ${tour?.name} @ ${venue?.tradeName}`,
+      id, name: `${attr?.name} — ${tour?.name} @ ${venue?.name}`,
       tourId: project.tourId, venueId: offer.venueId, configName: offer.configName, bookerId: project.bookerId,
       projectId: project.id, offerId: offer.id,
       showDates: [{ date: offer.proposedDates[0], doorTime: '19:00', showTime: offer.showTime, runtime: 120 }],

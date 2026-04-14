@@ -68,14 +68,12 @@ export interface CompanyTicketing {
 
 export interface Company {
   id: string;
-  legalName: string;
-  tradeName: string;
-  types: string[];
+  name: string;
+  type: string;
   city: string;
   state: string;
   dmaIds: string[];
   serviceAreaDmaIds: string[];
-  standing: string;
   status: string;
   venueProfile?: VenueProfile;
   ticketing?: CompanyTicketing;
@@ -92,52 +90,52 @@ export interface Company {
 }
 
 export const COMPANIES: Company[] = [
-  { id: 'co-01', legalName: 'United Center Entertainment LLC', tradeName: 'United Center',
-    types: ['Venue'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    standing: 'Master Agreement', status: 'Active',
+  { id: 'co-01', name: 'United Center',
+    type: 'Venue', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20000, seatedCap: 18500, gaCap: 1500, stageType: 'End Stage', isDefault: true },
                                      { name: 'Half House', totalCap: 10000, seatedCap: 9200, gaCap: 800, stageType: 'End Stage', isDefault: false }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 4000,
       inHouseAudio: true, inHouseLighting: true, exclusiveTicketingId: 'co-09', houseAgencyId: 'co-12' } },
-  { id: 'co-02', legalName: 'Madison Square Garden Sports Corp.', tradeName: 'Madison Square Garden',
-    types: ['Venue'], city: 'New York', state: 'NY', dmaIds: ['dma-01'], serviceAreaDmaIds: ['dma-01'],
-    standing: 'Preferred Vendor', status: 'Active',
+  { id: 'co-02', name: 'Madison Square Garden',
+    type: 'Venue', city: 'New York', state: 'NY', dmaIds: ['dma-01'], serviceAreaDmaIds: ['dma-01'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20789, seatedCap: 19500, gaCap: 1289, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:30 PM', loadInDocks: 8, parking: 0,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-03', legalName: 'AEG Presents Arena Management LLC', tradeName: 'Crypto.com Arena',
-    types: ['Venue'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
-    standing: 'Preferred Vendor', status: 'Active',
+  { id: 'co-03', name: 'Crypto.com Arena',
+    type: 'Venue', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19068, seatedCap: 17500, gaCap: 1568, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 2800,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-04', legalName: 'Bridgestone Arena Operations LLC', tradeName: 'Bridgestone Arena',
-    types: ['Venue'], city: 'Nashville', state: 'TN', dmaIds: ['dma-13'], serviceAreaDmaIds: ['dma-13'],
-    standing: 'Master Agreement', status: 'Active',
+  { id: 'co-04', name: 'Bridgestone Arena',
+    type: 'Venue', city: 'Nashville', state: 'TN', dmaIds: ['dma-13'], serviceAreaDmaIds: ['dma-13'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19500, seatedCap: 18000, gaCap: 1500, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 5, parking: 3500,
       inHouseAudio: true, inHouseLighting: false } },
-  { id: 'co-05', legalName: 'Amalie Arena Group Inc.', tradeName: 'Amalie Arena',
-    types: ['Venue'], city: 'Tampa', state: 'FL', dmaIds: ['dma-14'], serviceAreaDmaIds: ['dma-14'],
-    standing: 'Deal by Deal', status: 'Active',
+  { id: 'co-05', name: 'Amalie Arena',
+    type: 'Venue', city: 'Tampa', state: 'FL', dmaIds: ['dma-14'], serviceAreaDmaIds: ['dma-14'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19092, seatedCap: 17800, gaCap: 1292, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 4, parking: 2200,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-06', legalName: 'The Fillmore Detroit LLC', tradeName: 'The Fillmore Detroit',
-    types: ['Venue'], city: 'Detroit', state: 'MI', dmaIds: ['dma-15'], serviceAreaDmaIds: ['dma-15'],
-    standing: 'Preferred Vendor', status: 'Active',
+  { id: 'co-06', name: 'The Fillmore Detroit',
+    type: 'Venue', city: 'Detroit', state: 'MI', dmaIds: ['dma-15'], serviceAreaDmaIds: ['dma-15'],
+    status: 'Active',
     venueProfile: { configurations: [{ name: 'General Admission', totalCap: 2600, seatedCap: 400, gaCap: 2200, stageType: 'Proscenium', isDefault: true }],
       ageRestriction: '18+', curfew: '2:00 AM', loadInDocks: 2, parking: 800,
       inHouseAudio: true, inHouseLighting: true } },
-  { id: 'co-07', legalName: 'Creative Ventures Agency Inc.', tradeName: 'Creative Ventures Agency',
-    types: ['TalentAgency'], city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [],
-    standing: 'Master Agreement', status: 'Active' },
-  { id: 'co-08', legalName: 'United Talent Partners LLC', tradeName: 'United Talent Partners',
-    types: ['TalentAgency'], city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [],
-    standing: 'Preferred Vendor', status: 'Active' },
-  { id: 'co-09', legalName: 'TicketFlow Inc.', tradeName: 'TicketFlow',
-    types: ['Ticketing'], city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
-    standing: 'Master Agreement', status: 'Active',
+  { id: 'co-07', name: 'Creative Ventures Agency',
+    type: 'TalentAgency', city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [],
+    status: 'Active' },
+  { id: 'co-08', name: 'United Talent Partners',
+    type: 'TalentAgency', city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [],
+    status: 'Active' },
+  { id: 'co-09', name: 'TicketFlow',
+    type: 'Ticketing', city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
+    status: 'Active',
     ticketing: {
       seatingChartFiles: [],
       ticketingSystem: 'Ticketmaster',
@@ -147,15 +145,15 @@ export const COMPANIES: Company[] = [
         { id: 'tm-09-1', contactId: 'ct-15', displayName: 'Alicia Moran', phone: '(615) 555-0166', email: 'a.moran@ticketflow.com' },
       ],
     } },
-  { id: 'co-10', legalName: 'IATSE Local 2 Chicago', tradeName: 'IATSE Local 2',
-    types: ['Labor'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    standing: 'Master Agreement', status: 'Active' },
-  { id: 'co-11', legalName: 'Pacific Stagecraft LLC', tradeName: 'Pacific Stagecraft',
-    types: ['Labor'], city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
-    standing: 'Preferred Vendor', status: 'Active' },
-  { id: 'co-12', legalName: 'Momentum Live Media Inc.', tradeName: 'Momentum Live Media',
-    types: ['AdAgency'], city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    standing: 'Preferred Vendor', status: 'Active' },
+  { id: 'co-10', name: 'IATSE Local 2',
+    type: 'Labor', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    status: 'Active' },
+  { id: 'co-11', name: 'Pacific Stagecraft',
+    type: 'Labor', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
+    status: 'Active' },
+  { id: 'co-12', name: 'Momentum Live Media',
+    type: 'AdAgency', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
+    status: 'Active' },
 ];
 
 export interface Contact {

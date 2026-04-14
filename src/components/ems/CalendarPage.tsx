@@ -84,7 +84,7 @@ export function CalendarPage({ engagements, onNavigate, addToast }: Props) {
         showTime: eng.showDates[0]?.showTime || '',
         tourName: tour?.name || '',
         attractionName: attr?.name || '',
-        venueName: venue?.tradeName || '',
+        venueName: venue?.name || '',
         venueCity: venue?.city || '',
         status: eng.status,
         engagementId: eng.id,
@@ -408,8 +408,8 @@ function AddHoldForm({ onSave, onCancel }: { onSave: (e: CalendarEntry) => void;
       <FormField label="Venue" required>
         <select className={inputCls} value={venueId} onChange={e => setVenueId(e.target.value)}>
           <option value="">Select venue...</option>
-          {COMPANIES.filter(c => c.types.includes('Venue')).map(c => (
-            <option key={c.id} value={c.id}>{c.tradeName}</option>
+          {COMPANIES.filter(c => c.type === 'Venue').map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </FormField>
@@ -446,7 +446,7 @@ function AddHoldForm({ onSave, onCancel }: { onSave: (e: CalendarEntry) => void;
               showTime: time,
               tourName: tour?.name || '',
               attractionName: attr?.name || '',
-              venueName: venue?.tradeName || '',
+              venueName: venue?.name || '',
               venueCity: venue?.city || '',
               status: holdType,
             });

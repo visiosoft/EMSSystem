@@ -107,7 +107,7 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onUpdateEngagement: (eng: Engagement) => void;
   onDeleteEngagement: (engagementId: string) => void;
-  companies: { id: string; tradeName: string; city: string; state: string; venueProfile?: any }[];
+  companies: { id: string; name: string; city: string; state: string; venueProfile?: any }[];
   tours: { id: string; name: string; attractionId: string; contacts?: { contactId: string; role: string }[] }[];
   attractions: { id: string; name: string }[];
   users: { id: string; name: string; email: string }[];
@@ -207,7 +207,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
 
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mt-3 pt-3 border-t border-border text-xs">
           <div><span className="text-text-muted block mb-0.5">Attraction — Tour</span><span className="text-text-primary font-medium">{attr?.name}</span><br/><span className="text-text-secondary">{tour?.name}</span></div>
-          <div><span className="text-text-muted block mb-0.5">Venue</span><span className="text-text-primary font-medium">{venue?.tradeName}</span><br/><span className="text-text-secondary">{venue?.city}, {venue?.state}</span></div>
+          <div><span className="text-text-muted block mb-0.5">Venue</span><span className="text-text-primary font-medium">{venue?.name}</span><br/><span className="text-text-secondary">{venue?.city}, {venue?.state}</span></div>
           <div>
             <span className="text-text-muted block mb-0.5">Show Date(s)</span>
             {engagement.showDates.map((sd, i) => (
@@ -255,7 +255,7 @@ export function EngagementDetailPage({ engagement, engagements, onNavigate, addT
               </div>
             </div>
             <div className="bg-card border border-border rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-text-primary mb-3">{venue?.tradeName}</h3>
+              <h3 className="text-sm font-semibold text-text-primary mb-3">{venue?.name}</h3>
               <div className="text-xs text-text-secondary space-y-1">
                 <div>{venue?.city}, {venue?.state}</div>
                 <div>Config: {engagement.configName} · {venue?.venueProfile?.configurations.find((c: any) => c.name === engagement.configName)?.totalCap?.toLocaleString()} cap</div>
@@ -603,7 +603,7 @@ function CancelEngagementModal({ engagement, onConfirm, onClose }: { engagement:
   );
 }
 
-function SettlementModal({ engagement, onClose, addToast, companies }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void; companies: { id: string; tradeName: string }[] }) {
+function SettlementModal({ engagement, onClose, addToast, companies }: { engagement: Engagement; onClose: () => void; addToast: (msg: string, type: any) => void; companies: { id: string; name: string }[] }) {
   const venue = companies.find(c => c.id === engagement.venueId);
   const primaryDate = engagement.showDates[0];
   return (

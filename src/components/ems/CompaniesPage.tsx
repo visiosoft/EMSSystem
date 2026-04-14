@@ -64,7 +64,7 @@ function OverviewFields({ selectedCompany, dmas }: { selectedCompany: Company; d
     <div className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
       <div>
         <span className={overviewLabelCls}>Company Type</span>
-        <div className={overviewValueCls}>{c.types.join(', ') || '—'}</div>
+        <div className={overviewValueCls}>{c.type || '—'}</div>
       </div>
       <div>
         <span className={overviewLabelCls}>Status</span>
@@ -72,7 +72,7 @@ function OverviewFields({ selectedCompany, dmas }: { selectedCompany: Company; d
       </div>
       <div className="sm:col-span-2">
         <span className={overviewLabelCls}>Company Name</span>
-        <div className={`${overviewValueCls} font-medium`}>{c.tradeName}</div>
+        <div className={`${overviewValueCls} font-medium`}>{c.name}</div>
       </div>
       <div className="min-w-0">
         <span className={overviewLabelCls}>Physical Address</span>
@@ -107,8 +107,8 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
   const typeOptions = ['All', 'Venue', 'TalentAgency', 'Ticketing', 'Labor', 'AdAgency', 'Sponsor'];
   const selectedCompany = selectedCompanyId ? companies.find(c => c.id === selectedCompanyId) || null : null;
   const filtered = companies.filter(c => {
-    if (search && !c.tradeName.toLowerCase().includes(search.toLowerCase()) && !c.legalName.toLowerCase().includes(search.toLowerCase())) return false;
-    if (typeFilter !== 'All' && !c.types.includes(typeFilter)) return false;
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (typeFilter !== 'All' && c.type !== typeFilter) return false;
     return true;
   });
   const companyContacts = selectedCompany ? contacts.filter(ct => ct.companyId === selectedCompany.id) : [];
@@ -133,7 +133,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3">Company Name</th>
-              <th className="text-left py-2.5 px-3">Type(s)</th>
+              <th className="text-left py-2.5 px-3">Type</th>
               <th className="text-left py-2.5 px-3">City, State</th>
               <th className="text-left py-2.5 px-3">DMA(s)</th>
               <th className="text-left py-2.5 px-3">Service Area DMA(s)</th>
@@ -144,8 +144,8 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
           <tbody>
             {filtered.map(c => (
               <tr key={c.id} onClick={() => { setSelectedCompanyId(c.id); setDrawerTab('Overview'); }} className="border-b border-border/50 hover:bg-hover cursor-pointer">
-                <td className="py-2.5 px-3 text-text-primary font-medium">{c.tradeName}</td>
-                <td className="py-2.5 px-3"><div className="flex gap-1">{c.types.map(t => <span key={t} className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t}</span>)}</div></td>
+                <td className="py-2.5 px-3 text-text-primary font-medium">{c.name}</td>
+                <td className="py-2.5 px-3"><span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{c.type}</span></td>
                 <td className="py-2.5 px-3 text-text-secondary">{c.city}, {c.state}</td>
                 <td className="py-2.5 px-3 text-xs text-text-secondary">{c.dmaIds.map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</td>
                 <td className="py-2.5 px-3 text-xs text-text-secondary">{(c.serviceAreaDmaIds || c.dmaIds).map(d => dmas.find(dm => dm.id === d)?.name).filter(Boolean).join(', ') || '—'}</td>
@@ -166,11 +166,11 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
       {selectedCompany && (
         <Drawer onClose={() => setSelectedCompanyId(null)} width={1080}>
           <div className="p-4 border-b border-border flex items-center gap-3">
-            <Avatar name={selectedCompany.tradeName} size="lg" />
+            <Avatar name={selectedCompany.name} size="lg" />
             <div className="flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">{selectedCompany.tradeName}</h2>
+              <h2 className="text-lg font-semibold text-text-primary">{selectedCompany.name}</h2>
               <div className="flex gap-1.5 mt-1">
-                {selectedCompany.types.map(t => <span key={t} className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t}</span>)}
+                <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{selectedCompany.type}</span>
                 <StatusBadge status={selectedCompany.status} />
               </div>
             </div>
@@ -230,7 +230,7 @@ export function CompaniesPage({ addToast, companies, contacts, dmas, onUpdateCom
               </div>
             )}
 
-            {drawerTab === 'Engagements' && <div className="text-sm text-text-secondary"><p>Engagements involving {selectedCompany.tradeName} will appear here.</p></div>}
+            {drawerTab === 'Engagements' && <div className="text-sm text-text-secondary"><p>Engagements involving {selectedCompany.name} will appear here.</p></div>}
             {drawerTab === 'Documents' && <div className="space-y-3"><button onClick={() => addToast('Upload simulated', 'success')} className="text-ems-accent text-sm hover:underline">+ Upload Document</button><div className="text-sm text-text-muted">No documents uploaded yet.</div></div>}
 
             {drawerTab === 'Ticketing' && (
@@ -598,7 +598,7 @@ function ContactForm({ onSave, onCancel, initial, companies, currentCompanyId }:
           <FormField label="First Name" required><input className={inputCls} value={firstName} onChange={e => setFirstName(e.target.value)} /></FormField>
           <FormField label="Last Name" required><input className={inputCls} value={lastName} onChange={e => setLastName(e.target.value)} /></FormField>
           <FormField label="Company">
-            <Select2 options={[{ value: '', label: 'Select company...' }, ...toObjOptions(companies, c => c.tradeName)]} value={companyId} onChange={setCompanyId} placeholder="Select company..." />
+            <Select2 options={[{ value: '', label: 'Select company...' }, ...toObjOptions(companies, c => c.name)]} value={companyId} onChange={setCompanyId} placeholder="Select company..." />
           </FormField>
           <FormField label="Department">
             <Select2 options={[{ value: '', label: 'Select department...' }, ...toOptions(DEPARTMENTS)]} value={department} onChange={setDepartment} placeholder="Select department..." />
@@ -628,12 +628,11 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   initial?: Company;
   dmas: { id: string; name: string; status: string }[];
 }) {
-  const [legalName, setLegalName] = useState(initial?.legalName || '');
-  const [tradeName, setTradeName] = useState(initial?.tradeName || '');
-  const [type, setType] = useState(initial?.types[0] || 'Venue');
+  const [companyName, setCompanyName] = useState(initial?.name || '');
+  const [type, setType] = useState(initial?.type || 'Venue');
   const [status, setStatus] = useState(initial?.status || 'Active');
-  const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds || []);
-  const [selectedServiceDmas, setSelectedServiceDmas] = useState<string[]>(initial?.serviceAreaDmaIds || initial?.dmaIds || []);
+  const [selectedDmas, setSelectedDmas] = useState<string[]>(initial?.dmaIds ?? []);
+  const [selectedServiceDmas, setSelectedServiceDmas] = useState<string[]>(initial?.serviceAreaDmaIds ?? initial?.dmaIds ?? []);
   const [errors, setErrors] = useState<string[]>([]);
 
   const [physicalStreet, setPhysicalStreet] = useState(initial?.physicalStreet || '');
@@ -678,7 +677,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const onPlaceResolved = useCallback(
     (details: PlaceDetailsResult) => {
       const name = details.placeName?.trim();
-      if (name) setTradeName(name);
+      if (name) setCompanyName(name);
       patchPhysicalAddress({
         street: details.physical.street || '',
         city: details.physical.city || '',
@@ -705,7 +704,7 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
     [patchPhysicalAddress, patchMailingAddress],
   );
 
-  const companyPlace = useCompanyPlaceSearch({ query: tradeName, onPlaceResolved });
+  const companyPlace = useCompanyPlaceSearch({ query: companyName, onPlaceResolved });
 
   const physicalAutofill = useAddressAutofill({
     value: {
@@ -738,17 +737,15 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
   const postalDigits = useMemo(() => physicalPostalCode.replace(/\D/g, ''), [physicalPostalCode]);
 
   const handleSave = () => {
-    if (!tradeName.trim()) { setErrors(['Company Name is required']); return; }
+    if (!companyName.trim()) { setErrors(['Company Name is required']); return; }
     onSave({
       id: initial?.id || `co-${Date.now()}`,
-      legalName: legalName || tradeName,
-      tradeName,
+      name: companyName.trim(),
       city: physicalCity || '',
       state: physicalState || '',
-      types: [type],
+      type,
       dmaIds: selectedDmas,
       serviceAreaDmaIds: selectedServiceDmas,
-      standing: initial?.standing || 'PreferredVendor',
       status,
       venueProfile: initial?.venueProfile,
       ticketing: initial?.ticketing,
@@ -790,8 +787,8 @@ function CompanyForm({ onSave, onCancel, initial, dmas }: {
         <div className="relative">
           <input
             className={inputCls}
-            value={tradeName}
-            onChange={e => setTradeName(e.target.value)}
+            value={companyName}
+            onChange={e => setCompanyName(e.target.value)}
             onFocus={companyPlace.onNameFocus}
             onBlur={companyPlace.onNameBlur}
             placeholder="Search venue or address…"

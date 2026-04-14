@@ -76,7 +76,7 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
                     <td className="py-2.5 px-3 text-text-primary font-medium">{a.name}</td>
                     <td className="py-2.5 px-3">{a.genres.map(g => <span key={g} className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary mr-1">{g}</span>)}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{a.marketTier}</td>
-                    <td className="py-2.5 px-3 text-text-secondary">{agency?.tradeName}</td>
+                    <td className="py-2.5 px-3 text-text-secondary">{agency?.name}</td>
                     <td className="py-2.5 px-3 font-mono text-xs">{tourCount}</td>
                     <td className="py-2.5 px-3"><StatusBadge status={a.iaeStatus} /></td>
                     <td className="py-2.5 px-3 text-right">
@@ -137,7 +137,7 @@ export function AttractionToursPage({ addToast, attractions, tours, companies, c
               const owner = users.find(u => u.id === attraction.ownerId);
               return (
                 <div className="space-y-3 text-sm">
-                  <div><span className="text-text-muted text-xs">Primary Agency</span><div className="text-text-primary">{agency?.tradeName}</div></div>
+                  <div><span className="text-text-muted text-xs">Primary Agency</span><div className="text-text-primary">{agency?.name}</div></div>
                   {agent && <div className="bg-elevated rounded-lg p-3"><div className="flex items-center gap-2"><Avatar name={`${agent.firstName} ${agent.lastName}`} size="md" /><div><div className="text-text-primary font-medium">{agent.firstName} {agent.lastName}</div><div className="text-xs text-text-secondary">{agent.title}</div></div></div></div>}
                   <div><span className="text-text-muted text-xs">Relationship Owner</span><div className="text-text-primary">{owner?.name}</div></div>
                 </div>
@@ -176,7 +176,7 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
   const [name, setName] = useState(initial?.name || '');
   const [genres, setGenres] = useState((initial?.genres || []).join(', '));
   const [marketTier, setMarketTier] = useState(initial?.marketTier || 'Arena');
-  const [agencyId, setAgencyId] = useState(initial?.agencyId || companies.find(c => c.types.includes('TalentAgency'))?.id || '');
+  const [agencyId, setAgencyId] = useState(initial?.agencyId || companies.find(c => c.type === 'TalentAgency')?.id || '');
   const [primaryAgentContactId, setPrimaryAgentContactId] = useState(initial?.primaryAgentContactId || '');
   const [ownerId, setOwnerId] = useState(initial?.ownerId || users[0]?.id || '');
   const [iaeStatus, setIaeStatus] = useState(initial?.iaeStatus || 'Active');
@@ -184,7 +184,7 @@ function AttractionForm({ onSave, onCancel, initial, companies, contacts, users 
   const agencyContacts = contacts.filter(c => c.companyId === agencyId);
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
-  const agencyOptions = toObjOptions(companies.filter(c => c.types.includes('TalentAgency')), c => c.tradeName);
+  const agencyOptions = toObjOptions(companies.filter(c => c.type === 'TalentAgency'), c => c.name);
   const agentOptions = toObjOptions(agencyContacts, c => `${c.firstName} ${c.lastName}`);
   const ownerOptions = toObjOptions(users, u => u.name);
 

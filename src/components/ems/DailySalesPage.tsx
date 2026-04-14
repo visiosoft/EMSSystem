@@ -39,7 +39,7 @@ function getEngagementContext(
     : '—';
   return {
     attractionName: attraction?.name ?? '—',
-    venueName: venue?.tradeName ?? '—',
+    venueName: venue?.name ?? '—',
     city: venue?.city ?? '—',
     state: venue?.state ?? '',
     showSummary,
@@ -69,8 +69,8 @@ export function DailySalesPage({
   const [showAdd, setShowAdd] = useState(false);
 
   const venueOptions = useMemo(() => {
-    const venues = companies.filter(c => c.types.includes('Venue'));
-    return [{ value: '', label: 'All venues' }, ...venues.map(v => ({ value: v.id, label: v.tradeName }))];
+    const venues = companies.filter(c => c.type === 'Venue');
+    return [{ value: '', label: 'All venues' }, ...venues.map(v => ({ value: v.id, label: v.name }))];
   }, [companies]);
 
   const attractionOptions = useMemo(() => {

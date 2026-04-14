@@ -223,7 +223,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <span className="text-text-primary font-medium">{venue?.tradeName}</span>
+                      <span className="text-text-primary font-medium">{venue?.name}</span>
                       <div className="text-xs text-text-secondary">{venue?.city}, {venue?.state} · {offer.configName} · Capacity: {venue?.venueProfile?.configurations.find((c: any) => c.name === offer.configName)?.totalCap?.toLocaleString()}</div>
                     </div>
                     <StatusBadge status={offer.status} />
@@ -263,7 +263,7 @@ export function ProjectDetailPage({ project, projects, engagements, onNavigate, 
                 <div>
                   <div className="text-text-primary font-medium text-sm">{agent.firstName} {agent.lastName}</div>
                   <div className="text-xs text-text-secondary">{agent.title}</div>
-                  <div className="text-xs text-text-secondary">{agentCompany?.tradeName}</div>
+                  <div className="text-xs text-text-secondary">{agentCompany?.name}</div>
                 </div>
               </div>
               <div className="text-xs space-y-1 mt-2">
@@ -413,7 +413,7 @@ function RecordResponseModal({ offerId, offer, onSave, onClose }: { offerId: str
   return (
     <Modal title="Record Agent Response" onClose={onClose} width={640}>
       <div className="space-y-3">
-        <div className="text-sm text-text-secondary">Offer: {venue?.tradeName} · {formatDate(offer.proposedDates[0])}</div>
+        <div className="text-sm text-text-secondary">Offer: {venue?.name} · {formatDate(offer.proposedDates[0])}</div>
         <FormField label="Response">
           <div className="flex gap-4">{['Accepted', 'Declined', 'Countered'].map(r => (
             <label key={r} className="flex items-center gap-1.5 text-sm text-text-primary cursor-pointer">
@@ -444,14 +444,14 @@ function AddVenueForm({ project, onSave, onCancel }: { project: Project; onSave:
   const [venueId, setVenueId] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('20:00');
-  const venues = COMPANIES.filter(c => c.types.includes('Venue'));
+  const venues = COMPANIES.filter(c => c.type === 'Venue');
   const tour = TOURS.find(t => t.id === project.tourId);
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   return (
     <div className="space-y-3">
       <FormField label="Venue" required>
-        <Select2 options={[{ value: '', label: 'Select venue...' }, ...toObjOptions(venues, v => v.tradeName)]} value={venueId} onChange={setVenueId} placeholder="Select venue..." />
+        <Select2 options={[{ value: '', label: 'Select venue...' }, ...toObjOptions(venues, v => v.name)]} value={venueId} onChange={setVenueId} placeholder="Select venue..." />
       </FormField>
       <FormField label="Proposed Date" required>
         <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
@@ -625,7 +625,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                       {a.genres.join(', ')} · {a.marketTier}
                     </div>
                     <div className="text-xs text-text-muted mt-0.5">
-                      {agency?.tradeName} · {tourCount} tour{tourCount !== 1 ? 's' : ''}
+                      {agency?.name} · {tourCount} tour{tourCount !== 1 ? 's' : ''}
                     </div>
                   </button>
                 );
@@ -733,7 +733,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
             <div>
               <h3 className="text-sm font-semibold text-text-primary mb-0.5">Select Talent Agent</h3>
               <p className="text-xs text-text-muted">
-                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.tradeName || 'the agency'} for this tour
+                Agent from {COMPANIES.find(c => c.id === selectedAttraction?.agencyId)?.name || 'the agency'} for this tour
               </p>
             </div>
             {agencyContacts.length === 0 ? (
@@ -759,7 +759,7 @@ function CreateProjectWizard({ onClose, onSave }: { onClose: () => void; onSave:
                       </div>
                       <div className="flex-1">
                         <div className="text-text-primary font-medium text-sm">{ct.firstName} {ct.lastName}</div>
-                        <div className="text-xs text-text-secondary">{ct.title} · {company?.tradeName}</div>
+                        <div className="text-xs text-text-secondary">{ct.title} · {company?.name}</div>
                         <div className="text-xs text-ems-blue">{ct.email}</div>
                       </div>
                       {agentId === ct.id && <span className="text-ems-accent text-lg">✓</span>}

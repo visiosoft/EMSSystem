@@ -353,7 +353,7 @@ export function DashboardPage({ engagements, onNavigate }: DashboardProps) {
                     className="border-b border-border/50 hover:bg-hover cursor-pointer">
                     <td className="py-2 font-mono text-xs">{formatDate(eng.showDates[0]?.date)}</td>
                     <td className="py-2 text-text-primary">{attraction?.name} — {tour?.name}</td>
-                    <td className="py-2">{venue?.tradeName}</td>
+                    <td className="py-2">{venue?.name}</td>
                     <td className="py-2">{venue?.city}</td>
                     <td className="py-2"><StatusBadge status={eng.status} /></td>
                     <td className="py-2 text-right font-mono text-xs">{daysAway}d</td>

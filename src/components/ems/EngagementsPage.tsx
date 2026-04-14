@@ -13,7 +13,7 @@ function formatEngDate(str: string | null | undefined): string {
 
 interface Props {
   engagements: Engagement[];
-  companies: { id: string; tradeName: string; city: string }[];
+  companies: { id: string; name: string; city: string }[];
   users: { id: string; name: string }[];
   tours: { id: string; name: string }[];
   onNavigate: (view: string, data?: any) => void;
@@ -71,7 +71,7 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
                   <td className="py-2.5 px-3 font-mono text-xs text-text-muted">{eng.id.toUpperCase()}</td>
                   <td className="py-2.5 px-3 text-text-primary font-medium max-w-[250px] truncate">{eng.name}</td>
                   <td className="py-2.5 px-3 text-xs text-text-secondary whitespace-nowrap">{formatEngDate(eng.showDates[0]?.date)}{eng.showDates.length > 1 && <span className="ml-1 text-text-muted">+{eng.showDates.length - 1}</span>}</td>
-                  <td className="py-2.5 px-3 text-text-secondary">{venue?.tradeName}</td>
+                  <td className="py-2.5 px-3 text-text-secondary">{venue?.name}</td>
                   <td className="py-2.5 px-3 text-text-secondary text-xs">{venue?.city}</td>
                   <td className="py-2.5 px-3 text-text-secondary">{booker?.name}</td>
                   <td className="py-2.5 px-3 text-right font-mono text-xs">{formatCurrency(eng.projectedGross)}</td>
@@ -101,7 +101,7 @@ export function EngagementsPage({ engagements, companies, users, tours, onNaviga
   );
 }
 
-function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { onSave: (e: Engagement) => void; onCancel: () => void; companies: { id: string; tradeName: string }[]; users: { id: string; name: string }[]; tours: { id: string; name: string }[] }) {
+function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { onSave: (e: Engagement) => void; onCancel: () => void; companies: { id: string; name: string }[]; users: { id: string; name: string }[]; tours: { id: string; name: string }[] }) {
   const [name, setName] = useState('');
   const [tourId, setTourId] = useState(tours[0]?.id || '');
   const [venueId, setVenueId] = useState(companies[0]?.id || '');
@@ -116,7 +116,7 @@ function CreateEngagementForm({ onSave, onCancel, companies, users, tours }: { o
       <FormField label="Name"><input className={inputCls} value={name} onChange={e => setName(e.target.value)} /></FormField>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Tour"><Select2 options={toObjOptions(tours, t => t.name)} value={tourId} onChange={setTourId} /></FormField>
-        <FormField label="Venue"><Select2 options={toObjOptions(companies, c => c.tradeName)} value={venueId} onChange={setVenueId} /></FormField>
+        <FormField label="Venue"><Select2 options={toObjOptions(companies, c => c.name)} value={venueId} onChange={setVenueId} /></FormField>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Booker"><Select2 options={toObjOptions(users, u => u.name)} value={bookerId} onChange={setBookerId} /></FormField>
