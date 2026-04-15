@@ -35,7 +35,6 @@ import {
   type UpdateCompanyPayload,
 } from '@/api/companyApi';
 import { mapApiCompanyToCompany } from './companyMapping';
-import { CompanyTicketingPanel } from './CompanyTicketingPanel';
 import { CompanyVenueProfilePanel } from './CompanyVenueProfilePanel';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -1125,14 +1124,11 @@ export function CompaniesPage({ addToast }: Props) {
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ['Overview', 'Contacts', 'Engagements', 'Documents'];
-    return isVenueCompany ? [...base, 'Venue Profile', 'Ticketing'] : base;
+    return isVenueCompany ? [...base, 'Venue Profile'] : base;
   }, [isVenueCompany]);
 
   useEffect(() => {
-    if (
-      !isVenueCompany &&
-      (drawerTab === 'Venue Profile' || drawerTab === 'Ticketing')
-    ) {
+    if (!isVenueCompany && drawerTab === 'Venue Profile') {
       setDrawerTab('Overview');
     }
   }, [isVenueCompany, drawerTab]);
@@ -1623,14 +1619,6 @@ export function CompaniesPage({ addToast }: Props) {
               <CompanyVenueProfilePanel
                 company={selectedCompany}
                 venueTypes={venueTypes}
-                seatingTypes={seatingTypes}
-                addToast={addToast}
-              />
-            )}
-
-            {drawerTab === 'Ticketing' && isVenueCompany && lookupsQuery.data && (
-              <CompanyTicketingPanel
-                company={selectedCompany}
                 seatingTypes={seatingTypes}
                 addToast={addToast}
               />

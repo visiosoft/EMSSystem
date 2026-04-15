@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import type { Attraction, Company, DailySaleEntry, Engagement, Tour } from '@/data/constants';
 import { CURRENT_USER, formatCurrency, formatDate } from '@/data/constants';
-import { SearchInput, Modal, FormField, ActionMenu } from './Primitives';
+import { SearchInput, ActionMenu } from './Primitives';
 import { Select2 } from './Select2';
+import { Loader2, Check, Pencil } from 'lucide-react';
 
 interface Props {
   dailySales: DailySaleEntry[];
@@ -13,6 +14,14 @@ interface Props {
   companies: Company[];
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}
+
+interface RowEditState {
+  ticketsSold: string;
+  totalRevenue: string;
+  isDirty: boolean;
+  isSaving: boolean;
+  savedRowId: string | null;
 }
 
 function getEngagementContext(
@@ -52,6 +61,20 @@ function formatSaleDateLong(iso: string): string {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Parse and validate a tickets-sold string. Returns the number or null if invalid. */
+function parseTickets(raw: string): number | null {
+  const n = parseInt(raw.replace(/,/g, ''), 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/** Parse and validate a revenue string. Returns the number or null if invalid. */
+function parseRevenue(raw: string): number | null {
+  const n = parseFloat(raw.replace(/[$,\s]/g, ''));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 export function DailySalesPage({
   dailySales,
   onUpdateDailySales,
@@ -66,7 +89,11 @@ export function DailySalesPage({
   const [scope, setScope] = useState<'mine' | 'all'>('all');
   const [venueFilter, setVenueFilter] = useState('');
   const [attractionFilter, setAttractionFilter] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
+
+  // Per-row edit state keyed by DailySaleEntry id
+  const [rowEdits, setRowEdits] = useState<Record<string, RowEditState>>({});
+  // Briefly highlight a row after successful save
+  const [savedRowId, setSavedRowId] = useState<string | null>(null);
 
   const venueOptions = useMemo(() => {
     const venues = companies.filter(c => c.type === 'Venue');
@@ -88,7 +115,7 @@ export function DailySalesPage({
         if (!tour || tour.attractionId !== attractionFilter) return false;
       }
       const ctx = getEngagementContext(eng, tours, attractions, companies);
-      const hay = `${eng.name} ${ctx.attractionName} ${ctx.venueName} ${ctx.city} ${row.saleDate} ${row.notes ?? ''}`.toLowerCase();
+      const hay = `${eng.name} ${ctx.attractionName} ${ctx.venueName} ${ctx.city} ${row.saleDate}`.toLowerCase();
       if (search && !hay.includes(search.toLowerCase())) return false;
       return true;
     });
@@ -104,6 +131,87 @@ export function DailySalesPage({
     addToast('Sale entry removed', 'warning');
   };
 
+  // Initialise edit state for a row (from committed values) if not already present
+  const getOrInitRowEdit = useCallback(
+    (row: DailySaleEntry): RowEditState => {
+      if (rowEdits[row.id]) return rowEdits[row.id];
+      return {
+        ticketsSold: String(row.ticketsSold),
+        totalRevenue: String(row.totalRevenue),
+        isDirty: false,
+        isSaving: false,
+        savedRowId: null,
+      };
+    },
+    [rowEdits],
+  );
+
+  const setField = useCallback(
+    (rowId: string, field: 'ticketsSold' | 'totalRevenue', value: string, row: DailySaleEntry) => {
+      setRowEdits(prev => {
+        const base = prev[rowId] ?? {
+          ticketsSold: String(row.ticketsSold),
+          totalRevenue: String(row.totalRevenue),
+          isDirty: false,
+          isSaving: false,
+          savedRowId: null,
+        };
+        const next = { ...base, [field]: value, isDirty: true };
+        return { ...prev, [rowId]: next };
+      });
+    },
+    [],
+  );
+
+  const handleSaveRow = useCallback(
+    (row: DailySaleEntry) => {
+      const edit = rowEdits[row.id];
+      if (!edit) return;
+
+      const tickets = parseTickets(edit.ticketsSold);
+      if (tickets === null) {
+        addToast('Tickets sold must be a valid non-negative whole number.', 'error');
+        return;
+      }
+      const revenue = parseRevenue(edit.totalRevenue);
+      if (revenue === null) {
+        addToast('Total revenue must be a valid non-negative number.', 'error');
+        return;
+      }
+
+      // Mark as saving
+      setRowEdits(prev => ({
+        ...prev,
+        [row.id]: { ...prev[row.id], isSaving: true },
+      }));
+
+      // Simulate async save (replace with real API call if needed)
+      setTimeout(() => {
+        onUpdateDailySales(
+          dailySales.map(r =>
+            r.id === row.id ? { ...r, ticketsSold: tickets, totalRevenue: revenue } : r,
+          ),
+        );
+        setRowEdits(prev => ({
+          ...prev,
+          [row.id]: { ...prev[row.id], isDirty: false, isSaving: false },
+        }));
+        setSavedRowId(row.id);
+        setTimeout(() => setSavedRowId(prev => (prev === row.id ? null : prev)), 2000);
+        addToast('Row saved successfully.', 'success');
+      }, 350);
+    },
+    [rowEdits, dailySales, onUpdateDailySales, addToast],
+  );
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary font-mono focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30 transition-colors';
+
+  const editableInputCls =
+    'w-full bg-surface/50 border border-border/60 rounded px-2 py-1 text-sm font-mono text-text-primary ' +
+    'hover:border-ems-accent/60 hover:bg-surface focus:outline-none focus:border-ems-accent focus:bg-surface focus:ring-2 focus:ring-ems-accent/20 ' +
+    'transition-all duration-150 cursor-text shadow-sm';
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -111,13 +219,6 @@ export function DailySalesPage({
           <h1 className="text-xl font-semibold text-text-primary">Daily Sales</h1>
           <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary">{sorted.length}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAdd(true)}
-          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium w-full sm:w-auto shrink-0"
-        >
-          + Add Sales
-        </button>
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
@@ -160,8 +261,14 @@ export function DailySalesPage({
         </div>
       </div>
 
+      {/* Editing legend */}
+      <div className="flex items-center gap-2 text-xs text-text-muted bg-elevated/50 px-3 py-2 rounded-md border border-border/50">
+        <Pencil className="h-3.5 w-3.5 shrink-0 text-ems-accent" />
+        <span><span className="font-medium text-text-secondary">Click any value</span> in Tickets Sold or Total Revenue to edit, then press Save.</span>
+      </div>
+
       <div className="bg-card border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm min-w-[1100px]">
+        <table className="w-full text-sm min-w-[1200px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3 min-w-[220px]">Engagement</th>
@@ -169,9 +276,19 @@ export function DailySalesPage({
               <th className="text-left py-2.5 px-3">Sale date</th>
               <th className="text-left py-2.5 px-3">Venue</th>
               <th className="text-left py-2.5 px-3">City</th>
-              <th className="text-right py-2.5 px-3">Tickets sold</th>
-              <th className="text-right py-2.5 px-3">Total revenue</th>
-              <th className="text-left py-2.5 px-3 hidden lg:table-cell">Notes</th>
+              <th className="text-right py-2.5 px-3 min-w-[140px]">
+                <span className="flex items-center justify-end gap-1.5">
+                  <Pencil className="h-3 w-3 text-ems-accent" />
+                  Tickets sold
+                </span>
+              </th>
+              <th className="text-right py-2.5 px-3 min-w-[160px]">
+                <span className="flex items-center justify-end gap-1.5">
+                  <Pencil className="h-3 w-3 text-ems-accent" />
+                  Total revenue
+                </span>
+              </th>
+              <th className="py-2.5 px-3 w-24 text-center">Save</th>
               <th className="w-10" />
             </tr>
           </thead>
@@ -179,31 +296,152 @@ export function DailySalesPage({
             {sorted.map(row => {
               const eng = engagements.find(e => e.id === row.engagementId);
               const ctx = getEngagementContext(eng, tours, attractions, companies);
+              const edit = getOrInitRowEdit(row);
+              const isSaving = edit.isSaving;
+              const isDirty = edit.isDirty;
+              const isJustSaved = savedRowId === row.id;
+
+              const ticketsError = edit.isDirty && parseTickets(edit.ticketsSold) === null;
+              const revenueError = edit.isDirty && parseRevenue(edit.totalRevenue) === null;
+
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-border/50 hover:bg-hover cursor-pointer"
-                  onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  className={`border-b border-border/50 transition-colors ${
+                    isJustSaved
+                      ? 'bg-ems-green-dim/40'
+                      : isDirty
+                      ? 'bg-ems-accent-dim/20'
+                      : 'hover:bg-hover'
+                  }`}
                 >
-                  <td className="py-2.5 px-3 text-text-primary max-w-[280px] align-top">
+                  {/* Engagement */}
+                  <td
+                    className="py-2.5 px-3 text-text-primary max-w-[280px] align-middle cursor-pointer"
+                    onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  >
                     <span className="line-clamp-2 font-medium leading-snug" title={eng?.name}>{eng?.name ?? '—'}</span>
                     {eng && (
                       <span className="block text-xs font-mono text-text-muted mt-1">{eng.id.toUpperCase()}</span>
                     )}
                   </td>
-                  <td className="py-2.5 px-3 text-text-secondary max-w-[180px] align-top">
+
+                  {/* Attraction */}
+                  <td
+                    className="py-2.5 px-3 text-text-secondary max-w-[180px] align-middle cursor-pointer"
+                    onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  >
                     <span className="line-clamp-2 leading-snug">{ctx.attractionName}</span>
                   </td>
-                  <td className="py-2.5 px-3 text-text-secondary whitespace-nowrap align-top">{formatSaleDateLong(row.saleDate)}</td>
-                  <td className="py-2.5 px-3 text-text-secondary align-top">{ctx.venueName}</td>
-                  <td className="py-2.5 px-3 text-text-secondary align-top">
-                    {ctx.city}
-                    {ctx.state ? `, ${ctx.state}` : ''}
+
+                  {/* Sale date */}
+                  <td
+                    className="py-2.5 px-3 text-text-secondary whitespace-nowrap align-middle cursor-pointer"
+                    onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  >
+                    {formatSaleDateLong(row.saleDate)}
                   </td>
-                  <td className="py-2.5 px-3 text-right font-mono text-text-primary align-top">{row.ticketsSold.toLocaleString()}</td>
-                  <td className="py-2.5 px-3 text-right font-mono text-ems-green align-top">{formatCurrency(row.totalRevenue)}</td>
-                  <td className="py-2.5 px-3 text-text-secondary max-w-[200px] truncate hidden lg:table-cell align-top">{row.notes || '—'}</td>
-                  <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
+
+                  {/* Venue */}
+                  <td
+                    className="py-2.5 px-3 text-text-secondary align-middle cursor-pointer"
+                    onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  >
+                    {ctx.venueName}
+                  </td>
+
+                  {/* City */}
+                  <td
+                    className="py-2.5 px-3 text-text-secondary align-middle cursor-pointer"
+                    onClick={() => eng && onNavigate('engagement-detail', { engagementId: eng.id })}
+                  >
+                    {ctx.city}{ctx.state ? `, ${ctx.state}` : ''}
+                  </td>
+
+                  {/* Tickets Sold – editable */}
+                  <td className="py-1.5 px-3 align-middle">
+                    <div className="flex flex-col items-end gap-0.5">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={edit.ticketsSold}
+                        disabled={isSaving}
+                        title="Click to edit tickets sold"
+                        onChange={e => setField(row.id, 'ticketsSold', e.target.value, row)}
+                        className={`${editableInputCls} text-right max-w-[100px] ${
+                          ticketsError
+                            ? 'border-ems-coral/60 bg-ems-coral-dim/30 focus:border-ems-coral focus:ring-ems-coral/20'
+                            : isDirty
+                            ? 'border-ems-accent/40 bg-ems-accent-dim/20'
+                            : ''
+                        }`}
+                      />
+                      {ticketsError && (
+                        <span className="text-[10px] text-ems-coral leading-none">Invalid number</span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Total Revenue – editable */}
+                  <td className="py-1.5 px-3 align-middle">
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className="relative max-w-[120px]">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted text-sm pointer-events-none">$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={edit.totalRevenue}
+                          disabled={isSaving}
+                          title="Click to edit total revenue"
+                          onChange={e => setField(row.id, 'totalRevenue', e.target.value, row)}
+                          className={`${editableInputCls} text-right pl-5 w-full ${
+                            revenueError
+                              ? 'border-ems-coral/60 bg-ems-coral-dim/30 focus:border-ems-coral focus:ring-ems-coral/20'
+                              : isDirty
+                              ? 'border-ems-accent/40 bg-ems-accent-dim/20'
+                              : ''
+                          }`}
+                        />
+                      </div>
+                      {revenueError && (
+                        <span className="text-[10px] text-ems-coral leading-none">Invalid amount</span>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Save button */}
+                  <td className="py-1.5 px-3 text-center align-middle">
+                    {isJustSaved && !isDirty ? (
+                      <span className="inline-flex items-center gap-1 text-ems-green text-xs font-medium">
+                        <Check className="h-3.5 w-3.5" />
+                        Saved
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!isDirty || isSaving || ticketsError || revenueError}
+                        onClick={() => handleSaveRow(row)}
+                        title={!isDirty ? 'No changes to save' : 'Save this row'}
+                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                          isDirty && !ticketsError && !revenueError
+                            ? 'bg-ems-accent hover:bg-ems-accent/80 text-background shadow-sm'
+                            : 'bg-elevated text-text-muted cursor-not-allowed opacity-50'
+                        }`}
+                      >
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Saving…
+                          </>
+                        ) : (
+                          'Save'
+                        )}
+                      </button>
+                    )}
+                  </td>
+
+                  {/* Action menu */}
+                  <td className="py-2.5 px-3 text-right align-middle" onClick={e => e.stopPropagation()}>
                     <ActionMenu
                       items={[
                         {
@@ -220,182 +458,12 @@ export function DailySalesPage({
           </tbody>
         </table>
         {sorted.length === 0 && (
-          <div className="px-4 py-10 text-center text-sm text-text-muted">No sales entries match your filters. Add one with &quot;+ Add Sales&quot;.</div>
+          <div className="px-4 py-10 text-center text-sm text-text-muted">
+            No sales entries match your filters.
+          </div>
         )}
       </div>
 
-      {showAdd && (
-        <Modal title="Add sales" onClose={() => setShowAdd(false)} width={640}>
-          <AddSalesForm
-            engagements={engagements}
-            tours={tours}
-            attractions={attractions}
-            companies={companies}
-            onCancel={() => setShowAdd(false)}
-            onSave={entry => {
-              onUpdateDailySales([entry, ...dailySales]);
-              setShowAdd(false);
-              addToast('Sales entry added', 'success');
-            }}
-          />
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function AddSalesForm({
-  engagements,
-  tours,
-  attractions,
-  companies,
-  onSave,
-  onCancel,
-}: {
-  engagements: Engagement[];
-  tours: Tour[];
-  attractions: Attraction[];
-  companies: Company[];
-  onSave: (row: DailySaleEntry) => void;
-  onCancel: () => void;
-}) {
-  const [engagementId, setEngagementId] = useState('');
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
-  const [ticketsSold, setTicketsSold] = useState('');
-  const [totalRevenue, setTotalRevenue] = useState('');
-  const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
-
-  const engagementOptions = useMemo(() => {
-    return engagements.map(e => {
-      const ctx = getEngagementContext(e, tours, attractions, companies);
-      return {
-        value: e.id,
-        label: `${e.name} · ${ctx.attractionName} @ ${ctx.venueName}`,
-      };
-    });
-  }, [engagements, tours, attractions, companies]);
-
-  const selectedEng = engagements.find(e => e.id === engagementId);
-  const ctx = getEngagementContext(selectedEng, tours, attractions, companies);
-
-  const inputCls =
-    'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
-
-  const handleSubmit = () => {
-    setError('');
-    if (!engagementId) {
-      setError('Select an engagement.');
-      return;
-    }
-    const tickets = Number.parseInt(ticketsSold.replace(/,/g, ''), 10);
-    const revenue = Number.parseFloat(totalRevenue.replace(/[$,\s]/g, ''));
-    if (!saleDate) {
-      setError('Choose a sale date.');
-      return;
-    }
-    if (!Number.isFinite(tickets) || tickets < 0) {
-      setError('Enter a valid tickets sold count.');
-      return;
-    }
-    if (!Number.isFinite(revenue) || revenue < 0) {
-      setError('Enter a valid total revenue.');
-      return;
-    }
-    onSave({
-      id: `ds-${Date.now()}`,
-      engagementId,
-      saleDate,
-      ticketsSold: tickets,
-      totalRevenue: revenue,
-      notes: notes.trim() || undefined,
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      {error && <div className="text-sm text-ems-coral bg-ems-coral-dim/30 border border-ems-coral/20 rounded-md px-3 py-2">{error}</div>}
-
-      <FormField label="Engagement" required>
-        <Select2
-          options={[{ value: '', label: 'Select engagement…' }, ...engagementOptions]}
-          value={engagementId}
-          onChange={setEngagementId}
-          placeholder="Search engagement…"
-        />
-      </FormField>
-
-      {selectedEng && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-elevated/50 p-3 text-sm">
-          <div className="sm:col-span-2 pb-2 border-b border-border/60">
-            <span className="text-text-muted text-xs block">Engagement</span>
-            <span className="text-text-primary font-medium leading-snug">{selectedEng.name}</span>
-            <span className="block text-xs font-mono text-text-muted mt-0.5">{selectedEng.id.toUpperCase()}</span>
-          </div>
-          <div>
-            <span className="text-text-muted text-xs block">Attraction</span>
-            <span className="text-text-primary font-medium">{ctx.attractionName}</span>
-          </div>
-          <div>
-            <span className="text-text-muted text-xs block">Venue</span>
-            <span className="text-text-primary font-medium">{ctx.venueName}</span>
-          </div>
-          <div>
-            <span className="text-text-muted text-xs block">City</span>
-            <span className="text-text-primary">{ctx.city}{ctx.state ? `, ${ctx.state}` : ''}</span>
-          </div>
-          <div>
-            <span className="text-text-muted text-xs block">Show</span>
-            <span className="text-text-secondary text-xs">{ctx.showSummary}</span>
-          </div>
-        </div>
-      )}
-
-      <FormField label="Sale date" required>
-        <input className={inputCls} type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)} />
-      </FormField>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FormField label="Tickets sold" required>
-          <input
-            className={inputCls}
-            inputMode="numeric"
-            value={ticketsSold}
-            onChange={e => setTicketsSold(e.target.value)}
-            placeholder="0"
-          />
-        </FormField>
-        <FormField label="Total revenue" required>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm">$</span>
-            <input
-              className={`${inputCls} pl-7 font-mono`}
-              inputMode="decimal"
-              value={totalRevenue}
-              onChange={e => setTotalRevenue(e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
-        </FormField>
-      </div>
-
-      <FormField label="Notes">
-        <textarea
-          className={`${inputCls} h-20 resize-none`}
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Optional context for this entry…"
-        />
-      </FormField>
-
-      <div className="flex justify-end gap-2 pt-2 border-t border-border">
-        <button type="button" onClick={onCancel} className="text-text-secondary px-4 py-2 text-sm hover:text-text-primary">
-          Cancel
-        </button>
-        <button type="button" onClick={handleSubmit} className="bg-ems-accent hover:bg-ems-accent/90 text-background px-5 py-2 rounded-md text-sm font-medium">
-          Save sales
-        </button>
-      </div>
     </div>
   );
 }

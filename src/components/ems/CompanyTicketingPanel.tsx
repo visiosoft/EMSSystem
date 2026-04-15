@@ -95,11 +95,6 @@ export function CompanyTicketingPanel({
         <h3 className="text-lg font-semibold text-text-primary tracking-tight">
           Ticketing
         </h3>
-        <p className="text-sm text-text-secondary leading-relaxed max-w-2xl">
-          Only <strong className="text-text-primary font-medium">seating type</strong> is
-          saved for venues that already have a venue profile. Other fields below are
-          optional and are not saved yet.
-        </p>
       </header>
 
       <div className="rounded-xl border border-border bg-card/40 p-5 space-y-5">

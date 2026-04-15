@@ -174,10 +174,6 @@ export function CompanyVenueProfilePanel({
         <h3 className="text-lg font-semibold text-text-primary tracking-tight">
           Venue profile
         </h3>
-        <p className="text-sm text-text-secondary leading-relaxed max-w-2xl">
-          Operational and capacity details for this venue. New venue companies get a
-          starter profile when registered; update fields here as needed.
-        </p>
       </header>
 
       <div className="rounded-xl border border-border bg-card/40 p-5 space-y-5">
@@ -228,13 +224,6 @@ export function CompanyVenueProfilePanel({
             />
           </FormField>
           <FormField label="Seating type">
-            {seatingTypes.length === 0 && (
-              <p className="text-xs text-amber-800 dark:text-amber-400/90 mb-2 leading-relaxed">
-                No seating types returned from the server. The lookup table dbo.SeatingType needs
-                rows (e.g. Reserved, General Admission). Add them in SQL Server or your EMS seed
-                data, then refresh the page.
-              </p>
-            )}
             <Select2
               options={seatingOptions}
               value={seatingTypeId}
