@@ -228,6 +228,13 @@ export function CompanyVenueProfilePanel({
             />
           </FormField>
           <FormField label="Seating type">
+            {seatingTypes.length === 0 && (
+              <p className="text-xs text-amber-800 dark:text-amber-400/90 mb-2 leading-relaxed">
+                No seating types returned from the server. The lookup table dbo.SeatingType needs
+                rows (e.g. Reserved, General Admission). Add them in SQL Server or your EMS seed
+                data, then refresh the page.
+              </p>
+            )}
             <Select2
               options={seatingOptions}
               value={seatingTypeId}

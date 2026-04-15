@@ -132,6 +132,12 @@ export function CompanyTicketingPanel({
                 `Current: ${vq.data.seatingTypeName ?? '—'}`
               )}
             </p>
+            {seatingTypes.length === 0 && (
+              <p className="text-xs text-amber-800 dark:text-amber-400/90 mb-2 leading-relaxed">
+                No seating types in the database (dbo.SeatingType is empty). Populate that lookup
+                table to see choices here.
+              </p>
+            )}
             <Select2
               options={[{ value: '', label: 'Clear…' }, ...seatingOptions]}
               value={seatingTypeId}

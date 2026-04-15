@@ -719,7 +719,7 @@ export function AttractionToursPage({ addToast }: Props) {
       )}
 
       {selectedTour && (
-        <Drawer onClose={() => setSelectedTourId(null)} width={640}>
+        <Drawer onClose={() => setSelectedTourId(null)} width={1000}>
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between">
               <div>
