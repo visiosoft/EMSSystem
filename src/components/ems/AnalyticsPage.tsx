@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useTheme } from 'next-themes';
 import { formatCurrency } from '@/data/constants';
-import { StatusBadge, FilterChips } from './Primitives';
 
 export function AnalyticsPage() {
   const [quarter, setQuarter] = useState('All');
