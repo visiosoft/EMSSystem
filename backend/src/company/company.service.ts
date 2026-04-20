@@ -175,9 +175,9 @@ export class CompanyService {
     const rows = await this.companyRepo
       .createQueryBuilder('c')
       .innerJoinAndSelect('c.companyType', 'ct')
-      .innerJoinAndSelect('c.physicalAddress', 'pa')
-      .innerJoinAndSelect('c.mailingAddress', 'ma')
-      .innerJoinAndSelect('c.dma', 'd')
+      .leftJoinAndSelect('c.physicalAddress', 'pa')
+      .leftJoinAndSelect('c.mailingAddress', 'ma')
+      .leftJoinAndSelect('c.dma', 'd')
       .orderBy('c.companyName', 'ASC')
       .getMany();
 
@@ -186,10 +186,10 @@ export class CompanyService {
       companyName: c.companyName,
       companyTypeId: c.companyTypeId,
       companyTypeName: c.companyType.companyTypeName,
-      physicalCity: c.physicalAddress.city,
-      physicalStateProvince: c.physicalAddress.stateProvince,
+      physicalCity: c.physicalAddress?.city ?? '',
+      physicalStateProvince: c.physicalAddress?.stateProvince ?? '',
       dmaId: c.dmaid,
-      dmaMarketName: c.dma.marketName,
+      dmaMarketName: c.dma?.marketName ?? '',
       physicalAddress: c.physicalAddress,
       mailingAddress: c.mailingAddress,
     }));
@@ -726,7 +726,7 @@ export class CompanyService {
       .createQueryBuilder('ev')
       .innerJoin(Engagement, 'e', 'e.engagementId = ev.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
-      .leftJoin(Attraction, 'a', 'a.attractionId = e.attractionId')
+      .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
       .where('ev.venueCompanyId = :cid', { cid: companyId })
       .select([
         'e.engagementId AS engagementId',

@@ -40,4 +40,9 @@ export class LookupsController {
     const row = await this.lookupsService.findDmaByPostal(postalCode);
     return row ?? null;
   }
+
+  @Get('dma-markets')
+  dmaMarkets() {
+    return this.lookupsService.findDmaMarkets();
+  }
 }

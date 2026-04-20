@@ -68,15 +68,16 @@ export function CompanyVenueProfilePanel({
   useEffect(() => {
     const d = vq.data;
     if (!d || d.missing) return;
-    setVenueName(d.venueName);
-    setSeatingCapacity(String(d.seatingCapacity));
-    setSalesTaxRate(d.salesTaxRate ?? '');
-    setTaxInCart(d.taxInCart);
-    setInsuranceLanguage(d.insuranceLanguage ?? '');
-    setInsurancePolicyCopyRequirements(d.insurancePolicyCopyRequirements ?? '');
-    setVenueRelationshipIae(d.venueRelationshipIae);
-    setVenueTypeId(d.venueTypeId != null ? String(d.venueTypeId) : '');
-    setSeatingTypeId(d.seatingTypeId != null ? String(d.seatingTypeId) : '');
+    const full = d as Exclude<typeof d, { missing: true }>;
+    setVenueName(full.venueName);
+    setSeatingCapacity(String(full.seatingCapacity));
+    setSalesTaxRate(full.salesTaxRate ?? '');
+    setTaxInCart(full.taxInCart);
+    setInsuranceLanguage(full.insuranceLanguage ?? '');
+    setInsurancePolicyCopyRequirements(full.insurancePolicyCopyRequirements ?? '');
+    setVenueRelationshipIae(full.venueRelationshipIae);
+    setVenueTypeId(full.venueTypeId != null ? String(full.venueTypeId) : '');
+    setSeatingTypeId(full.seatingTypeId != null ? String(full.seatingTypeId) : '');
   }, [vq.data]);
 
   const inputCls =

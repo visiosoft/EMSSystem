@@ -24,6 +24,7 @@ import {
 import {
   createEngagement,
   deleteEngagement,
+  updateEngagement,
   fetchEngagements,
   type ApiEngagementListRow,
 } from '@/api/engagementApi';
@@ -443,9 +444,9 @@ function CreateEngagementModal({
   const attractionIdNum = attractionId ? Number(attractionId) : NaN;
 
   const toursForAttraction = useMemo(() => {
-    if (!Number.isFinite(attractionIdNum)) return [];
+    if (!attractionId || !Number.isFinite(attractionIdNum)) return [];
     return tours.filter((t) => t.attractionId === attractionIdNum);
-  }, [tours, attractionIdNum]);
+  }, [tours, attractionId, attractionIdNum]);
 
   const tourOptions = useMemo(
     () => toursForAttraction.map((t) => ({ value: String(t.tourId), label: t.tourName })),
@@ -460,8 +461,12 @@ function CreateEngagementModal({
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
 
   const handleSubmit = async () => {
-    if (!attractionId || !primaryVenueId) {
-      addToast('Select an attraction and a primary venue.', 'warning');
+    if (!tourId) {
+      addToast('A tour is required to create an engagement.', 'warning');
+      return;
+    }
+    if (!primaryVenueId) {
+      addToast('Select a primary venue.', 'warning');
       return;
     }
     if (!recordStatus.trim()) {
@@ -472,18 +477,12 @@ function CreateEngagementModal({
       addToast('Status must be at most 50 characters.', 'warning');
       return;
     }
-    const tid = tourId ? Number(tourId) : null;
-    if (tourId && !Number.isFinite(tid)) {
-      addToast('Invalid tour.', 'warning');
-      return;
-    }
     setSubmitting(true);
     try {
       await createEngagement({
         engagementStatus: recordStatus.trim(),
         engagementScaling: null,
-        attractionId: Number(attractionId),
-        tourId: tid,
+        tourId: Number(tourId),
         primaryVenueCompanyId: Number(primaryVenueId),
       });
       addToast('Engagement created.', 'success');
@@ -514,22 +513,23 @@ function CreateEngagementModal({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction" required>
+          <FormField label="Filter by Attraction (optional)">
             <Select2
-              options={attractionOptions}
+              options={[{ value: '', label: 'All attractions' }, ...attractionOptions]}
               value={attractionId}
               onChange={setAttractionId}
-              placeholder="Select attraction…"
+              placeholder="Filter tours…"
+              allowClear
             />
           </FormField>
-          <FormField label="Tour (optional)">
+          <FormField label="Tour" required>
             <Select2
-              options={tourOptions}
+              options={tourOptions.length
+                ? tourOptions
+                : [{ value: '', label: attractionId ? 'No tours for this attraction' : 'Select a tour…' }]}
               value={tourId}
               onChange={setTourId}
-              placeholder="No tour"
-              allowClear
-              disabled={!attractionId}
+              placeholder="Select tour…"
             />
           </FormField>
         </div>
@@ -597,6 +597,151 @@ function CreateEngagementModal({
             className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {submitting ? 'Saving…' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EditEngagementModal
+// ---------------------------------------------------------------------------
+
+function EditEngagementModal({
+  row,
+  attractions,
+  tours,
+  companies,
+  onClose,
+  onSaved,
+  addToast,
+}: {
+  row: ApiEngagementListRow;
+  attractions: { attractionId: number; attractionName: string }[];
+  tours: { tourId: number; tourName: string; attractionId: number }[];
+  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+}) {
+  const venueCompanies = useMemo(
+    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    [companies],
+  );
+
+  const attractionOptions = useMemo(
+    () =>
+      [...attractions]
+        .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
+        .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [attractions],
+  );
+
+  const venueOptions = useMemo(
+    () =>
+      [...venueCompanies]
+        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
+        .map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    [venueCompanies],
+  );
+
+  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
+
+  const [attractionId, setAttractionId] = useState(String(row.attractionId));
+  const [tourId, setTourId] = useState(row.tourId != null ? String(row.tourId) : '');
+  const [primaryVenueId, setPrimaryVenueId] = useState(
+    row.primaryVenueCompanyId != null ? String(row.primaryVenueCompanyId) : '',
+  );
+  const [recordStatus, setRecordStatus] = useState(row.engagementStatus);
+  const [engagementScaling, setEngagementScaling] = useState(row.engagementScaling ?? '');
+  const [submitting, setSubmitting] = useState(false);
+
+  const attractionIdNum = Number(attractionId);
+  const tourOptions = useMemo(
+    () =>
+      attractions.length && attractionId
+        ? tours
+            .filter((t) => t.attractionId === attractionIdNum)
+            .map((t) => ({ value: String(t.tourId), label: t.tourName }))
+        : [],
+    [tours, attractionId, attractionIdNum, attractions.length],
+  );
+
+  const skipTourResetOnMount = React.useRef(true);
+  React.useEffect(() => {
+    if (skipTourResetOnMount.current) { skipTourResetOnMount.current = false; return; }
+    setTourId('');
+  }, [attractionId]);
+
+  const inputCls =
+    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+
+  const handleSave = async () => {
+    if (!tourId) { addToast('Tour is required.', 'warning'); return; }
+    if (!primaryVenueId) { addToast('Primary venue is required.', 'warning'); return; }
+    if (!recordStatus.trim() || recordStatus.trim().length > 50) {
+      addToast('Status is required (max 50 chars).', 'warning'); return;
+    }
+    const tid = tourId ? Number(tourId) : null;
+    setSubmitting(true);
+    try {
+      await updateEngagement(row.engagementId, {
+        engagementStatus: recordStatus.trim(),
+        engagementScaling: engagementScaling.trim() || null,
+        tourId: tid ?? undefined,
+        primaryVenueCompanyId: Number(primaryVenueId),
+      });
+      await onSaved();
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update engagement.'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title={`Edit Engagement #${row.engagementId}`} onClose={onClose} width={900} allowContentOverflow>
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Status" required>
+            <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
+          </FormField>
+          <FormField label="Scaling (optional)">
+            <input className={inputCls} value={engagementScaling}
+              onChange={(e) => setEngagementScaling(e.target.value)}
+              placeholder="e.g. GA, Reserved, Mixed" maxLength={50} />
+          </FormField>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Attraction" required>
+            <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} placeholder="Select attraction…" />
+          </FormField>
+          <FormField label="Tour (optional)">
+            <Select2
+              options={tourOptions.length
+                ? tourOptions
+                : [{ value: '', label: attractionId ? 'No tours for this attraction' : 'Select attraction first…' }]}
+              value={tourId} onChange={setTourId} placeholder="No tour" allowClear disabled={!attractionId}
+            />
+          </FormField>
+        </div>
+
+        <FormField label="Primary Venue" required>
+          <Select2 options={venueOptions} value={primaryVenueId} onChange={setPrimaryVenueId} placeholder="Select venue…" />
+        </FormField>
+
+        <div className="flex gap-2 justify-end pt-4 border-t border-border">
+          <button type="button" onClick={onClose} disabled={submitting}
+            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" onClick={() => void handleSave()} disabled={submitting}
+            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+            {submitting ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Saving…</>
+            ) : 'Save changes'}
           </button>
         </div>
       </div>

@@ -363,7 +363,7 @@ export function AttractionToursPage({ addToast }: Props) {
   const filteredAttractions = useMemo(() => {
     const q = search.trim().toLowerCase();
     return attractions.filter(
-      (a) => !q || a.attractionName.toLowerCase().includes(q) || a.className.toLowerCase().includes(q),
+      (a) => !q || a.attractionName.toLowerCase().includes(q),
     );
   }, [attractions, search]);
 
@@ -604,7 +604,6 @@ export function AttractionToursPage({ addToast }: Props) {
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Attraction Name</th>
-                      <th className="text-left py-2.5 px-3">Genre</th>
                       <th className="text-left py-2.5 px-3">Active Tours</th>
                       <th className="w-10" />
                     </tr>
@@ -612,7 +611,7 @@ export function AttractionToursPage({ addToast }: Props) {
                   <tbody>
                     {filteredAttractions.length === 0 && !attractionsQuery.isError && (
                       <tr>
-                        <td colSpan={4} className="py-12 px-3 text-center text-sm text-text-muted">
+                        <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
                           {attractions.length === 0
                             ? 'No attractions found.'
                             : 'No attractions match your search.'}
@@ -626,11 +625,6 @@ export function AttractionToursPage({ addToast }: Props) {
                         className="border-b border-border/50 hover:bg-hover cursor-pointer"
                       >
                         <td className="py-2.5 px-3 text-text-primary font-medium">{a.attractionName}</td>
-                        <td className="py-2.5 px-3">
-                          <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                            {a.className}
-                          </span>
-                        </td>
                         <td className="py-2.5 px-3 text-text-secondary tabular-nums text-sm">{a.activeTourCount}</td>
                         <td className="py-2.5 px-3">
                           <ActionMenu
@@ -800,11 +794,6 @@ export function AttractionToursPage({ addToast }: Props) {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-text-primary">{selectedAttraction.attractionName}</h2>
-                <div className="flex gap-1.5 mt-1 flex-wrap">
-                  <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                    {selectedAttraction.className}
-                  </span>
-                </div>
               </div>
               <button
                 type="button"
@@ -838,10 +827,9 @@ export function AttractionToursPage({ addToast }: Props) {
         />
       )}
 
-      {showAddAttraction && classes.length > 0 && (
-        <Modal title="Add Attraction" onClose={() => setShowAddAttraction(false)} width={960} allowContentOverflow>
+      {showAddAttraction && (
+        <Modal title="Add Attraction" onClose={() => setShowAddAttraction(false)} width={600} allowContentOverflow>
           <AttractionForm
-            classes={classes}
             submitting={createAttrMut.isPending}
             onCancel={() => setShowAddAttraction(false)}
             onSave={(body) => void createAttrMut.mutateAsync(body)}
@@ -849,15 +837,12 @@ export function AttractionToursPage({ addToast }: Props) {
         </Modal>
       )}
       {editAttraction && (
-        <Modal title="Edit Attraction" onClose={() => setEditAttraction(null)} width={960} allowContentOverflow>
+        <Modal title="Edit Attraction" onClose={() => setEditAttraction(null)} width={600} allowContentOverflow>
           <AttractionForm
-            classes={classes}
             initial={editAttraction}
             submitting={updateAttrMut.isPending}
             onCancel={() => setEditAttraction(null)}
-            onSave={(body) =>
-              void updateAttrMut.mutateAsync({ id: editAttraction.attractionId, body })
-            }
+            onSave={(body) => void updateAttrMut.mutateAsync({ id: editAttraction.attractionId, body })}
           />
         </Modal>
       )}
@@ -870,7 +855,7 @@ export function AttractionToursPage({ addToast }: Props) {
             venueTypes={venueTypes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
-            onSave={(body) => void createTourMut.mutateAsync(body)}
+            onSave={(body) => void createTourMut.mutateAsync(body as import('@/api/attractionToursApi').CreateTourPayload)}
           />
         </Modal>
       )}
@@ -893,39 +878,28 @@ export function AttractionToursPage({ addToast }: Props) {
 }
 
 function AttractionForm({
-  classes,
   initial,
   submitting,
   onSave,
   onCancel,
 }: {
-  classes: ApiClass[];
   initial?: ApiAttractionListRow;
   submitting: boolean;
-  onSave: (body: { attractionName: string; classId: number }) => void;
+  onSave: (body: { attractionName: string }) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.attractionName ?? '');
-  const [classId, setClassId] = useState(String(initial?.classId ?? classes[0]?.classId ?? ''));
-
-  const classOptions = classes.map((c) => ({
-    value: String(c.classId),
-    label: c.className,
-  }));
-
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
-
-  const valid = name.trim().length > 0 && classId.length > 0;
-
+  const valid = name.trim().length > 0;
   return (
-    <div className="space-y-3">
-      <FormField label="Name" required>
+    <div className="space-y-4">
+      <FormField label="Attraction Name" required>
         <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={200} />
       </FormField>
-      <FormField label="Genre" required>
-        <Select2 options={classOptions} value={classId} onChange={setClassId} placeholder="Select genre..." />
-      </FormField>
+      <p className="text-xs text-text-muted">
+        Genre (Class) is set at the Tour level, not the Attraction level.
+      </p>
       <div className="flex gap-2 justify-end">
         <button type="button" onClick={onCancel} className="text-text-secondary px-4 py-1.5" disabled={submitting}>
           Cancel
@@ -933,10 +907,10 @@ function AttractionForm({
         <button
           type="button"
           disabled={!valid || submitting}
-          onClick={() => onSave({ attractionName: name.trim(), classId: Number(classId) })}
-          className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => onSave({ attractionName: name.trim() })}
+          className="inline-flex items-center gap-2 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {submitting ? 'Saving…' : 'Save'}
+          {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save'}
         </button>
       </div>
     </div>

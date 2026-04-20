@@ -13,8 +13,6 @@ export interface ApiVenueType {
 export interface ApiAttractionListRow {
   attractionId: number;
   attractionName: string;
-  classId: number;
-  className: string;
   activeTourCount: number;
   appCreated: boolean;
 }
@@ -43,12 +41,11 @@ export interface ApiTourListRow {
 
 export interface CreateAttractionPayload {
   attractionName: string;
-  classId: number;
+  // NOTE: ClassID is NOT on dbo.Attraction — it lives on dbo.Tour
 }
 
 export interface UpdateAttractionPayload {
   attractionName?: string;
-  classId?: number;
 }
 
 export interface CreateTourPayload {

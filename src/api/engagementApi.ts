@@ -1,14 +1,23 @@
+/**
+ * Engagement Module API
+ *
+ * dbo.Engagement columns: EngagementID, EngagementStatus, EngagementScaling, TourID (NOT NULL)
+ * AttractionID was REMOVED from dbo.Engagement.
+ * AttractionID is on dbo.Tour — reach via: Engagement.TourID → Tour.AttractionID → Attraction
+ *
+ * dbo.EngagementVenue: EngagementID, VenueCompanyID, IsPrimary
+ */
 import { apiFetch } from './config';
-import type { Engagement } from '@/data/constants';
 
 export interface ApiEngagementListRow {
   engagementId: number;
   engagementStatus: string;
   engagementScaling: string | null;
-  attractionId: number;
-  attractionName: string;
-  tourId: number | null;
-  tourName: string | null;
+  tourId: number;
+  tourName: string;
+  /** Derived via Tour.AttractionID — may be null if tour has no attraction */
+  attractionId: number | null;
+  attractionName: string | null;
   primaryVenueCompanyId: number | null;
   venueCompanyName: string | null;
   venueName: string | null;
@@ -19,77 +28,41 @@ export interface ApiEngagementListRow {
   appCreated: boolean;
 }
 
+export interface ApiEngagementVenueRow {
+  engagementId: number;
+  venueCompanyId: number;
+  venueCompanyName: string | null;
+  venueName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+  dmaMarketName: string | null;
+  isPrimary: boolean;
+}
+
 export interface CreateEngagementPayload {
   engagementStatus: string;
   engagementScaling?: string | null;
-  attractionId: number;
-  tourId?: number | null;
+  /** TourID — NOT NULL in DB. Required. Attraction is derived from the tour. */
+  tourId: number;
+  /** Creates EngagementVenue(IsPrimary=1) */
   primaryVenueCompanyId: number;
+  secondaryVenueCompanyIds?: number[];
+  // Frontend-only
+  bookerId?: string | null;
+  showDate?: string | null;
+  dealType?: string | null;
+  guarantee?: number | null;
 }
 
-export type UpdateEngagementPayload = Partial<CreateEngagementPayload>;
-
-const defaultWorkflow = {
-  marketing: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-  production: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 6 },
-  eventBusiness: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 6 },
-  creative: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-  sales: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 4 },
-  finance: { status: 'NotStarted', assigneeId: '', notes: '', milestonesComplete: 0, milestonesTotal: 5 },
-};
-
-/** Maps an API row to the legacy `Engagement` shape for Projects / Daily Sales that still expect it. */
-export function mapApiEngagementToLegacy(row: ApiEngagementListRow): Engagement {
-  return {
-    id: String(row.engagementId),
-    name: row.displayTitle,
-    tourId: row.tourId != null ? String(row.tourId) : '',
-    venueId: row.primaryVenueCompanyId != null ? String(row.primaryVenueCompanyId) : '',
-    configName: '—',
-    bookerId: '',
-    projectId: '',
-    offerId: null,
-    showDates: [],
-    showCount: 0,
-    status: row.engagementStatus,
-    dealType: '—',
-    guarantee: 0,
-    splitPct: null,
-    breakeven: null,
-    projectedGross: 0,
-    projectedMargin: 0,
-    actualGross: null,
-    actualMargin: null,
-    workflows: { ...defaultWorkflow },
-  };
-}
-
-export function fetchEngagements() {
-  return apiFetch<ApiEngagementListRow[]>('/engagements');
-}
-
-export function fetchEngagement(id: number) {
-  return apiFetch<ApiEngagementListRow>(`/engagements/${id}`);
-}
-
-export function createEngagement(body: CreateEngagementPayload) {
-  return apiFetch<{ engagementId: number }>('/engagements', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
-
-export function updateEngagement(id: number, body: UpdateEngagementPayload) {
-  return apiFetch<void>(`/engagements/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
-}
-
-export function deleteEngagement(id: number) {
-  return apiFetch<void>(`/engagements/${id}`, {
-    method: 'DELETE',
-  });
+export interface UpdateEngagementPayload {
+  engagementStatus?: string;
+  engagementScaling?: string | null;
+  tourId?: number;
+  primaryVenueCompanyId?: number;
+  bookerId?: string | null;
+  showDate?: string | null;
+  dealType?: string | null;
+  guarantee?: number | null;
 }
 
 export interface ApiPerformanceRow {
@@ -100,20 +73,26 @@ export interface ApiPerformanceRow {
   performanceTime: string;
 }
 
-export function fetchEngagementPerformances(engagementId: number) {
-  return apiFetch<ApiPerformanceRow[]>(`/engagements/${engagementId}/performances`);
+export interface CreatePerformancePayload {
+  performanceDate: string;
+  performanceTime: string;
+  performanceStatus?: string;
 }
 
-export function createEngagementPerformance(
-  engagementId: number,
-  body: {
-    performanceDate: string;
-    performanceTime: string;
-    performanceStatus?: string;
-  },
-) {
-  return apiFetch<{ performanceId: number }>(`/engagements/${engagementId}/performances`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
-}
+export const fetchEngagements = () => apiFetch<ApiEngagementListRow[]>('/engagements');
+export const fetchEngagement = (id: number) => apiFetch<ApiEngagementListRow>(`/engagements/${id}`);
+export const fetchEngagementVenues = (id: number) => apiFetch<ApiEngagementVenueRow[]>(`/engagements/${id}/venues`);
+export const addEngagementVenue = (id: number, body: { venueCompanyId: number; isPrimary?: boolean }) =>
+  apiFetch<void>(`/engagements/${id}/venues`, { method: 'POST', body: JSON.stringify(body) });
+export const removeEngagementVenue = (id: number, venueCompanyId: number) =>
+  apiFetch<void>(`/engagements/${id}/venues/${venueCompanyId}`, { method: 'DELETE' });
+export const createEngagement = (body: CreateEngagementPayload) =>
+  apiFetch<{ engagementId: number }>('/engagements', { method: 'POST', body: JSON.stringify(body) });
+export const updateEngagement = (id: number, body: UpdateEngagementPayload) =>
+  apiFetch<void>(`/engagements/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const deleteEngagement = (id: number) =>
+  apiFetch<void>(`/engagements/${id}`, { method: 'DELETE' });
+export const fetchEngagementPerformances = (id: number) =>
+  apiFetch<ApiPerformanceRow[]>(`/engagements/${id}/performances`);
+export const createEngagementPerformance = (id: number, body: CreatePerformancePayload) =>
+  apiFetch<{ performanceId: number }>(`/engagements/${id}/performances`, { method: 'POST', body: JSON.stringify(body) });

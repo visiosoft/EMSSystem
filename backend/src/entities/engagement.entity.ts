@@ -1,13 +1,12 @@
-import {
-  Column,
-  Entity,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-} from 'typeorm';
-import { Attraction } from './attraction.entity';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Tour } from './tour.entity';
 
+/**
+ * dbo.Engagement
+ * Columns: EngagementID, EngagementStatus, EngagementScaling, TourID
+ * NOTE: AttractionID was removed — reach Attraction via TourID → Tour → AttractionID.
+ * TourID is NOT NULL (required).
+ */
 @Entity({ name: 'Engagement', schema: 'dbo' })
 export class Engagement {
   @PrimaryGeneratedColumn({ name: 'EngagementID' })
@@ -16,25 +15,14 @@ export class Engagement {
   @Column({ name: 'EngagementStatus', type: 'nvarchar', length: 50 })
   engagementStatus: string;
 
-  @Column({
-    name: 'EngagementScaling',
-    type: 'nvarchar',
-    length: 50,
-    nullable: true,
-  })
+  @Column({ name: 'EngagementScaling', type: 'nvarchar', length: 50, nullable: true })
   engagementScaling: string | null;
 
-  @Column({ name: 'AttractionID', type: 'int' })
-  attractionId: number;
-
-  @ManyToOne(() => Attraction)
-  @JoinColumn({ name: 'AttractionID' })
-  attraction: Attraction;
-
-  @Column({ name: 'TourID', type: 'int', nullable: true })
-  tourId: number | null;
+  /** FK → Tour.TourID — NOT NULL in DB */
+  @Column({ name: 'TourID', type: 'int' })
+  tourId: number;
 
   @ManyToOne(() => Tour)
   @JoinColumn({ name: 'TourID' })
-  tour: Tour | null;
+  tour: Tour;
 }

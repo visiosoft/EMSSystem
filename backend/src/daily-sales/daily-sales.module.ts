@@ -1,31 +1,32 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AttractionToursModule } from '../attraction-tours/attraction-tours.module';
+import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
-import { EngagementController } from './engagement.controller';
-import { EngagementService } from './engagement.service';
+import { DailySalesController } from './daily-sales.controller';
+import { DailySalesService } from './daily-sales.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Engagement,
-      EngagementVenue,
+      TicketingSales,
       Performance,
-      Attraction,
+      Engagement,
       Tour,
+      Attraction,
+      EngagementVenue,
       Venue,
       Company,
+      Address,
     ]),
-    AttractionToursModule,
   ],
-  controllers: [EngagementController],
-  providers: [EngagementService],
-  exports: [EngagementService],
+  controllers: [DailySalesController],
+  providers: [DailySalesService],
 })
-export class EngagementsModule {}
+export class DailySalesModule {}

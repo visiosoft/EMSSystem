@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AttractionToursModule } from '../attraction-tours/attraction-tours.module';
+import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
@@ -8,24 +8,24 @@ import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
-import { EngagementController } from './engagement.controller';
-import { EngagementService } from './engagement.service';
+import { PerformancesController } from './performances.controller';
+import { PerformancesService } from './performances.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Engagement,
-      EngagementVenue,
       Performance,
-      Attraction,
+      Engagement,
       Tour,
+      Attraction,
+      EngagementVenue,
       Venue,
       Company,
+      Address,
     ]),
-    AttractionToursModule,
   ],
-  controllers: [EngagementController],
-  providers: [EngagementService],
-  exports: [EngagementService],
+  controllers: [PerformancesController],
+  providers: [PerformancesService],
+  exports: [PerformancesService],
 })
-export class EngagementsModule {}
+export class PerformancesModule {}

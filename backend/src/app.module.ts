@@ -6,11 +6,11 @@ import { AppService } from './app.service';
 import { AttractionToursModule } from './attraction-tours/attraction-tours.module';
 import { CompanyModule } from './company/company.module';
 import { EngagementsModule } from './engagements/engagements.module';
+import { PerformancesModule } from './performances/performances.module';
+import { ProjectsModule } from './projects/projects.module';
+import { DailySalesModule } from './daily-sales/daily-sales.module';
 
-const parseBoolean = (
-  value: string | undefined,
-  fallback: boolean,
-): boolean => {
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (!value) return fallback;
   return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
 };
@@ -44,6 +44,9 @@ const parseBoolean = (
     CompanyModule,
     AttractionToursModule,
     EngagementsModule,
+    ProjectsModule,
+    PerformancesModule,
+    DailySalesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

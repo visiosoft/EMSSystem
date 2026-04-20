@@ -64,4 +64,14 @@ export class LookupsService {
       .getOne();
     return row;
   }
+
+  /** Distinct market names from dbo.DMA — deduplicated, sorted alphabetically. */
+  async findDmaMarkets(): Promise<{ marketName: string }[]> {
+    const rows = await this.dmaRepo
+      .createQueryBuilder('d')
+      .select('DISTINCT d.marketName', 'marketName')
+      .orderBy('d.marketName', 'ASC')
+      .getRawMany<{ marketName: string }>();
+    return rows;
+  }
 }
