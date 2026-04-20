@@ -36,4 +36,23 @@ export class UpdateTourDto {
   @IsInt()
   @Min(1)
   tourManagementCompanyId?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  audienceGender?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  audienceAgeRange?: string | null;
+
+  @IsOptional()
+  @IsString()
+  tourInsuranceLanguage?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  venueTypePreferenceId?: number | null;
 }

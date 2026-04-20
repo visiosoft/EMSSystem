@@ -60,10 +60,10 @@ function EngagementsTableSkeleton() {
         </div>
       </div>
       <div className="overflow-x-auto overflow-y-clip">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-[800px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
-              {Array.from({ length: 9 }).map((_, i) => (
+              {Array.from({ length: 7 }).map((_, i) => (
                 <th key={i} className="text-left py-2.5 px-3">
                   <Skeleton className="h-3 w-16" />
                 </th>
@@ -73,7 +73,7 @@ function EngagementsTableSkeleton() {
           <tbody>
             {Array.from({ length: PAGE_SIZE }).map((_, i) => (
               <tr key={i} className="border-b border-border/50">
-                {Array.from({ length: 9 }).map((__, j) => (
+                {Array.from({ length: 7 }).map((__, j) => (
                   <td key={j} className="py-2.5 px-3">
                     <Skeleton className="h-4 w-full max-w-[10rem]" />
                   </td>
@@ -230,24 +230,22 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       ) : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-            <table className="w-full text-sm min-w-[960px]">
+            <table className="w-full text-sm min-w-[800px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">ID</th>
                   <th className="text-left py-2.5 px-3">Engagement</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Tour</th>
                   <th className="text-left py-2.5 px-3">Venue</th>
                   <th className="text-left py-2.5 px-3">Market</th>
                   <th className="text-left py-2.5 px-3">Status</th>
-                  <th className="text-left py-2.5 px-3">Scaling</th>
                   <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && !engagementsQuery.isError && (
                   <tr>
-                    <td colSpan={9} className="py-12 px-3 text-center text-sm text-text-muted">
+                    <td colSpan={7} className="py-12 px-3 text-center text-sm text-text-muted">
                       {rows.length === 0
                         ? 'No engagements loaded yet.'
                         : 'No engagements match your search or filters.'}
@@ -262,9 +260,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     }
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
-                    <td className="py-2.5 px-3 font-mono text-xs text-text-muted tabular-nums">
-                      #{r.engagementId}
-                    </td>
                     <td className="py-2.5 px-3 text-text-primary font-medium max-w-[280px] truncate" title={r.displayTitle}>
                       {r.displayTitle}
                     </td>
@@ -279,7 +274,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     <td className="py-2.5 px-3">
                       <StatusBadge status={r.engagementStatus} />
                     </td>
-                    <td className="py-2.5 px-3 text-xs text-text-muted">{r.engagementScaling ?? '—'}</td>
                     <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                       <ActionMenu
                         items={[

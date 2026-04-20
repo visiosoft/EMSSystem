@@ -172,6 +172,27 @@ export class TourService {
       }
       existing.tourManagementCompanyId = dto.tourManagementCompanyId;
     }
+    if (dto.audienceGender !== undefined) {
+      existing.audienceGender = dto.audienceGender?.trim() || null;
+    }
+    if (dto.audienceAgeRange !== undefined) {
+      existing.audienceAgeRange = dto.audienceAgeRange?.trim() || null;
+    }
+    if (dto.tourInsuranceLanguage !== undefined) {
+      existing.tourInsuranceLanguage = dto.tourInsuranceLanguage?.trim() || null;
+    }
+    if (dto.venueTypePreferenceId !== undefined) {
+      if (dto.venueTypePreferenceId != null) {
+        const vt = await this.venueTypeRepo.findOne({
+          where: { venueTypeId: dto.venueTypePreferenceId },
+        });
+        if (!vt)
+          throw new NotFoundException({
+            message: 'Venue type not found.',
+          });
+      }
+      existing.venueTypePreferenceId = dto.venueTypePreferenceId;
+    }
     await this.tourRepo.save(existing);
   }
 

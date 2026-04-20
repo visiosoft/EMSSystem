@@ -184,6 +184,7 @@ export interface CreateProjectPayload {
 export interface UpdateProjectPayload {
   projectStage?: ProjectStage;
   createdBy?: string | null;
+  tourId?: number;
 
   // FRONTEND-ONLY
   name?: string | null;

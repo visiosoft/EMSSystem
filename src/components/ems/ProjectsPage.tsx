@@ -11,7 +11,7 @@
  *   - Modals for create / edit
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, Component, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +35,7 @@ import {
   TabBar,
 } from './Primitives';
 import { Select2 } from './Select2';
+import { SimpleCreateProjectForm } from './SimpleCreateProjectForm';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import {
   createPerformanceOption,
@@ -61,7 +62,27 @@ import type {
   VenueStatus,
 } from '@/api/projectApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
-import { fetchCompanies } from '@/api/companyApi';
+import { fetchCompanies, searchDmaMarkets } from '@/api/companyApi';
+
+// ─── Error Boundary ──────────────────────────────────────────────────────────
+
+interface EBState { hasError: boolean; error: Error | null }
+class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  state: EBState = { hasError: false, error: null };
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-ems-coral-dim border border-ems-coral/30 rounded-lg p-4 m-4">
+          <p className="text-ems-coral text-sm font-medium">Component Error</p>
+          <p className="text-xs text-text-secondary mt-1">{this.state.error?.message}</p>
+          <button type="button" onClick={() => this.setState({ hasError: false, error: null })} className="mt-2 text-xs text-ems-accent hover:underline">Try again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -537,96 +558,408 @@ function ProjectDetailDrawer({
   );
 }
 
-// ─── Create Project Form ──────────────────────────────────────────────────────
+// ─── Create Project Wizard ────────────────────────────────────────────────────
+
+const WIZARD_STEPS = [
+  { num: 1, label: 'Select Attraction-Tour' },
+  { num: 2, label: 'Tour Management' },
+  { num: 3, label: 'Select Markets' },
+  { num: 4, label: 'Project Details' },
+] as const;
+
+function WizardStepIndicator({ currentStep }: { currentStep: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2 mb-6">
+      {WIZARD_STEPS.map((step, idx) => {
+        const isActive = currentStep === step.num;
+        const isCompleted = currentStep > step.num;
+        const textColor = isActive ? 'text-ems-accent' : isCompleted ? 'text-text-primary' : 'text-text-muted';
+        const circleClasses = isActive
+          ? 'bg-ems-accent text-background border-ems-accent'
+          : isCompleted
+            ? 'bg-ems-accent/20 border-ems-accent text-ems-accent'
+            : 'bg-surface border-border text-text-muted';
+        const lineClasses = isCompleted ? 'bg-ems-accent' : 'bg-border';
+        return (
+          <React.Fragment key={step.num}>
+            <div className={`flex flex-col items-center ${textColor}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium border-2 transition-colors ${circleClasses}`}>
+                {isCompleted ? '✓' : step.num}
+              </div>
+              <span className="text-[10px] mt-1 hidden sm:block">{step.label}</span>
+            </div>
+            {idx < WIZARD_STEPS.length - 1 && (
+              <div className={`w-12 h-0.5 mx-1 transition-colors ${lineClasses}`} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
 function CreateProjectForm({
   onSaved, onCancel, addToast,
 }: {
   onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
+  // Data queries - only fetch companies when user reaches step 2
   const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
   const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
 
-  const [attractionId, setAttractionId] = useState('');
-  const [tourId, setTourId] = useState('');
+  // Wizard state
+  const [step, setStep] = useState(1);
+
+  // Step 1: Attraction-Tour selection
+  const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
+
+  // Step 2: Tour Management Company (optional)
+  const [tourManagementCompanyId, setTourManagementCompanyId] = useState<number | null>(null);
+  const [companySearch, setCompanySearch] = useState('');
+  const companiesQuery = useQuery({
+    queryKey: ['companies'],
+    queryFn: fetchCompanies,
+    staleTime: 60_000,
+    enabled: step >= 2,
+  });
+
+  // Step 3: Markets/DMAs
+  const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
+  const [marketSearch, setMarketSearch] = useState('');
+  const [marketSearchResults, setMarketSearchResults] = useState<string[]>([]);
+  const [searchingMarkets, setSearchingMarkets] = useState(false);
+
+  // Step 4: Project Details
   const [projectStage, setProjectStage] = useState<ProjectStage>('Active');
   const [createdBy, setCreatedBy] = useState('');
+
+  // Submitting state
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
 
-  const attractionOptions = useMemo(
-    () => (attractionsQuery.data ?? [])
-      .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
-      .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
-    [attractionsQuery.data],
-  );
+  // Derived data
+  const attractions = attractionsQuery.data ?? [];
+  const tours = toursQuery.data ?? [];
+  const companies = companiesQuery.data ?? [];
 
-  const tourOptions = useMemo(() => {
-    if (!attractionId) return [];
-    return (toursQuery.data ?? [])
-      .filter((t) => t.attractionId === Number(attractionId))
-      .map((t) => ({ value: String(t.tourId), label: t.tourName }));
-  }, [toursQuery.data, attractionId]);
+  // Group tours by attraction for display
+  const toursByAttraction = useMemo(() => {
+    const map = new Map<number, typeof tours>();
+    tours.forEach(t => {
+      if (!map.has(t.attractionId)) map.set(t.attractionId, []);
+      map.get(t.attractionId)!.push(t);
+    });
+    return map;
+  }, [tours]);
 
-  useEffect(() => { setTourId(''); }, [attractionId]);
+  // Management company options (filter by company type or show all)
+  const managementCompanyOptions = useMemo(() => {
+    if (!companies.length) return [];
+    const mgmt = companies.filter(c => c.companyTypeName === 'Attraction Management');
+    const pool = mgmt.length ? mgmt : companies;
+    return pool
+      .filter(c => c.companyName.toLowerCase().includes(companySearch.toLowerCase()))
+      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
+      .slice(0, 10);
+  }, [companies, companySearch]);
+
+  // Search markets effect - only when on step 3
+  useEffect(() => {
+    if (step < 3) return;
+    const search = async () => {
+      if (!marketSearch.trim()) {
+        setMarketSearchResults([]);
+        return;
+      }
+      setSearchingMarkets(true);
+      try {
+        const results = await searchDmaMarkets(marketSearch, 20);
+        setMarketSearchResults((results ?? []).map(r => r.marketName).filter(name => !selectedMarkets.includes(name)));
+      } catch {
+        setMarketSearchResults([]);
+      } finally {
+        setSearchingMarkets(false);
+      }
+    };
+    const timer = setTimeout(search, 300);
+    return () => clearTimeout(timer);
+  }, [step, marketSearch, selectedMarkets]);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
   const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending;
 
+  const selectedTour = selectedTourId ? tours.find(t => t.tourId === selectedTourId) : null;
+  const selectedAttraction = selectedTour ? attractions.find(a => a.attractionId === selectedTour.attractionId) : null;
+
+  const canProceedStep1 = selectedTourId != null;
+  const canProceedStep3 = true; // Tour management is optional
+  const canSubmit = true;
+
+  const handleBack = () => setStep(s => Math.max(1, s - 1));
+  const handleNext = () => setStep(s => Math.min(4, s + 1));
+
   const handleSubmit = async () => {
-    const errs: string[] = [];
-    if (!tourId) errs.push('Tour is required');
-    if (errs.length) { setErrors(errs); return; }
+    if (!selectedTourId) return;
     setSaving(true);
-    setErrors([]);
     try {
-      const res = await createProject({ tourId: Number(tourId), projectStage, createdBy: createdBy.trim() || null });
+      const res = await createProject({
+        tourId: selectedTourId,
+        projectStage,
+        createdBy: createdBy.trim() || null,
+        // Include selected DMAs in notes for now (frontend-only field)
+        notes: selectedMarkets.length > 0 ? `Selected Markets: ${selectedMarkets.join(', ')}` : null,
+      });
       onSaved(res.engagementProjectId);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
     } finally { setSaving(false); }
   };
 
+  const addMarket = (name: string) => {
+    if (!selectedMarkets.includes(name)) {
+      setSelectedMarkets(prev => [...prev, name]);
+    }
+    setMarketSearch('');
+  };
+
+  const removeMarket = (name: string) => {
+    setSelectedMarkets(prev => prev.filter(n => n !== name));
+  };
+
+  if (lookupsLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 text-text-muted text-sm py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-ems-accent" />Loading data…
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-5">
-      {errors.length > 0 && (
-        <div className="text-ems-coral text-sm bg-ems-coral-dim border border-ems-coral/20 rounded px-3 py-2">{errors.join(', ')}</div>
-      )}
-      {lookupsLoading ? (
-        <div className="flex items-center gap-2 text-text-muted text-sm py-4"><Loader2 className="h-4 w-4 animate-spin text-ems-accent" />Loading lookups…</div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Attraction" required>
-              <Select2
-                options={attractionOptions}
-                value={attractionId} onChange={setAttractionId} placeholder="Select attraction…"
-              />
-            </FormField>
-            <FormField label="Tour" required>
-              <Select2
-                options={tourOptions}
-                value={tourId} onChange={setTourId} disabled={!attractionId}
-                placeholder={!attractionId ? 'Select attraction first…' : tourOptions.length === 0 ? 'No tours for this attraction' : 'Select tour…'}
-              />
-            </FormField>
+    <div className="space-y-4">
+      <WizardStepIndicator currentStep={step} />
+
+      {/* Step 1: Select Attraction-Tour */}
+      {step === 1 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium text-text-primary">Select Attraction-Tour</h3>
+          <div className="max-h-[400px] overflow-y-auto space-y-3 pr-1">
+            {attractions
+              .filter(a => toursByAttraction.has(a.attractionId) && (toursByAttraction.get(a.attractionId)?.length ?? 0) > 0)
+              .sort((a, b) => a.attractionName.localeCompare(b.attractionName))
+              .map(attraction => {
+                const attractionTours = toursByAttraction.get(attraction.attractionId) ?? [];
+                return (
+                  <div key={attraction.attractionId} className="border border-border rounded-lg overflow-hidden">
+                    <div className="bg-surface px-4 py-2 border-b border-border">
+                      <span className="text-sm font-medium text-text-primary">{attraction.attractionName}</span>
+                    </div>
+                    <div className="p-2 space-y-1">
+                      {attractionTours.map(tour => (
+                        <button
+                          key={tour.tourId}
+                          type="button"
+                          onClick={() => setSelectedTourId(tour.tourId)}
+                          className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between ${
+                            selectedTourId === tour.tourId
+                              ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
+                              : 'hover:bg-hover text-text-secondary'
+                          }`}
+                        >
+                          <span>{tour.tourName}</span>
+                          {selectedTourId === tour.tourId && <span className="text-ems-accent text-xs font-medium">Selected</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Project Stage" required>
-              <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
-            </FormField>
-            <FormField label="Created By (optional)">
-              <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
-            </FormField>
-          </div>
-        </>
+        </div>
       )}
-      <div className="flex gap-2 justify-end pt-2 border-t border-border">
-        <button type="button" onClick={onCancel} disabled={saving} className="text-text-secondary px-5 py-1.5 hover:text-text-primary text-sm disabled:opacity-50">Cancel</button>
-        <button type="button" onClick={() => void handleSubmit()} disabled={saving || lookupsLoading}
-          className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed">
-          {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Creating…</> : 'Create Project'}
+
+      {/* Step 2: Tour Management Company */}
+      {step === 2 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-text-primary">Select Talent Agent / Tour Management</h3>
+            <span className="text-xs text-text-muted">Optional</span>
+          </div>
+          <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
+            <input
+              type="text"
+              className={inputCls}
+              placeholder="Search tour management companies…"
+              value={companySearch}
+              onChange={(e) => setCompanySearch(e.target.value)}
+            />
+            <div className="max-h-[200px] overflow-y-auto space-y-1">
+              <button
+                type="button"
+                onClick={() => setTourManagementCompanyId(null)}
+                className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  tourManagementCompanyId === null
+                    ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
+                    : 'hover:bg-hover text-text-secondary'
+                }`}
+              >
+                <span className="text-text-muted">— None —</span>
+              </button>
+              {managementCompanyOptions.map(company => (
+                <button
+                  key={company.companyId}
+                  type="button"
+                  onClick={() => setTourManagementCompanyId(company.companyId)}
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                    tourManagementCompanyId === company.companyId
+                      ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
+                      : 'hover:bg-hover text-text-secondary'
+                  }`}
+                >
+                  {company.companyName}
+                </button>
+              ))}
+              {companySearch && managementCompanyOptions.length === 0 && (
+                <p className="text-xs text-text-muted px-3 py-2">No companies found.</p>
+              )}
+            </div>
+          </div>
+          {tourManagementCompanyId && (
+            <p className="text-xs text-text-secondary">
+              Selected: {companies.find(c => c.companyId === tourManagementCompanyId)?.companyName}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Select Markets */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-text-primary">Select Markets (DMAs)</h3>
+            <span className="text-xs text-text-muted">Optional</span>
+          </div>
+          <div className="relative">
+            <input
+              type="text"
+              className={inputCls}
+              placeholder="Search markets…"
+              value={marketSearch}
+              onChange={(e) => setMarketSearch(e.target.value)}
+            />
+            {searchingMarkets && (
+              <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-text-muted" />
+            )}
+            {marketSearch && marketSearchResults.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
+                {marketSearchResults.map(name => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => addMarket(name)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-hover text-text-secondary border-b border-border/50 last:border-0"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {selectedMarkets.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-text-secondary">Selected Markets:</p>
+              <div className="flex flex-wrap gap-2">
+                {selectedMarkets.map(name => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30"
+                  >
+                    {name}
+                    <button type="button" onClick={() => removeMarket(name)} className="text-text-muted hover:text-ems-coral">×</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 4: Project Details */}
+      {step === 4 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium text-text-primary">Project Details</h3>
+          <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Attraction">
+                <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
+                  {selectedAttraction?.attractionName ?? '—'}
+                </div>
+              </FormField>
+              <FormField label="Tour">
+                <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
+                  {selectedTour?.tourName ?? '—'}
+                </div>
+              </FormField>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Tour Management">
+                <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
+                  {tourManagementCompanyId
+                    ? companies.find(c => c.companyId === tourManagementCompanyId)?.companyName ?? '—'
+                    : '— None —'}
+                </div>
+              </FormField>
+              <FormField label="Markets Selected">
+                <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
+                  {selectedMarkets.length > 0 ? `${selectedMarkets.length} market(s)` : '— None —'}
+                </div>
+              </FormField>
+            </div>
+            <div className="border-t border-border pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FormField label="Project Stage" required>
+                <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
+              </FormField>
+              <FormField label="Created By (optional)">
+                <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
+              </FormField>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation Buttons */}
+      <div className="flex items-center justify-between pt-4 border-t border-border">
+        <button
+          type="button"
+          onClick={step === 1 ? onCancel : handleBack}
+          disabled={saving}
+          className="text-text-secondary px-5 py-1.5 hover:text-text-primary text-sm disabled:opacity-50"
+        >
+          {step === 1 ? 'Cancel' : '← Back'}
         </button>
+        <div className="flex gap-2">
+          {step < 4 ? (
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={
+                (step === 1 && !canProceedStep1) ||
+                (step === 3 && !canProceedStep3) ||
+                saving
+              }
+              className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Next →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={saving || !canSubmit}
+              className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Creating…</> : 'Create Project'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -639,37 +972,120 @@ function EditProjectForm({
 }: {
   project: ApiProjectListRow; onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
+  // Load attractions and tours for tour selection
+  const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
+  const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
+
   const [projectStage, setProjectStage] = useState<ProjectStage>(project.projectStage);
   const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');
+  const [tourId, setTourId] = useState<number>(project.tourId);
   const [saving, setSaving] = useState(false);
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+  const attractions = attractionsQuery.data ?? [];
+  const tours = toursQuery.data ?? [];
+
+  // Find current tour and attraction
+  const currentTour = tours.find(t => t.tourId === tourId);
+  const currentAttraction = currentTour ? attractions.find(a => a.attractionId === currentTour.attractionId) : null;
+
+  // Get tours for the same attraction
+  const toursForSameAttraction = useMemo(() => {
+    if (!currentTour) return [];
+    return tours.filter(t => t.attractionId === currentTour.attractionId && t.tourId !== currentTour.tourId);
+  }, [tours, currentTour]);
+
+  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending;
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateProject(project.engagementProjectId, { projectStage, createdBy: createdBy.trim() || null });
+      const payload: import('@/api/projectApi').UpdateProjectPayload = {
+        projectStage,
+        createdBy: createdBy.trim() || null,
+      };
+      // Only include tourId if it changed
+      if (tourId !== project.tourId) {
+        payload.tourId = tourId;
+      }
+      await updateProject(project.engagementProjectId, payload);
       onSaved();
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update project.'), 'error');
     } finally { setSaving(false); }
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FormField label="Project Stage" required>
-          <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
-        </FormField>
-        <FormField label="Created By (optional)">
-          <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} />
-        </FormField>
+  if (lookupsLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 text-text-muted text-sm py-8">
+        <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />Loading data…
       </div>
-      <div className="flex gap-2 justify-end pt-2 border-t border-border">
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Project Summary */}
+      <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
+        <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">Current Project</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span className="text-[11px] text-text-muted">Attraction</span>
+            <div className="text-sm text-text-primary">{project.attractionName ?? '—'}</div>
+          </div>
+          <div>
+            <span className="text-[11px] text-text-muted">Current Tour</span>
+            <div className="text-sm text-text-primary">{project.tourName ?? '—'}</div>
+          </div>
+          <div>
+            <span className="text-[11px] text-text-muted">Project ID</span>
+            <div className="text-sm text-text-primary font-mono">#{project.engagementProjectId}</div>
+          </div>
+          <div>
+            <span className="text-[11px] text-text-muted">Created</span>
+            <div className="text-sm text-text-primary">
+              {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Editable Fields */}
+      <div className="space-y-4">
+        <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">Edit Details</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Project Stage" required>
+            <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
+          </FormField>
+          <FormField label="Created By (optional)">
+            <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
+          </FormField>
+        </div>
+
+        {toursForSameAttraction.length > 0 && (
+          <div className="pt-2">
+            <FormField label="Change Tour (optional)">
+              <Select2
+                options={[
+                  { value: String(currentTour?.tourId ?? ''), label: `Keep current: ${currentTour?.tourName ?? 'Unknown'}` },
+                  ...toursForSameAttraction.map(t => ({ value: String(t.tourId), label: t.tourName }))
+                ]}
+                value={String(tourId)}
+                onChange={(v) => setTourId(Number(v))}
+              />
+            </FormField>
+            <p className="text-xs text-text-muted mt-1">
+              Other tours for {currentAttraction?.attractionName} are available to switch to.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 justify-end pt-4 border-t border-border">
         <button type="button" onClick={onCancel} disabled={saving} className="text-text-secondary px-5 py-1.5 hover:text-text-primary text-sm disabled:opacity-50">Cancel</button>
         <button type="button" onClick={() => void handleSave()} disabled={saving}
           className="inline-flex items-center justify-center gap-2 min-w-[6.5rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60">
-          {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save'}
+          {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save Changes'}
         </button>
       </div>
     </div>
@@ -875,17 +1291,19 @@ export function ProjectsPage({ addToast }: Props) {
       {/* Create modal */}
       {showCreateModal && (
         <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700}>
-          <CreateProjectForm
-            key="create-project"
-            onSaved={async (id) => {
-              await refetch();
-              setShowCreateModal(false);
-              addToast('Project created successfully.', 'success');
-              setSelectedProjectId(id);
-            }}
-            onCancel={() => setShowCreateModal(false)}
-            addToast={addToast}
-          />
+          <ErrorBoundary>
+            <CreateProjectForm
+              key="create-project"
+              onSaved={async (id) => {
+                await refetch();
+                setShowCreateModal(false);
+                addToast('Project created successfully.', 'success');
+                setSelectedProjectId(id);
+              }}
+              onCancel={() => setShowCreateModal(false)}
+              addToast={addToast}
+            />
+          </ErrorBoundary>
         </Modal>
       )}
 

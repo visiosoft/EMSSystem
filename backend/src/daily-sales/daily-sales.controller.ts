@@ -28,8 +28,19 @@ export class DailySalesController {
   constructor(private readonly dailySalesService: DailySalesService) {}
 
   /**
+   * GET /api/daily-sales/by-performance
+   * Returns one row per Performance with today's and yesterday's
+   * sales data joined. Used by the new Daily Sales UI.
+   * Optional: ?performanceDate=YYYY-MM-DD to filter by performance date.
+   */
+  @Get('by-performance')
+  findByPerformance(@Query('performanceDate') performanceDate?: string) {
+    return this.dailySalesService.findByPerformance(performanceDate);
+  }
+
+  /**
    * GET /api/daily-sales
-   * Optional: ?engagementId=472
+   * Legacy flat list — optional: ?engagementId=472
    */
   @Get()
   findAll(@Query('engagementId') engagementId?: string) {
@@ -39,7 +50,8 @@ export class DailySalesController {
 
   /**
    * PATCH /api/daily-sales/:performanceId/:salesDate
-   * Updates PerformanceSalesQuantity and/or PerformanceSalesRevenue.
+   * Upserts PerformanceSalesQuantity and/or PerformanceSalesRevenue.
+   * Creates the row if it doesn't exist yet (first entry for this date).
    * salesDate format: YYYY-MM-DD
    */
   @Patch(':performanceId/:salesDate')

@@ -216,6 +216,10 @@ export class ProjectService {
     const project = await this.assertProjectExists(id);
     if (dto.projectStage !== undefined) project.projectStage = dto.projectStage;
     if (dto.createdBy !== undefined) project.createdBy = dto.createdBy?.trim() ?? null;
+    if (dto.tourId !== undefined) {
+      await this.assertTourExists(dto.tourId);
+      project.tourId = dto.tourId;
+    }
     await this.projectRepo.save(project);
   }
 

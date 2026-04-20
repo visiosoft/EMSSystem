@@ -1,11 +1,13 @@
 import { apiFetch } from './config';
 
+// ─── Legacy flat list ─────────────────────────────────────────────────────────
+
 export interface ApiDailySalesRow {
   performanceId: number;
   engagementId: number;
-  salesDate: string;            // YYYY-MM-DD
-  performanceDate: string;      // YYYY-MM-DD
-  performanceTime: string;      // HH:MM:SS
+  salesDate: string;
+  performanceDate: string;
+  performanceTime: string;
   performanceStatus: string;
   engagementStatus: string;
   ticketsSold: number | null;
@@ -26,6 +28,38 @@ export function fetchDailySales(engagementId?: number) {
   const qs = engagementId != null ? `?engagementId=${engagementId}` : '';
   return apiFetch<ApiDailySalesRow[]>(`/daily-sales${qs}`);
 }
+
+// ─── By-performance view (new) ────────────────────────────────────────────────
+
+export interface ApiPerformanceSalesRow {
+  performanceId: number;
+  engagementId: number;
+  performanceDate: string;       // YYYY-MM-DD
+  performanceTime: string;       // HH:MM:SS
+  performanceStatus: string;
+  engagementStatus: string;
+  attractionName: string | null;
+  tourName: string | null;
+  venueCompanyName: string | null;
+  venueName: string | null;
+  city: string | null;
+  stateProvince: string | null;
+  /** Today's date YYYY-MM-DD */
+  todayDate: string;
+  todayTicketsSold: number | null;
+  todayRevenue: number | null;
+  /** Yesterday's date YYYY-MM-DD */
+  yesterdayDate: string;
+  yesterdayTicketsSold: number | null;
+  yesterdayRevenue: number | null;
+}
+
+export function fetchDailySalesByPerformance(performanceDate?: string) {
+  const qs = performanceDate ? `?performanceDate=${encodeURIComponent(performanceDate)}` : '';
+  return apiFetch<ApiPerformanceSalesRow[]>(`/daily-sales/by-performance${qs}`);
+}
+
+// ─── Update (upsert) ──────────────────────────────────────────────────────────
 
 export interface UpdateDailySalesPayload {
   ticketsSold?: number | null;

@@ -272,3 +272,18 @@ export function fetchDmaByPostal(postalCode: string) {
     `/lookups/dma-by-postal/${enc}`,
   );
 }
+
+export interface ApiDmaMarket {
+  marketName: string;
+}
+
+export function searchDmaMarkets(query?: string, limit = 50) {
+  const params = new URLSearchParams();
+  if (query) params.set('q', query);
+  if (limit) params.set('limit', String(limit));
+  return apiFetch<ApiDmaMarket[]>(`/lookups/dma-markets/search?${params.toString()}`);
+}
+
+export function fetchDmaMarkets() {
+  return apiFetch<ApiDmaMarket[]>('/lookups/dma-markets');
+}

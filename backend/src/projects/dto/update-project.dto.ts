@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { PROJECT_STAGE_VALUES } from './create-project.dto';
 
 export class UpdateProjectDto {
@@ -11,6 +11,11 @@ export class UpdateProjectDto {
   @IsString()
   @MaxLength(200)
   createdBy?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  tourId?: number;
 
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;

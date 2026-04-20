@@ -74,4 +74,19 @@ export class LookupsService {
       .getRawMany<{ marketName: string }>();
     return rows;
   }
+
+  /** Search DMA markets by query string (case-insensitive partial match). */
+  async searchDmaMarkets(query: string, limit = 50): Promise<{ marketName: string }[]> {
+    const qb = this.dmaRepo
+      .createQueryBuilder('d')
+      .select('DISTINCT d.marketName', 'marketName')
+      .orderBy('d.marketName', 'ASC');
+
+    if (query) {
+      qb.where('d.marketName LIKE :query', { query: `%${query}%` });
+    }
+
+    qb.limit(limit);
+    return qb.getRawMany<{ marketName: string }>();
+  }
 }

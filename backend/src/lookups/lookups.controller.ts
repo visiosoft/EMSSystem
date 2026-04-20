@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
 
 @Controller('lookups')
@@ -44,5 +44,10 @@ export class LookupsController {
   @Get('dma-markets')
   dmaMarkets() {
     return this.lookupsService.findDmaMarkets();
+  }
+
+  @Get('dma-markets/search')
+  async searchDmaMarkets(@Query('q') query?: string) {
+    return this.lookupsService.searchDmaMarkets(query?.trim() ?? '');
   }
 }
