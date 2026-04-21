@@ -470,7 +470,7 @@ function CreateEngagementModal({
 }: {
   attractions: { attractionId: number; attractionName: string }[];
   tours: { tourId: number; tourName: string; attractionId: number }[];
-  companies: { companyId: number; companyName: string; companyTypeName: string }[];
+  companies: { companyId: number; companyName: string; companyTypeName: string; dmaMarketName?: string }[];
   onClose: () => void;
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onCreated: () => Promise<void>;
@@ -492,31 +492,15 @@ function CreateEngagementModal({
       .map((v) => ({ value: String(v.companyId), label: v.companyName }));
   }, [venueCompanies]);
 
-  const dealTypeOptions = useMemo(
-    () => DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-    [],
-  );
-
   const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
-
-  const bookerOptions = useMemo(
-    () => USERS.map((u) => ({ value: u.id, label: `${u.name} (${u.role})` })),
-    [],
-  );
 
   const [attractionId, setAttractionId] = useState<string>(
     attractions[0] ? String(attractions[0].attractionId) : '',
   );
   const [tourId, setTourId] = useState<string>('');
-  const [primaryVenueId, setPrimaryVenueId] = useState<string>(
-    venueCompanies[0] ? String(venueCompanies[0].companyId) : '',
-  );
+  const [primaryVenueId, setPrimaryVenueId] = useState<string>('');
   const [recordStatus, setRecordStatus] = useState<string>('Unknown');
-  const [engagementName, setEngagementName] = useState('');
-  const [bookerId, setBookerId] = useState<string>('');
-  const [dealType, setDealType] = useState(DEAL_TYPE_OPTIONS[0]?.value ?? 'Guarantee');
-  const [guarantee, setGuarantee] = useState('');
-  const [showDate, setShowDate] = useState('');
+  const [showDateTime, setShowDateTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const attractionIdNum = attractionId ? Number(attractionId) : NaN;
@@ -531,6 +515,13 @@ function CreateEngagementModal({
     [toursForAttraction],
   );
 
+  // Get selected venue's DMA
+  const selectedVenueDma = useMemo(() => {
+    if (!primaryVenueId) return null;
+    const venue = venueCompanies.find((v) => String(v.companyId) === primaryVenueId);
+    return venue?.dmaMarketName || null;
+  }, [primaryVenueId, venueCompanies]);
+
   useEffect(() => {
     setTourId('');
   }, [attractionId]);
@@ -539,16 +530,20 @@ function CreateEngagementModal({
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
 
   const handleSubmit = async () => {
+    if (!recordStatus.trim()) {
+      addToast('Status is required.', 'warning');
+      return;
+    }
+    if (!attractionId) {
+      addToast('Attraction is required.', 'warning');
+      return;
+    }
     if (!tourId) {
-      addToast('A tour is required to create an engagement.', 'warning');
+      addToast('Tour is required.', 'warning');
       return;
     }
     if (!primaryVenueId) {
-      addToast('Select a primary venue.', 'warning');
-      return;
-    }
-    if (!recordStatus.trim()) {
-      addToast('Status is required.', 'warning');
+      addToast('Venue is required.', 'warning');
       return;
     }
     if (recordStatus.trim().length > 50) {
@@ -579,15 +574,6 @@ function CreateEngagementModal({
           <FormField label="Status" required>
             <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
           </FormField>
-          <FormField label="Engagement name (optional)">
-            <input
-              className={inputCls}
-              value={engagementName}
-              onChange={(e) => setEngagementName(e.target.value)}
-              placeholder="Display name for your team"
-              maxLength={300}
-            />
-          </FormField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -613,7 +599,7 @@ function CreateEngagementModal({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Primary venue" required>
+          <FormField label="Venue" required>
             <Select2
               options={venueOptions}
               value={primaryVenueId}
@@ -621,41 +607,26 @@ function CreateEngagementModal({
               placeholder="Select venue…"
             />
           </FormField>
-          <FormField label="Booker (optional)">
-            <Select2
-              options={bookerOptions}
-              value={bookerId}
-              onChange={setBookerId}
-              placeholder="Select booker…"
-              allowClear
-            />
-          </FormField>
+          {selectedVenueDma && (
+            <FormField label="DMA">
+              <input
+                className={inputCls}
+                value={selectedVenueDma}
+                disabled
+                readOnly
+              />
+            </FormField>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Deal type (optional)">
-            <Select2
-              options={dealTypeOptions}
-              value={dealType}
-              onChange={setDealType}
-              placeholder="Select…"
+          <FormField label="Opening Show Date and Time">
+            <input 
+              type="datetime-local" 
+              className={inputCls} 
+              value={showDateTime} 
+              onChange={(e) => setShowDateTime(e.target.value)} 
             />
-          </FormField>
-          <FormField label="Guarantee (optional)">
-            <input
-              type="number"
-              className={inputCls}
-              value={guarantee}
-              onChange={(e) => setGuarantee(e.target.value)}
-              placeholder="0"
-              min={0}
-            />
-          </FormField>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Show date (optional)">
-            <input type="date" className={inputCls} value={showDate} onChange={(e) => setShowDate(e.target.value)} />
           </FormField>
         </div>
 
@@ -806,7 +777,7 @@ function EditEngagementModal({
           </FormField>
         </div>
 
-        <FormField label="Primary Venue" required>
+        <FormField label="Venue" required>
           <Select2 options={venueOptions} value={primaryVenueId} onChange={setPrimaryVenueId} placeholder="Select venue…" />
         </FormField>
 

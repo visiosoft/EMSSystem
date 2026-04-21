@@ -632,7 +632,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
             <span className="text-text-primary font-medium">{row.tourName ?? '—'}</span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Primary venue</span>
+            <span className="text-text-muted text-xs block mb-0.5">Venue</span>
             <span className="text-text-primary font-medium">
               {row.venueCompanyName ?? row.venueName ?? '—'}
             </span>
@@ -1208,7 +1208,7 @@ function EditEngagementModal({
             </FormField>
           </div>
           <div className="mt-4">
-            <FormField label="Primary venue (EngagementVenue, IsPrimary=1)" required>
+            <FormField label="Venue (EngagementVenue, IsPrimary=1)" required>
               <Select2
                 options={venueOptions}
                 value={primaryVenueId}
