@@ -152,7 +152,7 @@ export interface ApiProjectListRow {
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: string[];
+  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 }
@@ -173,7 +173,7 @@ export interface CreateProjectPayload {
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: string[];
+  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 
@@ -190,7 +190,7 @@ export interface UpdateProjectPayload {
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: string[];
+  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 }

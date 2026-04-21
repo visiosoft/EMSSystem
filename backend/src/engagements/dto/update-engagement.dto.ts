@@ -8,11 +8,6 @@ export class UpdateEngagementDto {
   @IsIn(ENGAGEMENT_STATUS_VALUES as unknown as string[])
   engagementStatus?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  engagementScaling?: string | null;
-
   /** dbo.Engagement.TourID — optional on update */
   @IsOptional()
   @IsInt()
@@ -23,17 +18,4 @@ export class UpdateEngagementDto {
   @IsInt()
   @Min(1)
   primaryVenueCompanyId?: number;
-
-  // Frontend-only
-  @IsOptional() bookerId?: string | null;
-  @IsOptional() showDate?: string | null;
-  @IsOptional() dealType?: string | null;
-  @IsOptional() guarantee?: number | null;
-  @IsOptional() splitPct?: number | null;
-  @IsOptional() breakeven?: number | null;
-  @IsOptional() projectedGross?: number | null;
-  @IsOptional() projectedMargin?: number | null;
-  @IsOptional() overviewNotes?: string | null;
-  @IsOptional() workflows?: unknown;
-  @IsOptional() cancellationReason?: string | null;
 }

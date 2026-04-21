@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 import {
   SearchInput,
   TabBar,
@@ -40,6 +40,7 @@ import {
 import { fetchCompanies, fetchCompanyContacts, type ApiCompanyContact } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
+import { AddTourForm } from './AddTourForm';
 
 const PAGE_SIZE = 15;
 
@@ -117,16 +118,18 @@ function licenseSummary(t: ApiTourListRow): string {
   return parts.length ? parts.join(' · ') : '—';
 }
 
-function TourCardInDrawer({ t }: { t: ApiTourListRow }) {
+/** Read-only tour summary when viewing an attraction (editing is on the Tours tab / tour drawer). */
+function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
   return (
     <div className="bg-elevated border border-border rounded-lg p-3 space-y-2.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-text-primary font-medium leading-snug">{t.tourName}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <span className="text-[11px] bg-surface border border-border/80 px-1.5 py-0.5 rounded text-text-secondary">
-              {t.className}
+          <div className="mt-2">
+            <span className="text-[10px] text-text-muted uppercase tracking-wide block mb-1">
+              Genre / Class
             </span>
+            <div className="text-sm text-text-primary">{t.className || '—'}</div>
           </div>
         </div>
         <span className="text-[10px] text-text-muted shrink-0 text-right max-w-[40%]" title={licenseSummary(t)}>
@@ -141,14 +144,285 @@ function TourCardInDrawer({ t }: { t: ApiTourListRow }) {
   );
 }
 
+// ─── Shared inline-edit primitive ────────────────────────────────────────────
+
+function InlineField({
+  label, value, onChange, placeholder = '—', multiline = false,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; multiline?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = React.useRef<HTMLInputElement & HTMLTextAreaElement>(null);
+
+  const start = () => { setDraft(value); setEditing(true); setTimeout(() => ref.current?.focus(), 0); };
+  const commit = () => { if (draft !== value) onChange(draft); setEditing(false); };
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-start gap-1.5">
+          {multiline ? (
+            <textarea ref={ref as React.Ref<HTMLTextAreaElement>} rows={3} value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => e.key === 'Escape' && setEditing(false)}
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none" />
+          ) : (
+            <input ref={ref as React.Ref<HTMLInputElement>} value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+              className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none" />
+          )}
+          <div className="flex gap-0.5 mt-0.5 shrink-0">
+            <button onClick={commit} className="p-1 text-ems-accent hover:bg-elevated rounded"><Check className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setEditing(false)} className="p-1 text-text-muted hover:bg-elevated rounded"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div onClick={start} title="Click to edit"
+        className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors">
+        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>{value || placeholder}</span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
+      </div>
+    </div>
+  );
+}
+
+function InlineSelectField({
+  label,
+  value,
+  onChange,
+  options,
+  allowClear = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  allowClear?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const display =
+    options.find((o) => o.value === value)?.label ??
+    (value ? value : '—');
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <Select2
+              options={options}
+              value={value}
+              onChange={(v) => {
+                onChange(v);
+                setEditing(false);
+              }}
+              allowClear={allowClear}
+              placeholder="Select…"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="p-1 text-text-muted hover:bg-elevated rounded shrink-0"
+            title="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div
+        onClick={() => setEditing(true)}
+        className="group flex items-center gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+        title="Click to edit"
+      >
+        <span className="text-sm text-text-primary flex-1">{display}</span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Attraction side panel (list + detail) ─────────────────────────────────
+
+function AttractionSidePanel({
+  attraction,
+  tours,
+  addToast,
+  onClose,
+  onDelete,
+  onSaved,
+}: {
+  attraction: ApiAttractionListRow;
+  tours: ApiTourListRow[];
+  addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onClose: () => void;
+  onDelete: (a: ApiAttractionListRow) => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(attraction.attractionName);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setName(attraction.attractionName);
+    setDirty(false);
+  }, [attraction.attractionId, attraction.attractionName]);
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      addToast('Name is required.', 'warning');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateAttraction(attraction.attractionId, {
+        attractionName: name.trim(),
+      });
+      setDirty(false);
+      addToast('Attraction updated.', 'success');
+      onSaved();
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update.'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Drawer onClose={onClose} width={1000}>
+      <div className="p-4 border-b border-border flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary">{name}</h2>
+          <p className="text-xs text-text-muted mt-0.5">
+            {attraction.activeTourCount} tour{attraction.activeTourCount !== 1 ? 's' : ''}
+            {attraction.appCreated && (
+              <span className="ml-2 text-ems-accent">· Created in this app</span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {attraction.appCreated && (
+            <button
+              type="button"
+              onClick={() => onDelete(attraction)}
+              title="Delete attraction"
+              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-text-muted hover:text-text-secondary rounded-md transition-colors text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-5">
+        <p className="flex items-start gap-1.5 text-[11px] text-text-muted select-none leading-relaxed">
+          <Pencil className="h-3 w-3 shrink-0 mt-0.5" />
+          Click the attraction name to edit it. Tours listed below are read-only; use the Tours tab and open a tour to
+          change genre, company, and other tour fields.
+        </p>
+
+        <InlineField
+          label="Attraction Name"
+          value={name}
+          onChange={(v) => {
+            setName(v);
+            setDirty(true);
+          }}
+        />
+
+        <div>
+          <h3 className="text-sm font-medium text-text-primary mb-1">Tours</h3>
+          <p className="text-[11px] text-text-muted mb-3">Reference only — not editable in this panel.</p>
+          <div className="space-y-3">
+            {tours.length === 0 && (
+              <div className="text-text-muted text-sm">No tours attached yet.</div>
+            )}
+            {tours.map((t) => (
+              <TourCardReadOnly key={t.tourId} t={t} />
+            ))}
+          </div>
+        </div>
+
+        {dirty && (
+          <div className="sticky bottom-0 -mx-4 px-4 py-3 mt-4 bg-card/95 backdrop-blur-sm border-t border-border flex items-center justify-between gap-3 z-10">
+            <span className="text-xs text-text-secondary flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-ems-accent inline-block animate-pulse" />
+              Unsaved changes
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setName(attraction.attractionName);
+                  setDirty(false);
+                }}
+                disabled={saving}
+                className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated transition-colors disabled:opacity-50"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60"
+              >
+                {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+                Save changes
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
 function TourDrawer({
   tour,
+  attractions,
+  classes,
+  venueTypes,
+  managementCompanyOptions,
+  addToast,
   onClose,
+  onDelete,
+  onSaved,
   activeTab,
   onTabChange,
 }: {
   tour: ApiTourListRow;
+  attractions: ApiAttractionListRow[];
+  classes: ApiClass[];
+  venueTypes: ApiVenueType[];
+  managementCompanyOptions: { value: string; label: string }[];
+  addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
   onClose: () => void;
+  onDelete: (t: ApiTourListRow) => void;
+  onSaved: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
 }) {
@@ -158,85 +432,279 @@ function TourDrawer({
     enabled: !!tour.tourManagementCompanyId,
   });
 
+  // Editable state
+  const [tourName, setTourName] = useState(tour.tourName);
+  const [attractionId, setAttractionId] = useState(String(tour.attractionId));
+  const [classId, setClassId] = useState(String(tour.classId));
+  const [tourManagementCompanyId, setTourManagementCompanyId] = useState(
+    tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+  );
+  const [venueTypePreferenceId, setVenueTypePreferenceId] = useState(
+    tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
+  );
+  const [audienceGender, setAudienceGender] = useState(tour.audienceGender ?? '');
+  const [audienceAgeRange, setAudienceAgeRange] = useState(tour.audienceAgeRange ?? '');
+  const [insuranceLanguage, setInsuranceLanguage] = useState(tour.tourInsuranceLanguage ?? '');
+  const [ascap, setAscap] = useState(tour.ascap);
+  const [bmi, setBmi] = useState(tour.bmi);
+  const [sesac, setSesac] = useState(tour.sesac);
+  const [gmr, setGmr] = useState(tour.gmr);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTourName(tour.tourName);
+    setAttractionId(String(tour.attractionId));
+    setClassId(String(tour.classId));
+    setTourManagementCompanyId(
+      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+    );
+    setVenueTypePreferenceId(
+      tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
+    );
+    setAudienceGender(tour.audienceGender ?? '');
+    setAudienceAgeRange(tour.audienceAgeRange ?? '');
+    setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
+    setAscap(tour.ascap);
+    setBmi(tour.bmi);
+    setSesac(tour.sesac);
+    setGmr(tour.gmr);
+    setDirty(false);
+  }, [tour.tourId]);
+
+  const mark = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setDirty(true);
+  };
+
+  const attractionOptions = attractions.map((a) => ({
+    value: String(a.attractionId),
+    label: a.attractionName,
+  }));
+  const classOptions = classes.map((c) => ({
+    value: String(c.classId),
+    label: c.className,
+  }));
+  const mgmtOptions = [
+    { value: '', label: '—' },
+    ...managementCompanyOptions,
+  ];
+  const venueTypeOpts = [
+    { value: '', label: '—' },
+    ...venueTypes.map((v) => ({
+      value: String(v.venueTypeId),
+      label: v.venueTypeName,
+    })),
+  ];
+
+  const headerAttractionName =
+    attractions.find((a) => a.attractionId === Number(attractionId))?.attractionName ??
+    tour.attractionName;
+  const headerClassName =
+    classes.find((c) => c.classId === Number(classId))?.className ?? tour.className;
+
+  const handleSave = async () => {
+    if (!tourName.trim()) {
+      addToast('Tour name is required.', 'warning');
+      return;
+    }
+    if (!attractionId || !classId) {
+      addToast('Attraction and Genre / Class are required.', 'warning');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateTour(tour.tourId, {
+        tourName: tourName.trim(),
+        attractionId: Number(attractionId),
+        classId: Number(classId),
+        tourManagementCompanyId: tourManagementCompanyId
+          ? Number(tourManagementCompanyId)
+          : null,
+        venueTypePreferenceId: venueTypePreferenceId
+          ? Number(venueTypePreferenceId)
+          : null,
+        audienceGender: audienceGender.trim() || null,
+        audienceAgeRange: audienceAgeRange.trim() || null,
+        tourInsuranceLanguage: insuranceLanguage.trim() || null,
+        ascap,
+        bmi,
+        sesac,
+        gmr,
+      });
+      setDirty(false);
+      addToast('Tour updated.', 'success');
+      onSaved();
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update tour.'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const discard = () => {
+    setTourName(tour.tourName);
+    setAttractionId(String(tour.attractionId));
+    setClassId(String(tour.classId));
+    setTourManagementCompanyId(
+      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+    );
+    setVenueTypePreferenceId(
+      tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
+    );
+    setAudienceGender(tour.audienceGender ?? '');
+    setAudienceAgeRange(tour.audienceAgeRange ?? '');
+    setInsuranceLanguage(tour.tourInsuranceLanguage ?? '');
+    setAscap(tour.ascap);
+    setBmi(tour.bmi);
+    setSesac(tour.sesac);
+    setGmr(tour.gmr);
+    setDirty(false);
+  };
+
   const contacts = contactsQuery.data ?? [];
 
   return (
     <Drawer onClose={onClose} width={1000}>
-      <div className="p-4 border-b border-border">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-text-primary">{tour.tourName}</h2>
-            <div className="text-sm text-text-secondary">{tour.attractionName}</div>
-            <p className="text-xs text-text-muted mt-2">{tour.className}</p>
-          </div>
-          <button type="button" onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
+      {/* Header */}
+      <div className="p-4 border-b border-border flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-text-primary">{tourName}</h2>
+          <div className="text-sm text-text-secondary">{headerAttractionName}</div>
+          <p className="text-xs text-text-muted mt-1">
+            {headerClassName}
+            {tour.appCreated && <span className="ml-2 text-ems-accent">· Created in this app</span>}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {tour.appCreated && (
+            <button type="button" onClick={() => onDelete(tour)} title="Delete tour"
+              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="p-1.5 text-text-muted hover:text-text-secondary rounded-md transition-colors text-lg leading-none">✕</button>
         </div>
       </div>
+
       <TabBar tabs={['Details', 'Contacts']} active={activeTab} onChange={onTabChange} />
-      <div className="p-4 text-sm">
+
+      <div className="p-4 text-sm relative">
         {activeTab === 'Details' && (
-          <div className="space-y-4">
+          <div className="space-y-5 pb-2">
+            <p className="flex items-center gap-1.5 text-[11px] text-text-muted select-none">
+              <Pencil className="h-3 w-3" /> Click any field to edit it
+            </p>
+            <InlineField label="Tour Name" value={tourName} onChange={mark(setTourName)} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
+              <InlineSelectField
+                label="Attraction"
+                value={attractionId}
+                onChange={mark(setAttractionId)}
+                options={attractionOptions}
+              />
+              <InlineSelectField
+                label="Genre / Class"
+                value={classId}
+                onChange={mark(setClassId)}
+                options={classOptions}
+              />
+              <InlineSelectField
+                label="Tour Management Company"
+                value={tourManagementCompanyId}
+                onChange={mark(setTourManagementCompanyId)}
+                options={mgmtOptions}
+                allowClear
+              />
+              <InlineSelectField
+                label="Preferred Venue Type"
+                value={venueTypePreferenceId}
+                onChange={mark(setVenueTypePreferenceId)}
+                options={venueTypeOpts}
+                allowClear
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <InlineField label="Audience Gender" value={audienceGender} onChange={mark(setAudienceGender)} placeholder="Not set" />
+              <InlineField label="Audience Age Range" value={audienceAgeRange} onChange={mark(setAudienceAgeRange)} placeholder="Not set" />
+            </div>
+            <div className="space-y-2">
               <div>
-                <span className="text-text-muted text-xs">Tour Management Company</span>
-                <div className="text-text-primary">{tour.tourManagementCompanyName ?? '—'}</div>
+                <span className="text-xs text-text-muted">Licensing</span>
+                <p className="text-[11px] text-text-muted mt-0.5">
+                  Performing rights — toggle ASCAP, BMI, SESAC, or GMR, then save.
+                </p>
               </div>
-              <div>
-                <span className="text-text-muted text-xs">Preferred Venue Type</span>
-                <div className="text-text-primary">{tour.venueTypePreferenceName ?? '—'}</div>
+              <div
+                className="flex flex-wrap gap-x-6 gap-y-2.5 rounded-md border border-border/80 bg-surface/50 px-3 py-3"
+                role="group"
+                aria-label="Performing rights licensing"
+              >
+                {(
+                  [
+                    ['ascap', 'ASCAP', ascap, setAscap] as const,
+                    ['bmi', 'BMI', bmi, setBmi] as const,
+                    ['sesac', 'SESAC', sesac, setSesac] as const,
+                    ['gmr', 'GMR', gmr, setGmr] as const,
+                  ] as const
+                ).map(([id, label, checked, setChecked]) => (
+                  <label
+                    key={id}
+                    htmlFor={`tour-${tour.tourId}-license-${id}`}
+                    className="inline-flex items-center gap-2 cursor-pointer text-sm text-text-primary select-none"
+                  >
+                    <input
+                      id={`tour-${tour.tourId}-license-${id}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setChecked(e.target.checked);
+                        setDirty(true);
+                      }}
+                      className="h-4 w-4 rounded border-border bg-background text-ems-accent focus:ring-ems-accent focus:ring-offset-0"
+                    />
+                    {label}
+                  </label>
+                ))}
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <span className="text-text-muted text-xs">Audience Gender</span>
-                <div className="text-text-primary">{tour.audienceGender ?? '—'}</div>
+            <InlineField label="Tour Insurance Language" value={insuranceLanguage} onChange={mark(setInsuranceLanguage)} placeholder="Not set" multiline />
+
+            {/* Save bar */}
+            {dirty && (
+              <div className="sticky bottom-0 -mx-4 px-4 py-3 bg-card/95 backdrop-blur-sm border-t border-border flex items-center justify-between gap-3 z-10">
+                <span className="text-xs text-text-secondary flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-ems-accent inline-block animate-pulse" /> Unsaved changes
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={discard} disabled={saving} className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated disabled:opacity-50">Discard</button>
+                  <button onClick={() => void handleSave()} disabled={saving}
+                    className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60">
+                    {saving && <Loader2 className="h-3 w-3 animate-spin" />}Save changes
+                  </button>
+                </div>
               </div>
-              <div>
-                <span className="text-text-muted text-xs">Audience Age Range</span>
-                <div className="text-text-primary">{tour.audienceAgeRange ?? '—'}</div>
-              </div>
-              <div>
-                <span className="text-text-muted text-xs">Licensing</span>
-                <div className="text-text-primary">{licenseSummary(tour)}</div>
-              </div>
-            </div>
-            <div>
-              <span className="text-text-muted text-xs">Tour Insurance Language</span>
-              <div className="text-text-primary whitespace-pre-wrap">{tour.tourInsuranceLanguage ?? '—'}</div>
-            </div>
+            )}
           </div>
         )}
+
         {activeTab === 'Contacts' && (
           <div>
             {!tour.tourManagementCompanyId ? (
-              <p className="text-text-secondary text-sm">No Tour Management Company assigned to this tour.</p>
+              <p className="text-text-secondary">No Tour Management Company assigned to this tour.</p>
             ) : contactsQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading contacts...
-              </div>
-            ) : contactsQuery.isError ? (
-              <p className="text-text-secondary text-sm">Could not load contacts.</p>
+              <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
             ) : contacts.length === 0 ? (
-              <p className="text-text-secondary text-sm">No contacts listed for this Tour Management Company.</p>
+              <p className="text-text-secondary">No contacts listed for this Tour Management Company.</p>
             ) : (
               <div className="space-y-3">
-                {contacts.map((c) => (
+                {contacts.map(c => (
                   <div key={c.contactAssignmentId} className="bg-elevated border border-border rounded-lg p-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-medium text-text-primary">
-                          {c.firstName} {c.lastName}
-                        </div>
-                        <div className="text-xs text-text-secondary">
-                          {c.roleName} • {c.departmentName}
-                        </div>
-                      </div>
-                    </div>
+                    <div className="font-medium text-text-primary">{c.firstName} {c.lastName}</div>
+                    <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
                     <div className="mt-2 text-xs text-text-secondary space-y-1">
                       <div>{c.email}</div>
                       {c.workPhone && <div>{c.workPhone}</div>}
-                      {c.cellPhone && <div>{c.cellPhone}</div>}
                     </div>
                   </div>
                 ))}
@@ -407,9 +875,10 @@ export function AttractionToursPage({ addToast }: Props) {
   const venueTypes = lookups?.venueTypes ?? [];
 
   const managementCompanyOptions = useMemo(() => {
-    const mgmt = companies.filter((c) => c.companyTypeName === 'Attraction Management');
-    const pool = mgmt.length ? mgmt : companies;
-    return pool
+    const talentAgencies = companies.filter(
+      (c) => (c.companyTypeName ?? '').trim().toLowerCase() === 'talent agency',
+    );
+    return talentAgencies
       .map((c) => ({ value: String(c.companyId), label: c.companyName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
   }, [companies]);
@@ -604,7 +1073,6 @@ export function AttractionToursPage({ addToast }: Props) {
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Attraction Name</th>
                       <th className="text-left py-2.5 px-3">Active Tours</th>
-                      <th className="w-10" />
                     </tr>
                   </thead>
                   <tbody>
@@ -625,22 +1093,6 @@ export function AttractionToursPage({ addToast }: Props) {
                       >
                         <td className="py-2.5 px-3 text-text-primary font-medium">{a.attractionName}</td>
                         <td className="py-2.5 px-3 text-text-secondary tabular-nums text-sm">{a.activeTourCount}</td>
-                        <td className="py-2.5 px-3">
-                          <ActionMenu
-                            items={[
-                              { label: 'Edit', onClick: () => setEditAttraction(a) },
-                              ...(a.appCreated
-                                ? [
-                                    {
-                                      label: 'Delete',
-                                      onClick: () => setPendingDeleteAttraction(a),
-                                      danger: true as const,
-                                    },
-                                  ]
-                                : []),
-                            ]}
-                          />
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -717,29 +1169,9 @@ export function AttractionToursPage({ addToast }: Props) {
                         <td className="py-2.5 px-3 text-text-primary font-medium">{t.tourName}</td>
                         <td className="py-2.5 px-3 text-text-secondary">{t.attractionName}</td>
                         <td className="py-2.5 px-3">
-                          <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                            {t.className}
-                          </span>
+                          <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t.className}</span>
                         </td>
-                        <td className="py-2.5 px-3 text-text-secondary text-sm">
-                          {t.tourManagementCompanyName ?? '—'}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <ActionMenu
-                            items={[
-                              { label: 'Edit', onClick: () => setEditTour(t) },
-                              ...(t.appCreated
-                                ? [
-                                    {
-                                      label: 'Delete',
-                                      onClick: () => setPendingDeleteTour(t),
-                                      danger: true as const,
-                                    },
-                                  ]
-                                : []),
-                            ]}
-                          />
-                        </td>
+                        <td className="py-2.5 px-3 text-text-secondary text-sm">{t.tourManagementCompanyName ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -786,39 +1218,27 @@ export function AttractionToursPage({ addToast }: Props) {
       )}
 
       {selectedAttraction && (
-        <Drawer onClose={() => setSelectedAttractionId(null)} width={1000}>
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-text-primary">{selectedAttraction.attractionName}</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedAttractionId(null)}
-                className="text-text-muted hover:text-text-secondary text-lg"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-          <div className="p-4">
-            <h3 className="text-sm font-medium text-text-primary mb-3">Tours</h3>
-            <div className="space-y-3">
-              {attractionTours.length === 0 && (
-                <div className="text-text-muted text-sm">No tours attached yet.</div>
-              )}
-              {attractionTours.map((t) => (
-                <TourCardInDrawer key={t.tourId} t={t} />
-              ))}
-            </div>
-          </div>
-        </Drawer>
+        <AttractionSidePanel
+          attraction={selectedAttraction}
+          tours={attractionTours}
+          addToast={addToast}
+          onClose={() => setSelectedAttractionId(null)}
+          onDelete={(a) => setPendingDeleteAttraction(a)}
+          onSaved={() => void refetchAll()}
+        />
       )}
 
       {selectedTour && (
         <TourDrawer
           tour={selectedTour}
+          attractions={attractions}
+          classes={classes}
+          venueTypes={venueTypes}
+          managementCompanyOptions={managementCompanyOptions}
+          addToast={addToast}
           onClose={() => setSelectedTourId(null)}
+          onDelete={(t) => setPendingDeleteTour(t)}
+          onSaved={() => void refetchAll()}
           activeTab={tourDrawerTab}
           onTabChange={setTourDrawerTab}
         />
@@ -850,7 +1270,7 @@ export function AttractionToursPage({ addToast }: Props) {
             classes={classes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
-            onSave={(body) => void createTourMut.mutateAsync(body as import('@/api/attractionToursApi').CreateTourPayload)}
+            onSave={(body) => void createTourMut.mutateAsync(body)}
           />
         </Modal>
       )}
@@ -906,98 +1326,6 @@ function AttractionForm({
           className="inline-flex items-center gap-2 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Simplified 3-field creation form — full details can be added later via Edit. */
-function AddTourForm({
-  attractions,
-  classes,
-  submitting,
-  onSave,
-  onCancel,
-}: {
-  attractions: ApiAttractionListRow[];
-  classes: ApiClass[];
-  submitting: boolean;
-  onSave: (body: import('@/api/attractionToursApi').CreateTourPayload) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [attractionId, setAttractionId] = useState(
-    String(attractions[0]?.attractionId ?? ''),
-  );
-  const [classId, setClassId] = useState(String(classes[0]?.classId ?? ''));
-
-  const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
-
-  const attractionOptions = attractions.map((a) => ({
-    value: String(a.attractionId),
-    label: a.attractionName,
-  }));
-  const classOptions = classes.map((c) => ({
-    value: String(c.classId),
-    label: c.className,
-  }));
-
-  const valid = name.trim().length > 0 && attractionId && classId;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-text-muted">
-        Enter the essentials now — all other details can be filled in later from the Tour entry.
-      </p>
-      <FormField label="Attraction" required>
-        <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} />
-      </FormField>
-      <FormField label="Class (genre)" required>
-        <Select2 options={classOptions} value={classId} onChange={setClassId} />
-      </FormField>
-      <FormField label="Tour Name" required>
-        <input
-          className={inputCls}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          maxLength={200}
-          placeholder="e.g. World Tour 2025"
-          autoFocus
-        />
-      </FormField>
-      <div className="flex gap-2 justify-end pt-2 border-t border-border">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-text-secondary px-4 py-1.5 text-sm"
-          disabled={submitting}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          disabled={!valid || submitting}
-          onClick={() =>
-            onSave({
-              tourName: name.trim(),
-              attractionId: Number(attractionId),
-              classId: Number(classId),
-              ascap: false,
-              bmi: false,
-              sesac: false,
-              gmr: false,
-              tourManagementCompanyId: null,
-              audienceGender: null,
-              audienceAgeRange: null,
-              tourInsuranceLanguage: null,
-              venueTypePreferenceId: null,
-            })
-          }
-          className="px-4 py-1.5 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {submitting ? 'Saving…' : 'Create Tour'}
         </button>
       </div>
     </div>

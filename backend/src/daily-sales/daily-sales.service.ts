@@ -13,6 +13,7 @@ import { Performance } from '../entities/performance.entity';
 import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 
 export interface DailySalesRow {
   performanceId: number;
@@ -119,7 +120,9 @@ export class DailySalesService {
       performanceDate: String(r['performanceDate'] ?? ''),
       performanceTime: String(r['performanceTime'] ?? ''),
       performanceStatus: String(r['performanceStatus'] ?? ''),
-      engagementStatus: String(r['engagementStatus'] ?? ''),
+      engagementStatus: normalizeEngagementStatus(
+        String(r['engagementStatus'] ?? ''),
+      ),
       ticketsSold: r['ticketsSold'] != null ? Number(r['ticketsSold']) : null,
       revenue: r['revenue'] != null ? Number(r['revenue']) : null,
       tourId: r['tourId'] != null ? Number(r['tourId']) : null,
@@ -202,7 +205,9 @@ export class DailySalesService {
       performanceDate: String(r['performanceDate'] ?? ''),
       performanceTime: String(r['performanceTime'] ?? ''),
       performanceStatus: String(r['performanceStatus'] ?? ''),
-      engagementStatus: String(r['engagementStatus'] ?? ''),
+      engagementStatus: normalizeEngagementStatus(
+        String(r['engagementStatus'] ?? ''),
+      ),
       attractionName: r['attractionName'] != null ? String(r['attractionName']) : null,
       tourName: r['tourName'] != null ? String(r['tourName']) : null,
       venueCompanyName: r['venueCompanyName'] != null ? String(r['venueCompanyName']) : null,

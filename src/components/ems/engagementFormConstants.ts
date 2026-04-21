@@ -1,26 +1,11 @@
 /**
  * Engagement status values.
- * Items 1-3 are the primary statuses used in the UI filters.
- * Full DB enum is kept for reading legacy records.
+ * MUST match `ENGAGEMENT_STATUS_VALUES` in `backend/src/engagements/engagement-status.util.ts`
+ * (re-exported from create-engagement.dto) — otherwise the backend returns 400 Bad Request.
  */
-export const ENGAGEMENT_STATUS_ENUM = [
-  'Public',
-  'Private',
-  'Unknown',
-] as const;
+export const ENGAGEMENT_STATUS_ENUM = ['Unknown', 'Private', 'Public'] as const;
 
-/** Full DB values (used for display of existing records) */
-export const ENGAGEMENT_STATUS_ALL = [
-  'Public',
-  'Private',
-  'Unknown',
-  'Draft',
-  'Confirmed',
-  'OnSale',
-  'Settled',
-  'Closed',
-  'Cancelled',
-  'Dead',
-] as const;
+/** Alias — same list, used for filter chips (subset shown in UI header) */
+export const ENGAGEMENT_STATUS_ALL = ENGAGEMENT_STATUS_ENUM;
 
-export type EngagementStatusEnum = (typeof ENGAGEMENT_STATUS_ALL)[number];
+export type EngagementStatusEnum = (typeof ENGAGEMENT_STATUS_ENUM)[number];

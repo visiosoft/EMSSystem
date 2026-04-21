@@ -9,8 +9,8 @@ interface StoreShape {
 }
 
 /**
- * Tracks Attraction/Tour rows created through this API so deletes can be
- * restricted without altering the database schema (per product requirements).
+ * Tracks Attraction/Tour/Engagement rows created through this API so deletes
+ * can be restricted without altering the database schema.
  */
 @Injectable()
 export class EmsAppCreatedStore implements OnModuleInit {
@@ -69,6 +69,8 @@ export class EmsAppCreatedStore implements OnModuleInit {
     }
   }
 
+  // ─── Record ───────────────────────────────────────────────────────────────
+
   recordAttraction(id: number) {
     if (!this.data.attractionIds.includes(id)) {
       this.data.attractionIds.push(id);
@@ -89,6 +91,34 @@ export class EmsAppCreatedStore implements OnModuleInit {
       this.persist();
     }
   }
+
+  // ─── Remove (after successful DB delete) ─────────────────────────────────
+
+  removeAttraction(id: number) {
+    const idx = this.data.attractionIds.indexOf(id);
+    if (idx !== -1) {
+      this.data.attractionIds.splice(idx, 1);
+      this.persist();
+    }
+  }
+
+  removeTour(id: number) {
+    const idx = this.data.tourIds.indexOf(id);
+    if (idx !== -1) {
+      this.data.tourIds.splice(idx, 1);
+      this.persist();
+    }
+  }
+
+  removeEngagement(id: number) {
+    const idx = this.data.engagementIds.indexOf(id);
+    if (idx !== -1) {
+      this.data.engagementIds.splice(idx, 1);
+      this.persist();
+    }
+  }
+
+  // ─── Query ────────────────────────────────────────────────────────────────
 
   canDeleteAttraction(id: number): boolean {
     return this.data.attractionIds.includes(id);

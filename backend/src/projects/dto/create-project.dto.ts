@@ -74,6 +74,7 @@ export class CreateProjectVenueDto {
 }
 
 export class CreateProjectDto {
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   tourId: number;
@@ -93,11 +94,20 @@ export class CreateProjectDto {
   @Type(() => CreateProjectVenueDto)
   venues?: CreateProjectVenueDto[];
 
+  /** Optional list of dbo.DMA.DMAID values — accepted for API parity; not persisted until a DB column exists. */
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  dmaIds?: number[];
+
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;
   @IsOptional() bookerId?: string | null;
   @IsOptional() agentContactId?: string | null;
-  @IsOptional() dmaIds?: string[];
   @IsOptional() targetOnSale?: string | null;
-  @IsOptional() notes?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  notes?: string | null;
 }

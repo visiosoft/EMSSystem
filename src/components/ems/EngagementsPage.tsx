@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   SearchInput,
   FilterChips,
@@ -31,7 +31,6 @@ import {
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import { fetchCompanies } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { DEAL_TYPE_OPTIONS, USERS } from '@/data/constants';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
 const PAGE_SIZE = 15;
@@ -42,6 +41,9 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+// ---------------------------------------------------------------------------
+// Skeleton loader
+// ---------------------------------------------------------------------------
 function EngagementsTableSkeleton() {
   return (
     <div
@@ -87,6 +89,9 @@ function EngagementsTableSkeleton() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -103,9 +108,11 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     if (initFilter) setStatusFilter(initFilter);
   }, [initFilter]);
 
+  // ── Data fetching ──────────────────────────────────────────────────────────
   const engagementsQuery = useQuery({
     queryKey: ['engagements'],
     queryFn: fetchEngagements,
+    retry: 2,
   });
 
   const lookupsQuery = useQuery({
@@ -118,13 +125,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       ]);
       return { attractions, tours, companies };
     },
+    retry: 2,
   });
 
+  // ── Delete ─────────────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteEngagement(id),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['engagements'] });
-      addToast('Engagement removed.', 'success');
+      addToast('Engagement deleted successfully.', 'success');
       setPendingDelete(null);
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -132,17 +141,27 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
   const rows = engagementsQuery.data ?? [];
 
-  // Unique filter options derived from data
+  // ── Filter options from live data ──────────────────────────────────────────
   const attractionOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const r of rows) if (r.attractionName) seen.set(r.attractionName, r.attractionName);
-    return [{ value: '', label: 'All Attractions' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+    return [
+      { value: '', label: 'All Attractions' },
+      ...[...seen.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([v, l]) => ({ value: v, label: l })),
+    ];
   }, [rows]);
 
   const dmaOptions = useMemo(() => {
     const seen = new Map<string, string>();
     for (const r of rows) if (r.dmaMarketName) seen.set(r.dmaMarketName, r.dmaMarketName);
-    return [{ value: '', label: 'All Markets' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+    return [
+      { value: '', label: 'All Markets' },
+      ...[...seen.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([v, l]) => ({ value: v, label: l })),
+    ];
   }, [rows]);
 
   const venueOptions = useMemo(() => {
@@ -151,11 +170,20 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       const name = r.venueCompanyName ?? r.venueName;
       if (name) seen.set(name, name);
     }
-    return [{ value: '', label: 'All Venues' }, ...[...seen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([v, l]) => ({ value: v, label: l }))];
+    return [
+      { value: '', label: 'All Venues' },
+      ...[...seen.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([v, l]) => ({ value: v, label: l })),
+    ];
   }, [rows]);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // ── Filtering ──────────────────────────────────────────────────────────────
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -182,7 +210,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, statusFilter, attractionFilter, dmaFilter, venueFilter]);
+  }, [rows, search, statusFilter, attractionFilter, dmaFilter, venueFilter, today, timingFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageClamped = Math.min(page, pageCount);
@@ -190,13 +218,8 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const rangeStart = filtered.length === 0 ? 0 : (pageClamped - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(pageClamped * PAGE_SIZE, filtered.length);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
 
   const loading = engagementsQuery.isPending || lookupsQuery.isPending;
   const refreshing =
@@ -206,6 +229,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
   return (
     <div className="space-y-4">
+      {/* Refresh indicator */}
       {refreshing && !loading && (
         <div
           className="pointer-events-none fixed top-0 left-0 right-0 z-[200] h-0.5 overflow-hidden"
@@ -215,12 +239,29 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         </div>
       )}
 
+      {/* Error banner */}
       {error && (
-        <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
-          Could not load engagements. {friendlyApiError(error)}
+        <div className="flex items-start gap-3 text-sm text-ems-coral border border-ems-coral/30 rounded-md px-4 py-3 bg-ems-coral-dim">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium">Could not load engagements</p>
+            <p className="text-xs text-ems-coral/80 mt-0.5">{friendlyApiError(error)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void engagementsQuery.refetch();
+              void lookupsQuery.refetch();
+            }}
+            className="flex items-center gap-1 text-xs text-ems-coral hover:underline shrink-0"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
         </div>
       )}
 
+      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-xl font-semibold text-text-primary">Engagements</h1>
@@ -236,19 +277,20 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
           type="button"
           onClick={() => setShowCreate(true)}
           disabled={loading || !lookupsQuery.data}
-          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           + Add Engagement
         </button>
       </div>
 
+      {/* Filters */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-3">
           <div className="w-full sm:w-64">
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search engagements..."
+              placeholder="Search engagements…"
               disabled={loading}
             />
           </div>
@@ -279,7 +321,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
               placeholder="All Venues"
             />
           </div>
-          {/* Upcoming / Past toggle */}
           <div className="flex items-center rounded-md border border-border overflow-hidden text-xs font-medium h-[34px]">
             {(['all', 'upcoming', 'past'] as const).map((opt) => (
               <button
@@ -309,6 +350,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         </div>
       </div>
 
+      {/* Table */}
       {loading ? (
         <EngagementsTableSkeleton />
       ) : (
@@ -339,16 +381,21 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                 {pageRows.map((r) => (
                   <tr
                     key={r.engagementId}
-                    onClick={() =>
-                      onNavigate('engagement-detail', { engagementId: r.engagementId })
-                    }
+                    onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
-                    <td className="py-2.5 px-3 text-text-primary font-medium max-w-[280px] truncate" title={r.displayTitle}>
+                    <td
+                      className="py-2.5 px-3 text-text-primary font-medium max-w-[280px] truncate"
+                      title={r.displayTitle}
+                    >
                       {r.displayTitle}
                     </td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">{r.attractionName}</td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">{r.tourName ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
+                      {r.attractionName ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
+                      {r.tourName ?? '—'}
+                    </td>
                     <td className="py-2.5 px-3 text-text-secondary max-w-[180px] truncate">
                       {r.venueCompanyName ?? r.venueName ?? '—'}
                     </td>
@@ -384,6 +431,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
             </table>
           </div>
 
+          {/* Pagination */}
           {filtered.length > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
@@ -422,6 +470,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         </>
       )}
 
+      {/* Create modal */}
       {showCreate && lookupsQuery.data && (
         <CreateEngagementModal
           attractions={lookupsQuery.data.attractions}
@@ -436,12 +485,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         />
       )}
 
+      {/* Delete confirm */}
       <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete engagement?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes engagement #{pendingDelete?.engagementId}. This action cannot be undone.
+              This permanently removes engagement{' '}
+              <strong>#{pendingDelete?.engagementId}</strong>{' '}
+              ({pendingDelete?.displayTitle}). This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -451,7 +503,14 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
               disabled={deleteMutation.isPending}
               onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.engagementId)}
             >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Deleting…
+                </span>
+              ) : (
+                'Delete'
+              )}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -460,6 +519,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   );
 }
 
+// ---------------------------------------------------------------------------
+// Shared input style
+// ---------------------------------------------------------------------------
+const inputCls =
+  'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
+
+// ---------------------------------------------------------------------------
+// CreateEngagementModal
+// ---------------------------------------------------------------------------
 function CreateEngagementModal({
   attractions,
   tours,
@@ -476,38 +544,61 @@ function CreateEngagementModal({
   onCreated: () => Promise<void>;
 }) {
   const venueCompanies = useMemo(
-    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    () =>
+      companies
+        .filter((c) => c.companyTypeName === 'Venue')
+        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' })),
     [companies],
   );
 
-  const attractionOptions = useMemo(() => {
-    return [...attractions]
-      .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
-      .map((a) => ({ value: String(a.attractionId), label: a.attractionName }));
-  }, [attractions]);
-
-  const venueOptions = useMemo(() => {
-    return [...venueCompanies]
-      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-      .map((v) => ({ value: String(v.companyId), label: v.companyName }));
-  }, [venueCompanies]);
-
-  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
-
-  const [attractionId, setAttractionId] = useState<string>(
-    attractions[0] ? String(attractions[0].attractionId) : '',
+  const sortedAttractions = useMemo(
+    () =>
+      [...attractions].sort((a, b) =>
+        a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }),
+      ),
+    [attractions],
   );
+
+  const attractionOptions = useMemo(
+    () => sortedAttractions.map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [sortedAttractions],
+  );
+
+  const venueOptions = useMemo(
+    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    [venueCompanies],
+  );
+
+  const statusOptions = useMemo(
+    () => ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s })),
+    [],
+  );
+
+  function parseOpeningDateTimeLocal(v: string): { openingShowDate: string; openingShowTime: string } | null {
+    const t = v.trim();
+    const m = t.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    if (!m) return null;
+    return { openingShowDate: m[1], openingShowTime: m[2] };
+  }
+
+  // Form state
+  const [recordStatus, setRecordStatus] = useState<string>('Unknown');
+  const [openingShowDateTime, setOpeningShowDateTime] = useState('');
+  const [attractionId, setAttractionId] = useState<string>('');
   const [tourId, setTourId] = useState<string>('');
   const [primaryVenueId, setPrimaryVenueId] = useState<string>('');
-  const [recordStatus, setRecordStatus] = useState<string>('Unknown');
-  const [showDateTime, setShowDateTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Field-level errors
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
 
   const attractionIdNum = attractionId ? Number(attractionId) : NaN;
 
   const toursForAttraction = useMemo(() => {
     if (!attractionId || !Number.isFinite(attractionIdNum)) return [];
-    return tours.filter((t) => t.attractionId === attractionIdNum);
+    return tours
+      .filter((t) => t.attractionId === attractionIdNum)
+      .sort((a, b) => a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' }));
   }, [tours, attractionId, attractionIdNum]);
 
   const tourOptions = useMemo(
@@ -515,50 +606,59 @@ function CreateEngagementModal({
     [toursForAttraction],
   );
 
-  // Get selected venue's DMA
+  // Auto-select tour when only one option
+  useEffect(() => {
+    if (toursForAttraction.length === 1) {
+      setTourId(String(toursForAttraction[0].tourId));
+    } else {
+      setTourId('');
+    }
+  }, [attractionId, toursForAttraction]);
+
+  // Live DMA display for selected venue
   const selectedVenueDma = useMemo(() => {
     if (!primaryVenueId) return null;
     const venue = venueCompanies.find((v) => String(v.companyId) === primaryVenueId);
     return venue?.dmaMarketName || null;
   }, [primaryVenueId, venueCompanies]);
 
-  useEffect(() => {
-    setTourId('');
-  }, [attractionId]);
+  // Clear field errors on change
+  const clearError = (field: string) =>
+    setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
 
-  const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const validate = (): boolean => {
+    const next: Record<string, string> = {};
+    if (!recordStatus) next.status = 'Status is required.';
+    if (!parseOpeningDateTimeLocal(openingShowDateTime)) {
+      next.opening = 'Opening show date and time is required.';
+    }
+    if (!tourId) next.tour = 'Tour is required.';
+    if (!primaryVenueId) next.venue = 'Venue is required.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleSubmit = async () => {
-    if (!recordStatus.trim()) {
-      addToast('Status is required.', 'warning');
-      return;
-    }
-    if (!attractionId) {
-      addToast('Attraction is required.', 'warning');
-      return;
-    }
-    if (!tourId) {
-      addToast('Tour is required.', 'warning');
-      return;
-    }
-    if (!primaryVenueId) {
-      addToast('Venue is required.', 'warning');
-      return;
-    }
-    if (recordStatus.trim().length > 50) {
-      addToast('Status must be at most 50 characters.', 'warning');
+    if (!validate()) {
+      addToast('Please fill in all required fields.', 'warning');
       return;
     }
     setSubmitting(true);
     try {
+      const opening = parseOpeningDateTimeLocal(openingShowDateTime);
+      if (!opening) {
+        addToast('Opening show date and time is required.', 'warning');
+        setSubmitting(false);
+        return;
+      }
       await createEngagement({
-        engagementStatus: recordStatus.trim(),
-        engagementScaling: null,
+        engagementStatus: recordStatus,
+        openingShowDate: opening.openingShowDate,
+        openingShowTime: opening.openingShowTime,
         tourId: Number(tourId),
         primaryVenueCompanyId: Number(primaryVenueId),
       });
-      addToast('Engagement created.', 'success');
+      addToast('Engagement created successfully.', 'success');
       await onCreated();
     } catch (e) {
       addToast(friendlyApiError(e), 'error');
@@ -568,73 +668,112 @@ function CreateEngagementModal({
   };
 
   return (
-    <Modal title="Create Engagement" onClose={onClose} width={960} allowContentOverflow>
-      <div className="space-y-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <Modal title="Create Engagement" onClose={onClose} width={720} allowContentOverflow>
+      <div className="space-y-0">
+        {/* ── Row 1: Status + Opening show */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
           <FormField label="Status" required>
-            <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
+            <Select2
+              options={statusOptions}
+              value={recordStatus}
+              onChange={(v) => { setRecordStatus(v); clearError('status'); }}
+              placeholder="Select status…"
+            />
+            {errors.status && (
+              <p className="mt-1 text-xs text-ems-coral">{errors.status}</p>
+            )}
+          </FormField>
+
+          <FormField label="Opening show date and time" required>
+            <input
+              type="datetime-local"
+              className={inputCls}
+              value={openingShowDateTime}
+              onChange={(e) => {
+                setOpeningShowDateTime(e.target.value);
+                clearError('opening');
+              }}
+            />
+            {errors.opening && (
+              <p className="mt-1 text-xs text-ems-coral">{errors.opening}</p>
+            )}
           </FormField>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Filter by Attraction (optional)">
+        {/* Divider */}
+        <div className="border-t border-border/60 pb-5" />
+
+        {/* ── Row 2: Attraction filter + Tour */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
+          <FormField label="Filter by Attraction">
             <Select2
               options={[{ value: '', label: 'All attractions' }, ...attractionOptions]}
               value={attractionId}
-              onChange={setAttractionId}
-              placeholder="Filter tours…"
+              onChange={(v) => { setAttractionId(v); clearError('tour'); }}
+              placeholder="All attractions"
               allowClear
             />
           </FormField>
+
           <FormField label="Tour" required>
             <Select2
-              options={tourOptions.length
-                ? tourOptions
-                : [{ value: '', label: attractionId ? 'No tours for this attraction' : 'Select a tour…' }]}
+              options={
+                tourOptions.length
+                  ? tourOptions
+                  : [
+                      {
+                        value: '',
+                        label: attractionId
+                          ? 'No tours for this attraction'
+                          : 'Select an attraction first…',
+                      },
+                    ]
+              }
               value={tourId}
-              onChange={setTourId}
+              onChange={(v) => { setTourId(v); clearError('tour'); }}
               placeholder="Select tour…"
+              disabled={!attractionId && tourOptions.length === 0}
             />
+            {errors.tour && (
+              <p className="mt-1 text-xs text-ems-coral">{errors.tour}</p>
+            )}
           </FormField>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Divider */}
+        <div className="border-t border-border/60 pb-5" />
+
+        {/* ── Row 3: Venue + DMA (auto-filled) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
           <FormField label="Venue" required>
             <Select2
               options={venueOptions}
               value={primaryVenueId}
-              onChange={setPrimaryVenueId}
+              onChange={(v) => { setPrimaryVenueId(v); clearError('venue'); }}
               placeholder="Select venue…"
             />
+            {errors.venue && (
+              <p className="mt-1 text-xs text-ems-coral">{errors.venue}</p>
+            )}
           </FormField>
-          {selectedVenueDma && (
-            <FormField label="DMA">
-              <input
-                className={inputCls}
-                value={selectedVenueDma}
-                disabled
-                readOnly
-              />
-            </FormField>
-          )}
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Opening Show Date and Time">
-            <input 
-              type="datetime-local" 
-              className={inputCls} 
-              value={showDateTime} 
-              onChange={(e) => setShowDateTime(e.target.value)} 
+          <FormField label="Market (DMA)">
+            <input
+              className={`${inputCls} bg-surface/50 text-text-muted`}
+              value={selectedVenueDma ?? ''}
+              placeholder="Auto-filled from venue"
+              readOnly
+              disabled
             />
           </FormField>
         </div>
 
+        {/* ── Footer */}
         <div className="flex gap-2 justify-end pt-4 border-t border-border">
           <button
             type="button"
             onClick={onClose}
-            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+            className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
             disabled={submitting}
           >
             Cancel
@@ -643,9 +782,16 @@ function CreateEngagementModal({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={submitting}
-            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent text-background text-sm px-5 py-2 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed hover:bg-ems-accent/90 transition-colors"
           >
-            {submitting ? 'Saving…' : 'Create'}
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Creating…
+              </>
+            ) : (
+              'Create Engagement'
+            )}
           </button>
         </div>
       </div>
@@ -654,10 +800,9 @@ function CreateEngagementModal({
 }
 
 // ---------------------------------------------------------------------------
-// EditEngagementModal
+// EditEngagementModal  (used from EngagementsPage action menu if needed later)
 // ---------------------------------------------------------------------------
-
-function EditEngagementModal({
+export function EditEngagementModal({
   row,
   attractions,
   tours,
@@ -675,72 +820,98 @@ function EditEngagementModal({
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
   const venueCompanies = useMemo(
-    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    () =>
+      companies
+        .filter((c) => c.companyTypeName === 'Venue')
+        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' })),
     [companies],
   );
 
-  const attractionOptions = useMemo(
+  const sortedAttractions = useMemo(
     () =>
-      [...attractions]
-        .sort((a, b) => a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }))
-        .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+      [...attractions].sort((a, b) =>
+        a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }),
+      ),
     [attractions],
   );
 
+  const attractionOptions = useMemo(
+    () => sortedAttractions.map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [sortedAttractions],
+  );
+
   const venueOptions = useMemo(
-    () =>
-      [...venueCompanies]
-        .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-        .map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
     [venueCompanies],
   );
 
-  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
+  const statusOptions = useMemo(
+    () => ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s })),
+    [],
+  );
 
-  const [attractionId, setAttractionId] = useState(String(row.attractionId));
+  const [attractionId, setAttractionId] = useState(
+    row.attractionId != null ? String(row.attractionId) : '',
+  );
   const [tourId, setTourId] = useState(row.tourId != null ? String(row.tourId) : '');
   const [primaryVenueId, setPrimaryVenueId] = useState(
     row.primaryVenueCompanyId != null ? String(row.primaryVenueCompanyId) : '',
   );
   const [recordStatus, setRecordStatus] = useState(row.engagementStatus);
-  const [engagementScaling, setEngagementScaling] = useState(row.engagementScaling ?? '');
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
 
   const attractionIdNum = Number(attractionId);
-  const tourOptions = useMemo(
+
+  const toursForAttraction = useMemo(
     () =>
-      attractions.length && attractionId
+      attractionId && Number.isFinite(attractionIdNum)
         ? tours
             .filter((t) => t.attractionId === attractionIdNum)
-            .map((t) => ({ value: String(t.tourId), label: t.tourName }))
+            .sort((a, b) => a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' }))
         : [],
-    [tours, attractionId, attractionIdNum, attractions.length],
+    [tours, attractionId, attractionIdNum],
+  );
+
+  const tourOptions = useMemo(
+    () => toursForAttraction.map((t) => ({ value: String(t.tourId), label: t.tourName })),
+    [toursForAttraction],
   );
 
   const skipTourResetOnMount = React.useRef(true);
   React.useEffect(() => {
-    if (skipTourResetOnMount.current) { skipTourResetOnMount.current = false; return; }
+    if (skipTourResetOnMount.current) {
+      skipTourResetOnMount.current = false;
+      return;
+    }
     setTourId('');
   }, [attractionId]);
 
-  const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const clearError = (field: string) =>
+    setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
+
+  const validate = (): boolean => {
+    const next: Record<string, string> = {};
+    if (!recordStatus) next.status = 'Status is required.';
+    if (!tourId) next.tour = 'Tour is required.';
+    if (!primaryVenueId) next.venue = 'Venue is required.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleSave = async () => {
-    if (!tourId) { addToast('Tour is required.', 'warning'); return; }
-    if (!primaryVenueId) { addToast('Primary venue is required.', 'warning'); return; }
-    if (!recordStatus.trim() || recordStatus.trim().length > 50) {
-      addToast('Status is required (max 50 chars).', 'warning'); return;
+    if (!validate()) {
+      addToast('Please fill in all required fields.', 'warning');
+      return;
     }
-    const tid = tourId ? Number(tourId) : null;
     setSubmitting(true);
     try {
       await updateEngagement(row.engagementId, {
-        engagementStatus: recordStatus.trim(),
-        engagementScaling: engagementScaling.trim() || null,
-        tourId: tid ?? undefined,
+        engagementStatus: recordStatus,
+        tourId: Number(tourId),
         primaryVenueCompanyId: Number(primaryVenueId),
       });
+      addToast('Engagement updated.', 'success');
       await onSaved();
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update engagement.'), 'error');
@@ -750,47 +921,101 @@ function EditEngagementModal({
   };
 
   return (
-    <Modal title={`Edit Engagement #${row.engagementId}`} onClose={onClose} width={900} allowContentOverflow>
-      <div className="space-y-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <Modal
+      title={`Edit Engagement #${row.engagementId}`}
+      onClose={onClose}
+      width={720}
+      allowContentOverflow
+    >
+      <div className="space-y-0">
+        {/* ── Row 1: Status */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
           <FormField label="Status" required>
-            <Select2 options={statusOptions} value={recordStatus} onChange={setRecordStatus} placeholder="Select status…" />
-          </FormField>
-          <FormField label="Scaling (optional)">
-            <input className={inputCls} value={engagementScaling}
-              onChange={(e) => setEngagementScaling(e.target.value)}
-              placeholder="e.g. GA, Reserved, Mixed" maxLength={50} />
+            <Select2
+              options={statusOptions}
+              value={recordStatus}
+              onChange={(v) => { setRecordStatus(v); clearError('status'); }}
+              placeholder="Select status…"
+            />
+            {errors.status && <p className="mt-1 text-xs text-ems-coral">{errors.status}</p>}
           </FormField>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Attraction" required>
-            <Select2 options={attractionOptions} value={attractionId} onChange={setAttractionId} placeholder="Select attraction…" />
-          </FormField>
-          <FormField label="Tour (optional)">
+        <div className="border-t border-border/60 pb-5" />
+
+        {/* ── Row 2: Attraction + Tour */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
+          <FormField label="Filter by Attraction">
             <Select2
-              options={tourOptions.length
-                ? tourOptions
-                : [{ value: '', label: attractionId ? 'No tours for this attraction' : 'Select attraction first…' }]}
-              value={tourId} onChange={setTourId} placeholder="No tour" allowClear disabled={!attractionId}
+              options={[{ value: '', label: 'All attractions' }, ...attractionOptions]}
+              value={attractionId}
+              onChange={(v) => { setAttractionId(v); clearError('tour'); }}
+              placeholder="All attractions"
+              allowClear
             />
           </FormField>
+
+          <FormField label="Tour" required>
+            <Select2
+              options={
+                tourOptions.length
+                  ? tourOptions
+                  : [
+                      {
+                        value: '',
+                        label: attractionId
+                          ? 'No tours for this attraction'
+                          : 'Select attraction first…',
+                      },
+                    ]
+              }
+              value={tourId}
+              onChange={(v) => { setTourId(v); clearError('tour'); }}
+              placeholder="Select tour…"
+            />
+            {errors.tour && <p className="mt-1 text-xs text-ems-coral">{errors.tour}</p>}
+          </FormField>
         </div>
 
-        <FormField label="Venue" required>
-          <Select2 options={venueOptions} value={primaryVenueId} onChange={setPrimaryVenueId} placeholder="Select venue…" />
-        </FormField>
+        <div className="border-t border-border/60 pb-5" />
 
+        {/* ── Row 3: Venue */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
+          <FormField label="Venue" required>
+            <Select2
+              options={venueOptions}
+              value={primaryVenueId}
+              onChange={(v) => { setPrimaryVenueId(v); clearError('venue'); }}
+              placeholder="Select venue…"
+            />
+            {errors.venue && <p className="mt-1 text-xs text-ems-coral">{errors.venue}</p>}
+          </FormField>
+        </div>
+
+        {/* ── Footer */}
         <div className="flex gap-2 justify-end pt-4 border-t border-border">
-          <button type="button" onClick={onClose} disabled={submitting}
-            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
+            disabled={submitting}
+          >
             Cancel
           </button>
-          <button type="button" onClick={() => void handleSave()} disabled={submitting}
-            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={submitting}
+            className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent text-background text-sm px-5 py-2 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed hover:bg-ems-accent/90 transition-colors"
+          >
             {submitting ? (
-              <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Saving…</>
-            ) : 'Save changes'}
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Saving…
+              </>
+            ) : (
+              'Save Changes'
+            )}
           </button>
         </div>
       </div>

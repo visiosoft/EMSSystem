@@ -60,8 +60,15 @@ import type {
   ProjectStage,
   VenueStatus,
 } from '@/api/projectApi';
-import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
-import { fetchCompanies, searchDmaMarkets } from '@/api/companyApi';
+import {
+  createTour,
+  fetchAttractions,
+  fetchClasses,
+  fetchTours,
+  updateTour,
+} from '@/api/attractionToursApi';
+import { companiesApiQueryKey, fetchCompanies, fetchDmaMarkets } from '@/api/companyApi';
+import { AddTourForm } from './AddTourForm';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -114,7 +121,7 @@ function ProjectsTableSkeleton() {
         <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
-              {['ID', 'Attraction', 'Tour', 'Stage', 'Created By', 'Created', ''].map((h, i) => (
+              {['Attraction', 'Tour', 'Stage', 'Created By', 'Created', ''].map((h, i) => (
                 <th key={i} className="text-left py-2.5 px-3">{h}</th>
               ))}
             </tr>
@@ -122,7 +129,7 @@ function ProjectsTableSkeleton() {
           <tbody>
             {Array.from({ length: PAGE_SIZE }).map((_, i) => (
               <tr key={i} className="border-b border-border/40">
-                {Array.from({ length: 7 }).map((__, j) => (
+                {Array.from({ length: 6 }).map((__, j) => (
                   <td key={j} className="py-3 px-3"><Skeleton className="h-4 w-24 bg-muted/80" /></td>
                 ))}
               </tr>
@@ -358,7 +365,7 @@ function AddVenueForm({
   projectId: number; existingIds: Set<number>;
   onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
-  const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: fetchCompanies, staleTime: 60_000 });
+  const companiesQuery = useQuery({ queryKey: companiesApiQueryKey, queryFn: fetchCompanies, staleTime: 60_000 });
   const [venueId, setVenueId] = useState('');
   const [venueStatus, setVenueStatus] = useState<VenueStatus>('Proposed');
   const [saving, setSaving] = useState(false);
@@ -540,15 +547,18 @@ function ProjectDetailDrawer({
 // ─── Create Project Wizard ────────────────────────────────────────────────────
 
 const WIZARD_STEPS = [
-  { num: 1, label: 'Select Attraction-Tour' },
-  { num: 2, label: 'Tour Management' },
-  { num: 3, label: 'Select Markets' },
-  { num: 4, label: 'Project Details' },
+  { num: 1, label: 'Attraction' },
+  { num: 2, label: 'Tour' },
+  { num: 3, label: 'Tour Mgmt' },
+  { num: 4, label: 'Markets' },
+  { num: 5, label: 'Details' },
 ] as const;
+
+const WIZARD_LAST = WIZARD_STEPS.length;
 
 function WizardStepIndicator({ currentStep }: { currentStep: number }) {
   return (
-    <div className="flex items-center justify-center gap-2 mb-6">
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-3 mb-6">
       {WIZARD_STEPS.map((step, idx) => {
         const isActive = currentStep === step.num;
         const isCompleted = currentStep > step.num;
@@ -568,7 +578,7 @@ function WizardStepIndicator({ currentStep }: { currentStep: number }) {
               <span className="text-[10px] mt-1 hidden sm:block">{step.label}</span>
             </div>
             {idx < WIZARD_STEPS.length - 1 && (
-              <div className={`w-12 h-0.5 mx-1 transition-colors ${lineClasses}`} />
+              <div className={`hidden sm:block w-6 md:w-10 h-0.5 mx-0.5 transition-colors ${lineClasses}`} />
             )}
           </React.Fragment>
         );
@@ -582,120 +592,186 @@ function CreateProjectForm({
 }: {
   onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
-  // Data queries
+  const qc = useQueryClient();
   const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
   const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
-  const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: fetchCompanies, staleTime: 60_000 });
-
-  // Wizard state
+  const companiesQuery = useQuery({ queryKey: companiesApiQueryKey, queryFn: fetchCompanies, staleTime: 60_000 });
+  const classesQuery = useQuery({ queryKey: ['classes'], queryFn: fetchClasses, staleTime: 60_000 });
   const [step, setStep] = useState(1);
 
-  // Step 1: Attraction-Tour selection
-  const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
+  /** Load DMA list only on Markets / Details steps — fetching 50k+ rows on modal open freezes or crashes the tab. */
+  const dmaMarketsQuery = useQuery({
+    queryKey: ['dma-markets'],
+    queryFn: fetchDmaMarkets,
+    staleTime: 120_000,
+    enabled: step >= 4,
+  });
 
-  // Step 2: Tour Management Company (optional)
+  const [attractionSearch, setAttractionSearch] = useState('');
+  const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
+  const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
+  const [tourSearch, setTourSearch] = useState('');
+
   const [tourManagementCompanyId, setTourManagementCompanyId] = useState<number | null>(null);
   const [companySearch, setCompanySearch] = useState('');
 
-  // Step 3: Markets/DMAs
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>([]);
-  const [marketSearch, setMarketSearch] = useState('');
-  const [marketSearchResults, setMarketSearchResults] = useState<{ dmaid: number; marketName: string }[]>([]);
-  const [searchingMarkets, setSearchingMarkets] = useState(false);
+  const [dmaListFilter, setDmaListFilter] = useState('');
+  const [dmaPickerValue, setDmaPickerValue] = useState('');
 
-  // Step 4: Project Details
   const [projectStage, setProjectStage] = useState<ProjectStage>('Active');
   const [createdBy, setCreatedBy] = useState('');
 
-  // Submitting state
+  const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Derived data
   const attractions = attractionsQuery.data ?? [];
   const tours = toursQuery.data ?? [];
   const companies = companiesQuery.data ?? [];
+  const classes = classesQuery.data ?? [];
+  const dmaRows = dmaMarketsQuery.data ?? [];
 
-  // Group tours by attraction for display
   const toursByAttraction = useMemo(() => {
     const map = new Map<number, typeof tours>();
-    tours.forEach(t => {
+    tours.forEach((t) => {
       if (!map.has(t.attractionId)) map.set(t.attractionId, []);
       map.get(t.attractionId)!.push(t);
     });
     return map;
   }, [tours]);
 
-  // Management company options (filter by company type or show all)
+  const filteredAttractions = useMemo(() => {
+    const q = attractionSearch.trim().toLowerCase();
+    return attractions
+      .filter((a) => !q || (a.attractionName ?? '').toLowerCase().includes(q))
+      .sort((a, b) =>
+        (a.attractionName ?? '').localeCompare(b.attractionName ?? '', undefined, { sensitivity: 'base' }),
+      );
+  }, [attractions, attractionSearch]);
+
+  const toursForSelectedAttraction = useMemo(() => {
+    if (selectedAttractionId == null) return [];
+    return (toursByAttraction.get(selectedAttractionId) ?? []).slice().sort((a, b) =>
+      (a.tourName ?? '').localeCompare(b.tourName ?? '', undefined, { sensitivity: 'base' }),
+    );
+  }, [selectedAttractionId, toursByAttraction]);
+
+  const filteredToursForAttraction = useMemo(() => {
+    const q = tourSearch.trim().toLowerCase();
+    if (!q) return toursForSelectedAttraction;
+    return toursForSelectedAttraction.filter(
+      (t) =>
+        (t.tourName ?? '').toLowerCase().includes(q) ||
+        String(t.tourId).includes(q),
+    );
+  }, [toursForSelectedAttraction, tourSearch]);
+
+  useEffect(() => {
+    setTourSearch('');
+  }, [selectedAttractionId]);
+
   const managementCompanyOptions = useMemo(() => {
-    const mgmt = companies.filter(c => c.companyTypeName === 'Attraction Management');
-    const pool = mgmt.length ? mgmt : companies;
-    return pool
-      .filter(c => c.companyName.toLowerCase().includes(companySearch.toLowerCase()))
-      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
-      .slice(0, 10);
+    const talentAgencies = companies.filter(
+      (c) => (c.companyTypeName ?? '').trim().toLowerCase() === 'talent agency',
+    );
+    return talentAgencies
+      .filter((c) => (c.companyName ?? '').toLowerCase().includes(companySearch.toLowerCase()))
+      .sort((a, b) =>
+        (a.companyName ?? '').localeCompare(b.companyName ?? '', undefined, { sensitivity: 'base' }),
+      );
   }, [companies, companySearch]);
 
-  // Search markets effect
-  useEffect(() => {
-    const search = async () => {
-      if (!marketSearch.trim()) {
-        setMarketSearchResults([]);
-        return;
-      }
-      setSearchingMarkets(true);
-      try {
-        const results = await searchDmaMarkets(marketSearch, 20);
-        setMarketSearchResults((results ?? []).filter(r => !selectedDmaIds.includes(r.dmaid)));
-      } catch {
-        // silently fail
-        setMarketSearchResults([]);
-      } finally {
-        setSearchingMarkets(false);
-      }
-    };
-    const timer = setTimeout(search, 300);
-    return () => clearTimeout(timer);
-  }, [marketSearch, selectedDmaIds]);
+  const dmaLabelById = useMemo(() => {
+    const m = new Map<number, string>();
+    dmaRows.forEach((r) => {
+      m.set(r.dmaid, `${r.marketName} (#${r.dmaid})`);
+    });
+    return m;
+  }, [dmaRows]);
+
+  const dmaPickerOptions = useMemo(() => {
+    const q = dmaListFilter.trim().toLowerCase();
+    const pool = !q
+      ? dmaRows
+      : dmaRows.filter(
+          (r) =>
+            (r.marketName ?? '').toLowerCase().includes(q) ||
+            String(r.dmaid).includes(q),
+        );
+    const cap = 500;
+    return pool.slice(0, cap).map((r) => ({
+      value: String(r.dmaid),
+      label: `${r.marketName} (#${r.dmaid})`,
+    }));
+  }, [dmaRows, dmaListFilter]);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
-  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending || companiesQuery.isPending;
+  const lookupsLoading =
+    attractionsQuery.isPending ||
+    toursQuery.isPending ||
+    companiesQuery.isPending ||
+    classesQuery.isPending;
 
-  const selectedTour = selectedTourId ? tours.find(t => t.tourId === selectedTourId) : null;
-  const selectedAttraction = selectedTour ? attractions.find(a => a.attractionId === selectedTour.attractionId) : null;
+  const selectedTour = selectedTourId ? tours.find((t) => t.tourId === selectedTourId) : null;
+  const selectedAttraction =
+    selectedAttractionId != null
+      ? attractions.find((a) => a.attractionId === selectedAttractionId)
+      : null;
 
-  const canProceedStep1 = selectedTourId != null;
-  const canProceedStep3 = true; // Tour management is optional
-  const canSubmit = true;
+  const canProceedStep1 = selectedAttractionId != null;
+  const canProceedStep2 = selectedTourId != null;
+  const canProceedStep4 = true;
+  const canSubmit = selectedTourId != null;
 
-  const handleBack = () => setStep(s => Math.max(1, s - 1));
-  const handleNext = () => setStep(s => Math.min(4, s + 1));
+  const handleBack = () => setStep((s) => Math.max(1, s - 1));
+  const handleNext = () => setStep((s) => Math.min(WIZARD_LAST, s + 1));
+
+  const createTourMut = useMutation({
+    mutationFn: createTour,
+    onSuccess: async (res) => {
+      await qc.invalidateQueries({ queryKey: ['tours'] });
+      setSelectedTourId(res.tourId);
+      setShowAddTourModal(false);
+      addToast('Tour created.', 'success');
+    },
+    onError: (e: unknown) => addToast(friendlyApiError(e, 'Could not create tour.'), 'error'),
+  });
 
   const handleSubmit = async () => {
     if (!selectedTourId) return;
     setSaving(true);
     try {
+      const desiredMgmt = tourManagementCompanyId ?? null;
+      const currentMgmt = selectedTour?.tourManagementCompanyId ?? null;
+      if (selectedTour && desiredMgmt !== currentMgmt) {
+        await updateTour(selectedTourId, {
+          tourManagementCompanyId: tourManagementCompanyId ?? null,
+        });
+      }
       const res = await createProject({
         tourId: selectedTourId,
         projectStage,
-        createdBy: createdBy.trim() || null,
-        // Include selected DMAs in notes for now (frontend-only field)
-        notes: selectedDmaIds.length > 0 ? `Selected Markets: ${selectedDmaIds.join(', ')}` : null,
+        createdBy: createdBy.trim() ? createdBy.trim() : undefined,
+        dmaIds: selectedDmaIds.length > 0 ? selectedDmaIds : undefined,
       });
       onSaved(res.engagementProjectId);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not create project.'), 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const addMarket = (dmaid: number) => {
-    if (!selectedDmaIds.includes(dmaid)) {
-      setSelectedDmaIds(prev => [...prev, dmaid]);
-    }
-    setMarketSearch('');
+  const addMarketFromPicker = () => {
+    if (!dmaPickerValue) return;
+    const id = Number(dmaPickerValue);
+    if (Number.isNaN(id) || selectedDmaIds.includes(id)) return;
+    setSelectedDmaIds((prev) => [...prev, id]);
+    setDmaPickerValue('');
   };
 
   const removeMarket = (dmaid: number) => {
-    setSelectedDmaIds(prev => prev.filter(id => id !== dmaid));
+    setSelectedDmaIds((prev) => prev.filter((id) => id !== dmaid));
   };
 
   if (lookupsLoading) {
@@ -707,50 +783,113 @@ function CreateProjectForm({
   }
 
   return (
+    <>
     <div className="space-y-4">
       <WizardStepIndicator currentStep={step} />
 
-      {/* Step 1: Select Attraction-Tour */}
       {step === 1 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-text-primary">Select Attraction-Tour</h3>
-          <div className="max-h-[400px] overflow-y-auto space-y-3 pr-1">
-            {attractions
-              .filter(a => toursByAttraction.has(a.attractionId) && (toursByAttraction.get(a.attractionId)?.length ?? 0) > 0)
-              .sort((a, b) => a.attractionName.localeCompare(b.attractionName))
-              .map(attraction => {
-                const attractionTours = toursByAttraction.get(attraction.attractionId) ?? [];
-                return (
-                  <div key={attraction.attractionId} className="border border-border rounded-lg overflow-hidden">
-                    <div className="bg-surface px-4 py-2 border-b border-border">
-                      <span className="text-sm font-medium text-text-primary">{attraction.attractionName}</span>
-                    </div>
-                    <div className="p-2 space-y-1">
-                      {attractionTours.map(tour => (
-                        <button
-                          key={tour.tourId}
-                          type="button"
-                          onClick={() => setSelectedTourId(tour.tourId)}
-                          className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between ${
-                            selectedTourId === tour.tourId
-                              ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
-                              : 'hover:bg-hover text-text-secondary'
-                          }`}
-                        >
-                          <span>{tour.tourName}</span>
-                          {selectedTourId === tour.tourId && <span className="text-ems-accent text-xs font-medium">Selected</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+          <h3 className="text-sm font-medium text-text-primary">Select Attraction</h3>
+          <p className="text-xs text-text-muted">
+            Search and pick one attraction. You&apos;ll choose a tour on the next step.
+          </p>
+          <input
+            type="search"
+            className={inputCls}
+            placeholder="Search attractions by name…"
+            value={attractionSearch}
+            onChange={(e) => setAttractionSearch(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="max-h-[400px] overflow-y-auto space-y-1.5 pr-1 border border-border rounded-lg p-2 bg-elevated/40">
+            {filteredAttractions.length === 0 && (
+              <p className="text-sm text-text-muted px-2 py-4 text-center">No attractions match your search.</p>
+            )}
+            {filteredAttractions.map((a) => (
+              <button
+                key={a.attractionId}
+                type="button"
+                onClick={() => {
+                  setSelectedAttractionId(a.attractionId);
+                  setSelectedTourId(null);
+                }}
+                className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-colors flex items-center justify-between gap-2 ${
+                  selectedAttractionId === a.attractionId
+                    ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
+                    : 'hover:bg-hover text-text-secondary border border-transparent'
+                }`}
+              >
+                <span className="font-medium">{a.attractionName}</span>
+                {selectedAttractionId === a.attractionId && (
+                  <span className="text-ems-accent text-xs font-medium shrink-0">Selected</span>
+                )}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Step 2: Tour Management Company */}
       {step === 2 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-sm font-medium text-text-primary">Select Tour</h3>
+            <button
+              type="button"
+              disabled={selectedAttractionId == null || classes.length === 0}
+              onClick={() => setShowAddTourModal(true)}
+              className="text-xs font-medium px-2.5 py-1 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              + Create Tour
+            </button>
+          </div>
+          {selectedAttraction && (
+            <p className="text-xs text-text-secondary">
+              Attraction: <span className="text-text-primary font-medium">{selectedAttraction.attractionName}</span>
+            </p>
+          )}
+          <p className="text-xs text-text-muted">
+            Search and pick a tour for this attraction.
+          </p>
+          <input
+            type="search"
+            className={inputCls}
+            placeholder="Search tours by name…"
+            value={tourSearch}
+            onChange={(e) => setTourSearch(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="max-h-[360px] overflow-y-auto space-y-1.5 pr-1 border border-border rounded-lg p-2 bg-elevated/40">
+            {toursForSelectedAttraction.length === 0 && (
+              <p className="text-sm text-text-muted px-2 py-6 text-center">
+                No tours for this attraction yet. Use <span className="font-medium text-text-secondary">Create Tour</span> to add one.
+              </p>
+            )}
+            {toursForSelectedAttraction.length > 0 && filteredToursForAttraction.length === 0 && (
+              <p className="text-sm text-text-muted px-2 py-6 text-center">No tours match your search.</p>
+            )}
+            {filteredToursForAttraction.map((tour) => (
+              <button
+                key={tour.tourId}
+                type="button"
+                onClick={() => setSelectedTourId(tour.tourId)}
+                className={`w-full text-left px-3 py-2.5 rounded-md text-sm transition-colors flex items-center justify-between gap-2 ${
+                  selectedTourId === tour.tourId
+                    ? 'bg-ems-accent/10 border border-ems-accent/30 text-text-primary'
+                    : 'hover:bg-hover text-text-secondary border border-transparent'
+                }`}
+              >
+                <span>{tour.tourName}</span>
+                {selectedTourId === tour.tourId && (
+                  <span className="text-ems-accent text-xs font-medium shrink-0">Selected</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Tour Management Company */}
+      {step === 3 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-primary">Select Talent Agent / Tour Management</h3>
@@ -803,63 +942,86 @@ function CreateProjectForm({
         </div>
       )}
 
-      {/* Step 3: Select Markets */}
-      {step === 3 && (
+      {/* Step 4: Select Markets — dbo.DMA */}
+      {step === 4 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-primary">Select Markets (DMAs)</h3>
             <span className="text-xs text-text-muted">Optional</span>
           </div>
-          <div className="relative">
-            <input
-              type="text"
-              className={inputCls}
-              placeholder="Search markets…"
-              value={marketSearch}
-              onChange={(e) => setMarketSearch(e.target.value)}
-            />
-            {searchingMarkets && (
-              <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-text-muted" />
-            )}
-            {marketSearch && marketSearchResults.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-[200px] overflow-y-auto">
-                {marketSearchResults.map(market => (
-                  <button
-                    key={market.dmaid}
-                    type="button"
-                    onClick={() => addMarket(market.dmaid)}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-hover text-text-secondary border-b border-border/50 last:border-0"
-                  >
-                    {market.marketName}
-                  </button>
-                ))}
-              </div>
-            )}
+          {dmaMarketsQuery.isPending && (
+            <div className="flex items-center gap-2 text-sm text-text-muted py-6 justify-center border border-dashed border-border rounded-lg">
+              <Loader2 className="h-5 w-5 animate-spin text-ems-accent shrink-0" />
+              Loading DMA list from the database…
+            </div>
+          )}
+          {dmaMarketsQuery.isError && (
+            <div className="rounded-lg border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-text-primary space-y-2">
+              <p>Could not load DMA options: {friendlyApiError(dmaMarketsQuery.error)}</p>
+              <button
+                type="button"
+                className="text-sm font-medium text-ems-accent hover:underline"
+                onClick={() => void dmaMarketsQuery.refetch()}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!dmaMarketsQuery.isPending && !dmaMarketsQuery.isError && (
+            <>
+          <p className="text-xs text-text-muted">
+            Open the DMA field, <span className="font-medium text-text-secondary">search by market name or DMA ID</span> in the box inside the menu, choose a row from{' '}
+            <span className="font-medium text-text-secondary">dbo.DMA</span>, then click Add. Repeat for multiple markets.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-end">
+            <FormField label="DMA (from database)">
+              <Select2
+                options={[{ value: '', label: 'Choose a DMA row…' }, ...dmaPickerOptions]}
+                value={dmaPickerValue}
+                onChange={setDmaPickerValue}
+                placeholder="Choose a DMA row…"
+                filterQuery={dmaListFilter}
+                onFilterChange={setDmaListFilter}
+                searchPlaceholder="Search DMAs by name or ID…"
+              />
+            </FormField>
+            <button
+              type="button"
+              onClick={addMarketFromPicker}
+              disabled={!dmaPickerValue}
+              className="h-[38px] px-4 rounded-md text-sm font-medium bg-elevated border border-border hover:bg-hover text-text-primary disabled:opacity-50"
+            >
+              Add
+            </button>
           </div>
+          {dmaPickerOptions.length >= 500 && (
+            <p className="text-[11px] text-text-muted">Showing the first 500 matches — keep typing to narrow down.</p>
+          )}
+            </>
+          )}
           {selectedDmaIds.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-text-secondary">Selected Markets:</p>
+              <p className="text-xs font-medium text-text-secondary">Selected markets</p>
               <div className="flex flex-wrap gap-2">
-                {selectedDmaIds.map(dmaid => {
-                  const market = marketSearchResults.find(m => m.dmaid === dmaid);
-                  return (
-                    <span
-                      key={dmaid}
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30"
-                    >
-                      Market #{dmaid}
-                      <button type="button" onClick={() => removeMarket(dmaid)} className="text-text-muted hover:text-ems-coral">×</button>
-                    </span>
-                  );
-                })}
+                {selectedDmaIds.map((dmaid) => (
+                  <span
+                    key={dmaid}
+                    className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30 max-w-full"
+                  >
+                    <span className="truncate">{dmaLabelById.get(dmaid) ?? `DMA #${dmaid}`}</span>
+                    <button type="button" onClick={() => removeMarket(dmaid)} className="text-text-muted hover:text-ems-coral shrink-0">
+                      ×
+                    </button>
+                  </span>
+                ))}
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Step 4: Project Details */}
-      {step === 4 && (
+      {/* Step 5: Project Details */}
+      {step === 5 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Project Details</h3>
           <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
@@ -912,13 +1074,14 @@ function CreateProjectForm({
           {step === 1 ? 'Cancel' : '← Back'}
         </button>
         <div className="flex gap-2">
-          {step < 4 ? (
+          {step < WIZARD_LAST ? (
             <button
               type="button"
               onClick={handleNext}
               disabled={
                 (step === 1 && !canProceedStep1) ||
-                (step === 3 && !canProceedStep3) ||
+                (step === 2 && !canProceedStep2) ||
+                (step === 4 && !canProceedStep4) ||
                 saving
               }
               className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
@@ -938,6 +1101,25 @@ function CreateProjectForm({
         </div>
       </div>
     </div>
+
+    {showAddTourModal && selectedAttractionId != null && classes.length > 0 && (
+      <Modal
+        title="Add Tour"
+        onClose={() => !createTourMut.isPending && setShowAddTourModal(false)}
+        width={600}
+        allowContentOverflow
+      >
+        <AddTourForm
+          attractions={attractions}
+          classes={classes}
+          lockAttractionId={selectedAttractionId}
+          submitting={createTourMut.isPending}
+          onCancel={() => setShowAddTourModal(false)}
+          onSave={(body) => void createTourMut.mutateAsync(body)}
+        />
+      </Modal>
+    )}
+    </>
   );
 }
 
@@ -1104,7 +1286,7 @@ export function ProjectsPage({ addToast }: Props) {
       if (stageFilter !== 'All' && p.projectStage !== stageFilter) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
-      return [String(p.engagementProjectId), p.tourName ?? '', p.attractionName ?? '', p.projectStage, p.createdBy ?? '']
+      return [String(p.engagementProjectId), p.tourName ?? '', p.attractionName ?? '', p.projectStage ?? '', p.createdBy ?? '']
         .join(' ').toLowerCase().includes(q);
     });
   }, [rows, search, stageFilter]);
@@ -1198,7 +1380,6 @@ export function ProjectsPage({ addToast }: Props) {
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">ID</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Tour</th>
                   <th className="text-left py-2.5 px-3">Stage</th>
@@ -1210,7 +1391,7 @@ export function ProjectsPage({ addToast }: Props) {
               <tbody>
                 {filtered.length === 0 && !projectsQuery.isError && (
                   <tr>
-                    <td colSpan={7} className="py-12 px-3 text-center text-sm text-text-muted">
+                    <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
                       {rows.length === 0 ? 'No projects in the database yet.' : 'No projects match your search or filters.'}
                     </td>
                   </tr>
@@ -1219,7 +1400,6 @@ export function ProjectsPage({ addToast }: Props) {
                   <tr key={p.engagementProjectId}
                     onClick={() => setSelectedProjectId(p.engagementProjectId)}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer">
-                    <td className="py-2.5 px-3 font-mono text-xs text-text-muted tabular-nums">#{p.engagementProjectId}</td>
                     <td className="py-2.5 px-3 text-text-primary font-medium">{p.attractionName ?? '—'}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{p.tourName ?? <span className="text-text-muted italic">No tour name</span>}</td>
                     <td className="py-2.5 px-3"><StatusBadge status={p.projectStage} /></td>
@@ -1266,7 +1446,7 @@ export function ProjectsPage({ addToast }: Props) {
 
       {/* Create modal */}
       {showCreateModal && (
-        <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700}>
+        <Modal title="Create Project" onClose={() => setShowCreateModal(false)} width={700} allowContentOverflow>
           <CreateProjectForm
             key="create-project"
             onSaved={async (id) => {
@@ -1283,7 +1463,7 @@ export function ProjectsPage({ addToast }: Props) {
 
       {/* Edit modal */}
       {editProject && (
-        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600}>
+        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600} allowContentOverflow>
           <EditProjectForm
             key={editProject.engagementProjectId}
             project={editProject}

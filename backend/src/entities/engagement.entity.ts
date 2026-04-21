@@ -3,7 +3,8 @@ import { Tour } from './tour.entity';
 
 /**
  * dbo.Engagement
- * Columns: EngagementID, EngagementStatus, EngagementScaling, TourID
+ * Columns: EngagementID, EngagementStatus, EngagementScaling (legacy/unused by API), TourID
+ * Opening show date/time lives in dbo.Performance (earliest performance for the engagement).
  * NOTE: AttractionID was removed — reach Attraction via TourID → Tour → AttractionID.
  * TourID is NOT NULL (required).
  */

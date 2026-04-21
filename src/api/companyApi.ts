@@ -125,6 +125,12 @@ export interface UpdateCompanyPayload {
   mailingSameAsPhysical?: boolean;
 }
 
+/**
+ * React Query key for raw `GET /companies` (ApiCompanyListRow[]).
+ * Do not use `['companies']` alone for fetchCompanies — CompaniesPage stores UI-mapped rows under that key.
+ */
+export const companiesApiQueryKey = ['companies', 'api'] as const;
+
 export function fetchCompanies() {
   return apiFetch<ApiCompanyListRow[]>('/companies');
 }

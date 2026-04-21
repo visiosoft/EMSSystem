@@ -14,6 +14,14 @@ interface Select2Props {
   className?: string;
   disabled?: boolean;
   allowClear?: boolean;
+  /** Placeholder for the dropdown search field (default: "Search..."). */
+  searchPlaceholder?: string;
+  /**
+   * When set with `onFilterChange`, the parent owns the search text and typically pre-filters `options`.
+   * The dropdown search box edits this value only (no duplicate client-side filter).
+   */
+  filterQuery?: string;
+  onFilterChange?: (q: string) => void;
 }
 
 export function Select2({
@@ -24,6 +32,9 @@ export function Select2({
   className = '',
   disabled = false,
   allowClear = false,
+  searchPlaceholder = 'Search...',
+  filterQuery,
+  onFilterChange,
 }: Select2Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -34,20 +45,24 @@ export function Select2({
 
   const selected = options.find(o => o.value === value);
 
-  const filtered = options.filter(o =>
-    o.label.toLowerCase().includes(search.toLowerCase())
-  );
+  const parentFiltersOptions = onFilterChange != null;
+  const displayFilter = parentFiltersOptions ? (filterQuery ?? '') : search;
+  const filtered = parentFiltersOptions
+    ? options
+    : options.filter((o) =>
+        (o.label ?? '').toLowerCase().includes((search ?? '').toLowerCase()),
+      );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setSearch('');
+        if (!parentFiltersOptions) setSearch('');
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  }, [parentFiltersOptions]);
 
   useEffect(() => {
     if (open && searchRef.current) {
@@ -73,7 +88,7 @@ export function Select2({
     }
     if (e.key === 'Escape') {
       setOpen(false);
-      setSearch('');
+      if (!parentFiltersOptions) setSearch('');
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setHighlightedIndex(i => Math.min(i + 1, filtered.length - 1));
@@ -85,15 +100,15 @@ export function Select2({
       if (highlightedIndex >= 0 && filtered[highlightedIndex]) {
         onChange(filtered[highlightedIndex].value);
         setOpen(false);
-        setSearch('');
+        if (!parentFiltersOptions) setSearch('');
       }
     }
-  }, [open, filtered, highlightedIndex, onChange]);
+  }, [open, filtered, highlightedIndex, onChange, parentFiltersOptions]);
 
   const handleSelect = (optValue: string) => {
     onChange(optValue);
     setOpen(false);
-    setSearch('');
+    if (!parentFiltersOptions) setSearch('');
   };
 
   const [dropUp, setDropUp] = useState(false);
@@ -101,7 +116,8 @@ export function Select2({
     if (open && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      setDropUp(spaceBelow < 220 && rect.top > 220);
+      const needHeight = 300;
+      setDropUp(spaceBelow < needHeight && rect.top > needHeight);
     }
   }, [open]);
 
@@ -141,7 +157,7 @@ export function Select2({
         <div
           className={[
             'select2-dropdown',
-            'absolute z-[200] w-full',
+            'absolute z-[500] w-full',
             'bg-elevated border border-border rounded-md shadow-xl',
             'overflow-hidden',
             dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
@@ -154,9 +170,14 @@ export function Select2({
               <input
                 ref={searchRef}
                 type="text"
-                value={search}
-                onChange={e => { setSearch(e.target.value); setHighlightedIndex(0); }}
-                placeholder="Search..."
+                value={displayFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (parentFiltersOptions) onFilterChange!(v);
+                  else setSearch(v);
+                  setHighlightedIndex(0);
+                }}
+                placeholder={searchPlaceholder}
                 className={[
                   'select2-search__field',
                   'w-full pl-7 pr-3 py-1.5',
@@ -171,7 +192,7 @@ export function Select2({
           <ul
             ref={listRef}
             role="listbox"
-            className="select2-results max-h-48 overflow-y-auto py-1"
+            className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1"
           >
             {allowClear && (
               <li
@@ -267,8 +288,8 @@ export function Select2Multi({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = options.filter(o =>
-    o.label.toLowerCase().includes(search.toLowerCase())
+  const filtered = options.filter((o) =>
+    (o.label ?? '').toLowerCase().includes((search ?? '').toLowerCase()),
   );
 
   const toggle = (v: string) => {
@@ -285,7 +306,8 @@ export function Select2Multi({
     if (open && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      setDropUp(spaceBelow < 220 && rect.top > 220);
+      const needHeight = 300;
+      setDropUp(spaceBelow < needHeight && rect.top > needHeight);
     }
   }, [open]);
 
@@ -320,7 +342,7 @@ export function Select2Multi({
         <div
           className={[
             'select2-dropdown',
-            'absolute z-[200] w-full',
+            'absolute z-[500] w-full',
             'bg-elevated border border-border rounded-md shadow-xl',
             'overflow-hidden',
             dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
@@ -346,7 +368,7 @@ export function Select2Multi({
             </div>
           </div>
 
-          <ul role="listbox" className="select2-results max-h-48 overflow-y-auto py-1">
+          <ul role="listbox" className="select2-results max-h-[min(280px,50vh)] overflow-y-auto py-1">
             {filtered.length === 0 ? (
               <li className="select2-results__option px-3 py-2 text-sm text-text-muted text-center">
                 No results found

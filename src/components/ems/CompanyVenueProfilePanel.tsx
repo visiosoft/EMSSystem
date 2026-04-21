@@ -155,7 +155,7 @@ export function CompanyVenueProfilePanel({
         <p className="text-sm text-text-secondary leading-relaxed">
           A venue profile has not been set up for this company yet. This can happen for
           older venue records. Create the profile so this location can be used as a
-          primary venue on engagements, then add or edit details below.
+          venue on engagements, then add or edit details below.
         </p>
         <button
           type="button"

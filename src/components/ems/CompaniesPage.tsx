@@ -20,6 +20,7 @@ import {
   createCompanyContact,
   deleteCompany,
   deleteContactAssignment,
+  companiesApiQueryKey,
   fetchCompanies,
   fetchCompanyContacts,
   fetchCompanyEngagements,
@@ -263,6 +264,7 @@ function InlineEditableOverview({
   const [mailCountry, setMailCountry] = useState(company.mailingCountry ?? 'USA');
   const [dirty, setDirty]           = useState(false);
   const [saving, setSaving]         = useState(false);
+  const [nameEditing, setNameEditing] = useState(false);
 
   // Sync when a different company is selected
   useEffect(() => {
@@ -279,9 +281,57 @@ function InlineEditableOverview({
     setMailPostal(company.mailingPostalCode ?? '');
     setMailCountry(company.mailingCountry ?? 'USA');
     setDirty(false);
+    setNameEditing(false);
   }, [company.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setDirty(true); };
+
+  // Google Places integration for company name field
+  const onPlaceResolved = useCallback((details: PlaceDetailsResult) => {
+    const placeName = details.placeName?.trim();
+    if (placeName) setName(placeName);
+    if (details.physical.street) { setPhysStreet(details.physical.street); }
+    if (details.physical.city) { setPhysCity(details.physical.city); }
+    if (details.physical.state) { setPhysState(details.physical.state); }
+    if (details.physical.postalCode) { setPhysPostal(details.physical.postalCode); }
+    if (details.physical.country) { setPhysCountry(details.physical.country); }
+    if (details.mailing.street) { setMailStreet(details.mailing.street); }
+    if (details.mailing.city) { setMailCity(details.mailing.city); }
+    if (details.mailing.state) { setMailState(details.mailing.state); }
+    if (details.mailing.postalCode) { setMailPostal(details.mailing.postalCode); }
+    if (details.mailing.country) { setMailCountry(details.mailing.country); }
+    setDirty(true);
+    setNameEditing(false);
+  }, []);
+
+  const companyPlace = useCompanyPlaceSearch({ query: name, onPlaceResolved });
+
+  // DMA auto-resolution from postal code
+  const [resolvedDma, setResolvedDma] = useState<string | null>(company.dmaMarketName ?? null);
+  const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pc = physPostal.trim();
+    if (pc.length < 3) {
+      setDmaLookupBusy(false);
+      setResolvedDma(null);
+      return;
+    }
+    const run = async () => {
+      setDmaLookupBusy(true);
+      try {
+        const row = await fetchDmaByPostal(pc);
+        if (!cancelled) setResolvedDma(row ? row.marketName : null);
+      } catch {
+        if (!cancelled) setResolvedDma(null);
+      } finally {
+        if (!cancelled) setDmaLookupBusy(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [physPostal, physCountry]);
 
   const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
 
@@ -292,6 +342,7 @@ function InlineEditableOverview({
     setPhysCountry(company.physicalCountry ?? 'USA'); setMailStreet(company.mailingStreet ?? '');
     setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
     setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? 'USA');
+    setResolvedDma(company.dmaMarketName ?? null);
     setDirty(false);
   };
 
@@ -338,9 +389,70 @@ function InlineEditableOverview({
       </p>
 
       <div className="space-y-6 pb-2">
-        {/* Name */}
+        {/* Name with Google Places autocomplete */}
         <div className="border-b border-border/80 pb-5">
-          <InlineEditField label="Company Name" value={name} onChange={mark(setName)} />
+          {nameEditing ? (
+            <div>
+              <label className="text-xs text-text-muted block mb-0.5">Company Name</label>
+              <div className="relative">
+                <input
+                  className="w-full bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); setDirty(true); }}
+                  onFocus={companyPlace.onNameFocus}
+                  onBlur={companyPlace.onNameBlur}
+                  placeholder="Search venue or address…"
+                  autoComplete="off"
+                />
+                {companyPlace.menuOpen && (
+                  <div className="absolute z-20 left-0 right-0 mt-1 bg-surface border border-border rounded shadow-lg max-h-56 overflow-auto">
+                    {companyPlace.loading && (
+                      <div className="px-3 py-2 text-xs text-text-muted flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                      </div>
+                    )}
+                    {companyPlace.suggestions.map((s) => (
+                      <button
+                        key={s.placeId}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-elevated text-sm text-text-primary"
+                        onMouseDown={(e) => { e.preventDefault(); companyPlace.selectPrediction(s); }}
+                      >
+                        {s.description}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-text-muted mt-1">
+                Search for a venue/address to auto-fill all address fields.
+              </p>
+              <div className="flex gap-0.5 mt-2">
+                <button onClick={() => setNameEditing(false)} title="Done" className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors"><Check className="h-3.5 w-3.5" /></button>
+                <button
+                  onClick={() => { setName(company.name); setNameEditing(false); }}
+                  title="Cancel"
+                  className="p-1 text-text-muted hover:bg-elevated rounded transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="text-xs text-text-muted block mb-0.5">Company Name</label>
+              <div
+                onClick={() => setNameEditing(true)}
+                className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+                title="Click to edit"
+              >
+                <span className={`text-sm flex-1 ${name ? 'text-text-primary' : 'text-text-muted italic'}`}>
+                  {name || '—'}
+                </span>
+                <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Type + DMA */}
@@ -348,7 +460,10 @@ function InlineEditableOverview({
           <InlineSelectField label="Company Type" value={typeId} onChange={mark(setTypeId)} options={typeOptions} />
           <div>
             <span className="text-xs text-text-muted">DMA</span>
-            <div className="text-sm text-text-primary mt-0.5">{company.dmaMarketName ?? '—'}</div>
+            <div className="text-sm text-text-primary mt-0.5 flex items-center gap-1.5">
+              {dmaLookupBusy && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
+              {resolvedDma ?? '—'}
+            </div>
             <p className="text-[11px] text-text-muted mt-1">Auto-resolved from postal code.</p>
           </div>
         </div>
@@ -1330,6 +1445,7 @@ export function CompaniesPage({ addToast }: Props) {
   /** Reload the companies list from the API (exact key so child queries are untouched). */
   const refetchCompanyList = useCallback(async () => {
     await qc.refetchQueries({ queryKey: ['companies'], exact: true });
+    await qc.refetchQueries({ queryKey: companiesApiQueryKey, exact: true });
   }, [qc]);
 
   const lookupsQuery = useQuery({

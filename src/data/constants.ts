@@ -647,6 +647,9 @@ export function getInitials(name: string): string {
 
 export function getStatusColor(status: string): { bg: string; text: string } {
   const map: Record<string, { bg: string; text: string }> = {
+    Unknown: { bg: 'bg-elevated', text: 'text-text-muted' },
+    Private: { bg: 'bg-ems-purple-dim', text: 'text-ems-purple' },
+    Public: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     Draft: { bg: 'bg-elevated', text: 'text-text-secondary' },
     Confirmed: { bg: 'bg-ems-green-dim', text: 'text-ems-green' },
     OnSale: { bg: 'bg-ems-blue-dim', text: 'text-ems-blue' },

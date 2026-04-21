@@ -15,13 +15,14 @@ interface Props {
 // ─── Status colour map ────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string }> = {
+  Unknown:    { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
+  Private:    { bg: 'bg-ems-purple-dim border-ems-purple/30',  text: 'text-ems-purple',     dot: 'bg-ems-purple' },
+  Public:     { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
   Confirmed:  { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
   OnSale:     { bg: 'bg-ems-blue-dim   border-ems-blue/30',    text: 'text-ems-blue',       dot: 'bg-ems-blue' },
   Draft:      { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
   Settled:    { bg: 'bg-ems-accent-dim border-ems-accent/30',  text: 'text-ems-accent',     dot: 'bg-ems-accent' },
   Cancelled:  { bg: 'bg-ems-coral-dim  border-ems-coral/30',   text: 'text-ems-coral',      dot: 'bg-ems-coral' },
-  Unknown:    { bg: 'bg-elevated       border-border',          text: 'text-text-secondary', dot: 'bg-text-muted' },
-  Public:     { bg: 'bg-ems-green-dim  border-ems-green/30',   text: 'text-ems-green',      dot: 'bg-ems-green' },
 };
 
 function cfgFor(status: string) {

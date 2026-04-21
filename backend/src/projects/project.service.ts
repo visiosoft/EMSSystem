@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementProjectPerformanceOption } from '../entities/engagement-project-performance-option.entity';
@@ -21,6 +23,8 @@ import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto'
 
 @Injectable()
 export class ProjectService {
+  private readonly logger = new Logger(ProjectService.name);
+
   constructor(
     @InjectRepository(EngagementProject)
     private readonly projectRepo: Repository<EngagementProject>,
@@ -180,36 +184,49 @@ export class ProjectService {
       await this.assertVenueCompany(v.venueCompanyId);
     }
 
-    return await this.dataSource.transaction(async (manager) => {
-      const project = manager.create(EngagementProject, {
-        tourId: dto.tourId,
-        projectStage: dto.projectStage,
-        createdDate: new Date(),
-        createdBy: dto.createdBy?.trim() ?? null,
-      });
-      const savedProject = await manager.save(EngagementProject, project);
-
-      for (const v of dto.venues ?? []) {
-        const pv = manager.create(EngagementProjectVenue, {
-          engagementProjectId: savedProject.engagementProjectId,
-          venueCompanyId: v.venueCompanyId,
-          venueStatus: v.venueStatus,
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const project = manager.create(EngagementProject, {
+          tourId: dto.tourId,
+          projectStage: dto.projectStage,
+          createdDate: new Date(),
+          createdBy: dto.createdBy?.trim() ?? null,
         });
-        await manager.save(EngagementProjectVenue, pv);
+        const savedProject = await manager.save(EngagementProject, project);
 
-        for (const opt of v.performanceOptions ?? []) {
-          const o = manager.create(EngagementProjectPerformanceOption, {
+        for (const v of dto.venues ?? []) {
+          const pv = manager.create(EngagementProjectVenue, {
             engagementProjectId: savedProject.engagementProjectId,
-            proposedDate: opt.proposedDate,
-            proposedTime: this.normalizeTime(opt.proposedTime),
-            optionStatus: opt.optionStatus,
+            venueCompanyId: v.venueCompanyId,
+            venueStatus: v.venueStatus,
           });
-          await manager.save(EngagementProjectPerformanceOption, o);
-        }
-      }
+          await manager.save(EngagementProjectVenue, pv);
 
-      return { engagementProjectId: savedProject.engagementProjectId };
-    });
+          for (const opt of v.performanceOptions ?? []) {
+            const o = manager.create(EngagementProjectPerformanceOption, {
+              engagementProjectId: savedProject.engagementProjectId,
+              proposedDate: opt.proposedDate,
+              proposedTime: this.normalizeTime(opt.proposedTime),
+              optionStatus: opt.optionStatus,
+            });
+            await manager.save(EngagementProjectPerformanceOption, o);
+          }
+        }
+
+        return { engagementProjectId: savedProject.engagementProjectId };
+      });
+    } catch (err) {
+      if (err instanceof QueryFailedError) {
+        const d = String((err as QueryFailedError).driverError ?? err.message);
+        this.logger.warn(`Create project failed: ${d}`);
+        throw new BadRequestException({
+          message:
+            'Could not create the project. Check that the tour exists and that project data matches database rules (stage, tour link, and related keys).',
+          detail: d,
+        });
+      }
+      throw err;
+    }
   }
 
   async update(id: number, dto: UpdateProjectDto): Promise<void> {
@@ -220,16 +237,44 @@ export class ProjectService {
       await this.assertTourExists(dto.tourId);
       project.tourId = dto.tourId;
     }
-    await this.projectRepo.save(project);
+    try {
+      await this.projectRepo.save(project);
+    } catch (e: unknown) {
+      if (e instanceof QueryFailedError) {
+        const d = String((e as QueryFailedError).driverError ?? e.message);
+        this.logger.warn(`Update project failed (id=${id}): ${d}`);
+        throw new BadRequestException({
+          message:
+            'Could not update the project. Check project stage, tour link, and related data.',
+          detail: d,
+        });
+      }
+      throw e;
+    }
   }
 
   async remove(id: number): Promise<void> {
     await this.assertProjectExists(id);
-    await this.dataSource.transaction(async (manager) => {
-      await manager.delete(EngagementProjectPerformanceOption, { engagementProjectId: id });
-      await manager.delete(EngagementProjectVenue, { engagementProjectId: id });
-      await manager.delete(EngagementProject, { engagementProjectId: id });
-    });
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.delete(EngagementProjectPerformanceOption, {
+          engagementProjectId: id,
+        });
+        await manager.delete(EngagementProjectVenue, { engagementProjectId: id });
+        await manager.delete(EngagementProject, { engagementProjectId: id });
+      });
+    } catch (e: unknown) {
+      if (e instanceof QueryFailedError) {
+        const detail = String((e as QueryFailedError).driverError ?? e.message);
+        this.logger.warn(`Project delete blocked (id=${id}): ${detail}`);
+        throw new ConflictException({
+          message:
+            'This project can’t be removed because it’s still linked to other records. Remove or reassign those links first, or ask an administrator for help.',
+          detail,
+        });
+      }
+      throw e;
+    }
   }
 
   async list() {

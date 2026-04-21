@@ -65,28 +65,43 @@ export class LookupsService {
     return row;
   }
 
-  /** Distinct market names from dbo.DMA — deduplicated, sorted alphabetically. */
+  /**
+   * All rows from dbo.DMA (DMAID is unique per postal code / row).
+   * Do not use `select(['DISTINCT ...'])` — TypeORM generates invalid SQL Server syntax
+   * (`SELECT col1, DISTINCT col2`). Use `.distinct(true)` after `.select()` if DISTINCT is ever required.
+   */
   async findDmaMarkets(): Promise<{ dmaid: number; marketName: string }[]> {
     const rows = await this.dmaRepo
       .createQueryBuilder('d')
-      .select(['DISTINCT d.dmaid', 'd.marketName'])
+      .select('d.dmaid', 'dmaid')
+      .addSelect('d.marketName', 'marketName')
       .orderBy('d.marketName', 'ASC')
-      .getRawMany<{ dmaid: number; marketName: string }>();
-    return rows;
+      .addOrderBy('d.dmaid', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+    return rows.map((r) => ({
+      dmaid: Number(r.dmaid ?? r.DMAID),
+      marketName: String(r.marketName ?? r.MarketName ?? ''),
+    }));
   }
 
   /** Search DMA markets by query string (case-insensitive partial match). */
   async searchDmaMarkets(query: string, limit = 50): Promise<{ dmaid: number; marketName: string }[]> {
     const qb = this.dmaRepo
       .createQueryBuilder('d')
-      .select(['DISTINCT d.dmaid', 'd.marketName'])
+      .select('d.dmaid', 'dmaid')
+      .addSelect('d.marketName', 'marketName')
       .orderBy('d.marketName', 'ASC')
-      .limit(limit);
+      .addOrderBy('d.dmaid', 'ASC')
+      .take(limit);
 
-    if (query) {
-      qb.where('d.marketName LIKE :query', { query: `%${query}%` });
+    if (query.trim()) {
+      qb.where('d.marketName LIKE :query', { query: `%${query.trim()}%` });
     }
 
-    return qb.getRawMany<{ dmaid: number; marketName: string }>();
+    const rows = await qb.getRawMany<Record<string, unknown>>();
+    return rows.map((r) => ({
+      dmaid: Number(r.dmaid ?? r.DMAID),
+      marketName: String(r.marketName ?? r.MarketName ?? ''),
+    }));
   }
 }

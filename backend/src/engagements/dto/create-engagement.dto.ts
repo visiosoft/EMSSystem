@@ -1,8 +1,7 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { ENGAGEMENT_STATUS_VALUES } from '../engagement-status.util';
 
-export const ENGAGEMENT_STATUS_VALUES = [
-  'Unknown', 'Draft', 'Confirmed', 'OnSale', 'Settled', 'Closed', 'Cancelled', 'Dead',
-] as const;
+export { ENGAGEMENT_STATUS_VALUES };
 
 export class CreateEngagementDto {
   @IsString()
@@ -10,10 +9,18 @@ export class CreateEngagementDto {
   @IsIn(ENGAGEMENT_STATUS_VALUES as unknown as string[])
   engagementStatus: string;
 
-  @IsOptional()
+  /**
+   * Opening show — persisted as dbo.Performance (PerformanceDate + PerformanceTime).
+   * ISO date YYYY-MM-DD
+   */
   @IsString()
-  @MaxLength(50)
-  engagementScaling?: string | null;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  openingShowDate: string;
+
+  /** Curtain time HH:mm or HH:mm:ss (24h) */
+  @IsString()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/)
+  openingShowTime: string;
 
   /**
    * dbo.Engagement.TourID — NOT NULL in DB. REQUIRED.

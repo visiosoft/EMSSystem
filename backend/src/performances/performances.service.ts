@@ -9,6 +9,7 @@ import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 
 export interface PerformanceCalendarRow {
   performanceId: number;
@@ -86,7 +87,9 @@ export class PerformancesService {
       performanceStatus: String(r['performanceStatus'] ?? ''),
       performanceDate: String(r['performanceDate'] ?? ''),
       performanceTime: String(r['performanceTime'] ?? ''),
-      engagementStatus: String(r['engagementStatus'] ?? ''),
+      engagementStatus: normalizeEngagementStatus(
+        String(r['engagementStatus'] ?? ''),
+      ),
       tourId: r['tourId'] != null ? Number(r['tourId']) : null,
       tourName: r['tourName'] != null ? String(r['tourName']) : null,
       attractionId: r['attractionId'] != null ? Number(r['attractionId']) : null,

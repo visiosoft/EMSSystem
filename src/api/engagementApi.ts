@@ -1,7 +1,8 @@
 /**
  * Engagement Module API
  *
- * dbo.Engagement columns: EngagementID, EngagementStatus, EngagementScaling, TourID (NOT NULL)
+ * dbo.Engagement columns: EngagementID, EngagementStatus, TourID (NOT NULL).
+ * Opening show is the earliest dbo.Performance (see openingPerformanceDate/Time).
  * AttractionID was REMOVED from dbo.Engagement.
  * AttractionID is on dbo.Tour — reach via: Engagement.TourID → Tour.AttractionID → Attraction
  *
@@ -12,7 +13,9 @@ import { apiFetch } from './config';
 export interface ApiEngagementListRow {
   engagementId: number;
   engagementStatus: string;
-  engagementScaling: string | null;
+  /** Earliest dbo.Performance (opening show), if any */
+  openingPerformanceDate: string | null;
+  openingPerformanceTime: string | null;
   tourId: number;
   tourName: string;
   /** Derived via Tour.AttractionID — may be null if tour has no attraction */
@@ -41,7 +44,10 @@ export interface ApiEngagementVenueRow {
 
 export interface CreateEngagementPayload {
   engagementStatus: string;
-  engagementScaling?: string | null;
+  /** ISO date YYYY-MM-DD — stored as dbo.Performance.PerformanceDate */
+  openingShowDate: string;
+  /** HH:mm or HH:mm:ss — stored as dbo.Performance.PerformanceTime */
+  openingShowTime: string;
   /** TourID — NOT NULL in DB. Required. Attraction is derived from the tour. */
   tourId: number;
   /** Creates EngagementVenue(IsPrimary=1) */
@@ -54,15 +60,11 @@ export interface CreateEngagementPayload {
   guarantee?: number | null;
 }
 
+/** Only persisted fields — see Finance tab UI for optional fields pending DB work */
 export interface UpdateEngagementPayload {
   engagementStatus?: string;
-  engagementScaling?: string | null;
   tourId?: number;
   primaryVenueCompanyId?: number;
-  bookerId?: string | null;
-  showDate?: string | null;
-  dealType?: string | null;
-  guarantee?: number | null;
 }
 
 export interface ApiPerformanceRow {

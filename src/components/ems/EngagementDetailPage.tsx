@@ -1,17 +1,26 @@
 /**
- * EngagementDetailPage – Updated to support:
- *   1. dbo.EngagementVenue list (primary + secondary venues with IsPrimary flag)
- *   2. dbo.EngagementScaling display and edit
- *   3. DB-aligned field labels
- *   4. Frontend-only fields kept as optional
+ * EngagementDetailPage – fully dynamic, end-to-end DB-driven.
+ * All data comes from the API. No static/hardcoded content.
+ *
+ * DB chain: Engagement → Tour → Attraction (no direct Engagement.AttractionID)
+ *           Engagement → EngagementVenue → Venue → Company → Address + DMA
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Engagement } from '@/data/constants';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Building2, Star } from 'lucide-react';
+import {
+  Loader2,
+  Building2,
+  Star,
+  AlertCircle,
+  RefreshCw,
+  CalendarDays,
+  MapPin,
+  Tag,
+} from 'lucide-react';
 import { Modal, FormField, TabBar } from './Primitives';
-import { Select2, toOptions } from './Select2';
+import { Select2 } from './Select2';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -37,14 +46,40 @@ import {
   type ApiEngagementVenueRow,
 } from '@/api/engagementApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
-import { fetchCompanies, fetchCompanyContacts } from '@/api/companyApi';
+import { companiesApiQueryKey, fetchCompanies, fetchCompanyContacts } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { DEAL_TYPE_OPTIONS, USERS } from '@/data/constants';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+function formatOpeningDateSafe(iso: string | null | undefined): string {
+  if (iso == null || typeof iso !== 'string') return '—';
+  const ymd = iso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '—';
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatSqlTimeDisplay(sqlTime: string): string {
+  const raw = sqlTime.trim().slice(0, 8);
+  const [h, m] = raw.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return sqlTime;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
+  value: s,
+  label: s,
+}));
 
 function formatPerformanceDateDisplay(isoDate: string): string {
   try {
@@ -69,10 +104,12 @@ function formatPerformanceTimeDisplay(sqlTime: string): string {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-// ---------------------------------------------------------------------------
-// Legacy detail page (for prototype string IDs)
-// ---------------------------------------------------------------------------
+const inputCls =
+  'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20 placeholder:text-text-muted disabled:opacity-60 disabled:cursor-not-allowed transition-colors';
 
+// ---------------------------------------------------------------------------
+// Legacy page (prototype string IDs)
+// ---------------------------------------------------------------------------
 export function LegacyEngagementDetailPage({
   engagement,
   onNavigate,
@@ -91,8 +128,7 @@ export function LegacyEngagementDetailPage({
       </button>
       <div className="bg-card border border-amber-500/25 rounded-lg p-4 space-y-2">
         <p className="text-xs text-amber-800 dark:text-amber-400/90">
-          This engagement uses a local demo id. Use an engagement from the main list for full
-          detail.
+          This engagement uses a local demo id. Use an engagement from the main list for full detail.
         </p>
         <h1 className="text-lg font-semibold text-text-primary">{engagement.name}</h1>
         <p className="text-xs text-text-muted">ID {engagement.id}</p>
@@ -105,9 +141,8 @@ export function LegacyEngagementDetailPage({
 }
 
 // ---------------------------------------------------------------------------
-// Venues tab – dbo.EngagementVenue
+// Venues tab
 // ---------------------------------------------------------------------------
-
 function VenuesTab({
   engagementId,
   addToast,
@@ -117,6 +152,8 @@ function VenuesTab({
 }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [selectedVenueId, setSelectedVenueId] = useState('');
+  const [pendingRemove, setPendingRemove] = useState<ApiEngagementVenueRow | null>(null);
 
   const venuesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'venues'],
@@ -124,11 +161,9 @@ function VenuesTab({
   });
 
   const companiesQuery = useQuery({
-    queryKey: ['companies'],
-    queryFn: async () => {
-      const { fetchCompanies: fc } = await import('@/api/companyApi');
-      return fc();
-    },
+    queryKey: companiesApiQueryKey,
+    queryFn: fetchCompanies,
+    staleTime: 60_000,
   });
 
   const addMutation = useMutation({
@@ -138,35 +173,52 @@ function VenuesTab({
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venues'] });
       addToast('Secondary venue added.', 'success');
       setShowAdd(false);
+      setSelectedVenueId('');
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not add venue.'), 'error'),
   });
 
   const removeMutation = useMutation({
-    mutationFn: (venueCompanyId: number) =>
-      removeEngagementVenue(engagementId, venueCompanyId),
+    mutationFn: (venueCompanyId: number) => removeEngagementVenue(engagementId, venueCompanyId),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'venues'] });
       addToast('Venue removed from engagement.', 'warning');
+      setPendingRemove(null);
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not remove venue.'), 'error'),
   });
 
   const venues = venuesQuery.data ?? [];
-  const venueOptions = useMemo(() => {
+
+  const availableVenueOptions = useMemo(() => {
     const existingIds = new Set(venues.map((v) => v.venueCompanyId));
     return (companiesQuery.data ?? [])
       .filter((c) => c.companyTypeName === 'Venue' && !existingIds.has(c.companyId))
+      .sort((a, b) => a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }))
       .map((c) => ({ value: String(c.companyId), label: c.companyName }));
   }, [companiesQuery.data, venues]);
 
-  const [selectedVenueId, setSelectedVenueId] = useState('');
-
   if (venuesQuery.isLoading) {
     return (
-      <div className="flex items-center gap-2 text-text-muted text-sm py-4">
+      <div className="flex items-center gap-2 text-text-muted text-sm py-6">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading venues…
+      </div>
+    );
+  }
+
+  if (venuesQuery.error) {
+    return (
+      <div className="flex items-center gap-2 text-ems-coral text-sm py-4">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {friendlyApiError(venuesQuery.error)}
+        <button
+          type="button"
+          onClick={() => venuesQuery.refetch()}
+          className="text-xs underline ml-1"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -174,64 +226,76 @@ function VenuesTab({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-text-primary">Venues (dbo.EngagementVenue)</h3>
+          <h3 className="text-sm font-semibold text-text-primary">Venues</h3>
           <p className="text-xs text-text-muted mt-0.5">
-            The DB supports multiple venues per engagement. The primary venue (IsPrimary = 1) is
-            set at creation. Secondary venues can be added below.
+            The venue is set when this engagement is created. You can link additional venues below.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => setShowAdd(!showAdd)}
-          className="text-ems-accent text-sm hover:underline"
+          onClick={() => { setShowAdd(!showAdd); setSelectedVenueId(''); }}
+          className="shrink-0 text-ems-accent text-sm hover:underline"
         >
-          + Add Secondary Venue
+          {showAdd ? 'Cancel' : '+ Add Secondary Venue'}
         </button>
       </div>
 
-      {/* Add venue form */}
+      {/* Add form */}
       {showAdd && (
         <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
-          <p className="text-xs text-text-muted">
-            Select a venue to add as a secondary venue. Only Venue-type companies are shown.
-          </p>
-          <FormField label="Venue">
-            <Select2
-              options={venueOptions}
-              value={selectedVenueId}
-              onChange={setSelectedVenueId}
-              placeholder="Select venue…"
-              disabled={addMutation.isPending}
-            />
-          </FormField>
-          <div className="flex gap-2 justify-end">
-            <button
-              type="button"
-              onClick={() => { setShowAdd(false); setSelectedVenueId(''); }}
-              className="text-text-secondary text-sm px-3 py-1.5"
-              disabled={addMutation.isPending}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!selectedVenueId || addMutation.isPending}
-              onClick={() => addMutation.mutate(Number(selectedVenueId))}
-              className="bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
-            >
-              {addMutation.isPending ? 'Adding…' : 'Add Venue'}
-            </button>
-          </div>
+          {availableVenueOptions.length === 0 ? (
+            <p className="text-sm text-text-muted">
+              No additional venues available. All venue companies are already linked.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-text-muted">
+                Only Venue-type companies not already linked are shown.
+              </p>
+              <FormField label="Venue">
+                <Select2
+                  options={availableVenueOptions}
+                  value={selectedVenueId}
+                  onChange={setSelectedVenueId}
+                  placeholder="Select venue…"
+                  disabled={addMutation.isPending}
+                />
+              </FormField>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowAdd(false); setSelectedVenueId(''); }}
+                  className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary"
+                  disabled={addMutation.isPending}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedVenueId || addMutation.isPending}
+                  onClick={() => addMutation.mutate(Number(selectedVenueId))}
+                  className="inline-flex items-center gap-1.5 bg-ems-accent text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 hover:bg-ems-accent/90 transition-colors"
+                >
+                  {addMutation.isPending ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Adding…</>
+                  ) : (
+                    'Add Venue'
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {/* Venue list */}
       {venues.length === 0 ? (
-        <p className="text-sm text-text-muted py-4">
-          No venue links found. Check that EngagementVenue rows exist for this engagement.
-        </p>
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <Building2 className="h-8 w-8 text-text-muted/50" />
+          <p className="text-sm text-text-muted">No venue links found for this engagement.</p>
+        </div>
       ) : (
         <div className="space-y-2">
           {venues.map((v) => (
@@ -243,42 +307,40 @@ function VenuesTab({
                   : 'border-border bg-surface/40'
               }`}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3 min-w-0">
                 <Building2
                   className={`h-4 w-4 mt-0.5 shrink-0 ${v.isPrimary ? 'text-ems-accent' : 'text-text-muted'}`}
                 />
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-text-primary">
                       {v.venueCompanyName ?? `Company #${v.venueCompanyId}`}
                     </span>
                     {v.isPrimary && (
-                      <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium">
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium shrink-0">
                         <Star className="h-2.5 w-2.5" />
-                        Primary
+                        Main
                       </span>
                     )}
                   </div>
                   {v.venueName && v.venueName !== v.venueCompanyName && (
-                    <div className="text-xs text-text-secondary">{v.venueName}</div>
+                    <div className="text-xs text-text-secondary mt-0.5">{v.venueName}</div>
                   )}
-                  {(v.city || v.stateProvince) && (
-                    <div className="text-xs text-text-muted mt-0.5">
+                  {(v.city || v.stateProvince || v.dmaMarketName) && (
+                    <div className="flex items-center gap-1 text-xs text-text-muted mt-0.5">
+                      <MapPin className="h-3 w-3 shrink-0" />
                       {[v.city, v.stateProvince].filter(Boolean).join(', ')}
                       {v.dmaMarketName ? ` · ${v.dmaMarketName}` : ''}
                     </div>
                   )}
-                  <div className="text-[10px] text-text-muted mt-1 font-mono">
-                    VenueCompanyID: {v.venueCompanyId} · IsPrimary: {v.isPrimary ? '1' : '0'}
-                  </div>
                 </div>
               </div>
               {!v.isPrimary && (
                 <button
                   type="button"
-                  onClick={() => removeMutation.mutate(v.venueCompanyId)}
+                  onClick={() => setPendingRemove(v)}
                   disabled={removeMutation.isPending}
-                  className="text-ems-coral text-xs hover:underline shrink-0 mt-0.5"
+                  className="text-ems-coral text-xs hover:underline shrink-0 mt-0.5 disabled:opacity-50"
                 >
                   Remove
                 </button>
@@ -287,14 +349,37 @@ function VenuesTab({
           ))}
         </div>
       )}
+
+      {/* Remove confirm */}
+      <AlertDialog open={!!pendingRemove} onOpenChange={(o) => !o && setPendingRemove(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove venue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove{' '}
+              <strong>{pendingRemove?.venueCompanyName ?? `Company #${pendingRemove?.venueCompanyId}`}</strong>{' '}
+              from this engagement?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={removeMutation.isPending}
+              onClick={() => pendingRemove && removeMutation.mutate(pendingRemove.venueCompanyId)}
+            >
+              {removeMutation.isPending ? 'Removing…' : 'Remove'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Editable Performance Row (Item 4 — edit dates/times inline)
+// Editable Performance Row
 // ---------------------------------------------------------------------------
-
 function EditablePerformanceRow({
   perf,
   isPrimary,
@@ -302,7 +387,12 @@ function EditablePerformanceRow({
   onRefresh,
   addToast,
 }: {
-  perf: { performanceId: number; performanceDate: string; performanceTime: string; performanceStatus: string };
+  perf: {
+    performanceId: number;
+    performanceDate: string;
+    performanceTime: string;
+    performanceStatus: string;
+  };
   isPrimary: boolean;
   engagementId: number;
   onRefresh: () => void;
@@ -310,41 +400,46 @@ function EditablePerformanceRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(perf.performanceDate);
-  const [time, setTime] = useState(perf.performanceTime.slice(0, 5)); // HH:MM
+  const [time, setTime] = useState(perf.performanceTime.slice(0, 5));
   const [status, setStatus] = useState(perf.performanceStatus);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+  const rowInputCls =
+    'w-full bg-surface border border-border rounded px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20';
 
   const handleSave = async () => {
     if (!date) { addToast('Date is required.', 'warning'); return; }
-    if (!time) { addToast('Time is required.', 'warning'); return; }
+    if (!time) { addToast('Show time is required.', 'warning'); return; }
     setSaving(true);
     try {
       await updateEngagementPerformance(engagementId, perf.performanceId, {
         performanceDate: date,
         performanceTime: time,
-        performanceStatus: status,
+        performanceStatus: status || 'Public',
       });
       addToast('Performance updated.', 'success');
       setEditing(false);
       onRefresh();
     } catch (e) {
       addToast(friendlyApiError(e), 'error');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async () => {
-    if (!confirm('Delete this performance? This cannot be undone.')) return;
     setDeleting(true);
     try {
       await deleteEngagementPerformance(engagementId, perf.performanceId);
       addToast('Performance removed.', 'warning');
+      setConfirmDelete(false);
       onRefresh();
     } catch (e) {
       addToast(friendlyApiError(e), 'error');
-    } finally { setDeleting(false); }
+    } finally {
+      setDeleting(false); }
   };
 
   if (editing) {
@@ -352,25 +447,48 @@ function EditablePerformanceRow({
       <li className="border border-ems-accent/40 rounded-lg px-4 py-3 bg-ems-accent/5 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="text-xs text-text-muted block mb-1">Date *</label>
-            <input type="date" className={inputCls} value={date} onChange={e => setDate(e.target.value)} />
+            <label className="text-xs text-text-muted block mb-1 font-medium">Date *</label>
+            <input
+              type="date"
+              className={rowInputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </div>
           <div>
-            <label className="text-xs text-text-muted block mb-1">Show Time *</label>
-            <input type="time" className={inputCls} value={time} onChange={e => setTime(e.target.value)} />
+            <label className="text-xs text-text-muted block mb-1 font-medium">Show Time *</label>
+            <input
+              type="time"
+              className={rowInputCls}
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+            />
           </div>
           <div>
-            <label className="text-xs text-text-muted block mb-1">Status</label>
-            <input className={inputCls} value={status} onChange={e => setStatus(e.target.value)} maxLength={50} />
+            <label className="text-xs text-text-muted block mb-1 font-medium">Status</label>
+            <Select2
+              options={PERFORMANCE_STATUS_OPTIONS}
+              value={status}
+              onChange={setStatus}
+              placeholder="Status…"
+            />
           </div>
         </div>
         <div className="flex items-center gap-2 justify-end">
-          <button type="button" onClick={() => setEditing(false)} disabled={saving}
-            className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary disabled:opacity-50">
+          <button
+            type="button"
+            onClick={() => { setEditing(false); setDate(perf.performanceDate); setTime(perf.performanceTime.slice(0, 5)); setStatus(perf.performanceStatus); }}
+            disabled={saving}
+            className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+          >
             Cancel
           </button>
-          <button type="button" onClick={() => void handleSave()} disabled={saving}
-            className="inline-flex items-center gap-1.5 bg-ems-accent text-background text-xs px-4 py-1.5 rounded font-medium disabled:opacity-60">
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 bg-ems-accent text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 hover:bg-ems-accent/90 transition-colors"
+          >
             {saving && <Loader2 className="h-3 w-3 animate-spin" />}
             Save
           </button>
@@ -380,41 +498,229 @@ function EditablePerformanceRow({
   }
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-lg px-4 py-3 bg-surface/40 group">
+    <>
+      <li className="flex flex-wrap items-center justify-between gap-2 border border-border rounded-lg px-4 py-3 bg-surface/40 group hover:border-border/80 transition-colors">
+        <div className="flex items-start gap-3 min-w-0">
+          <CalendarDays className="h-4 w-4 text-text-muted shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-medium text-text-primary">
+              {formatPerformanceDateDisplay(perf.performanceDate)}
+            </div>
+            <div className="text-xs text-text-secondary mt-0.5">
+              Show {formatPerformanceTimeDisplay(perf.performanceTime)}
+              {' · '}
+              <span
+                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  perf.performanceStatus === 'Public'
+                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                    : 'bg-surface text-text-muted'
+                }`}
+              >
+                {perf.performanceStatus}
+              </span>
+            </div>
+            <div className="text-[10px] text-text-muted/60 mt-0.5 font-mono">
+              ID: {perf.performanceId}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isPrimary && (
+            <span className="text-xs font-medium bg-ems-accent/15 text-ems-accent px-2 py-0.5 rounded mr-1">
+              First
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-xs text-text-muted hover:text-ems-accent px-2.5 py-1.5 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-all"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="text-xs text-text-muted hover:text-ems-coral px-2.5 py-1.5 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-all"
+          >
+            Delete
+          </button>
+        </div>
+      </li>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete performance?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove the performance on{' '}
+              <strong>{formatPerformanceDateDisplay(perf.performanceDate)}</strong> at{' '}
+              <strong>{formatPerformanceTimeDisplay(perf.performanceTime)}</strong>?
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void handleDelete()}
+            >
+              {deleting ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Deleting…
+                </span>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Finance tab — UI-only (optional fields). Not sent to the API until DB supports it.
+// ---------------------------------------------------------------------------
+function EngagementFinancePanel() {
+  const [loadIn, setLoadIn] = useState('');
+  const [rehearsal, setRehearsal] = useState('');
+  const [dealType, setDealType] = useState('');
+  const [guarantee, setGuarantee] = useState('');
+  const [splitPct, setSplitPct] = useState('');
+  const [breakeven, setBreakeven] = useState('');
+  const [grossPotential, setGrossPotential] = useState('');
+  const [projectedGross, setProjectedGross] = useState('');
+  const [projectedMargin, setProjectedMargin] = useState('');
+  const [withholdingNotes, setWithholdingNotes] = useState('');
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-5 space-y-8">
+      <div className="rounded-lg border border-ems-amber/30 bg-ems-amber/5 px-4 py-3 text-sm text-text-secondary">
+        <p className="font-medium text-text-primary">Preview only</p>
+      </div>
+
       <div>
-        <div className="text-sm font-medium text-text-primary">
-          {formatPerformanceDateDisplay(perf.performanceDate)}
-        </div>
-        <div className="text-xs text-text-secondary mt-0.5">
-          Show {formatPerformanceTimeDisplay(perf.performanceTime)} · {perf.performanceStatus}
-        </div>
-        <div className="text-[10px] text-text-muted mt-0.5 font-mono">
-          PerformanceID: {perf.performanceId}
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Production schedule</h3>
+        <p className="text-xs text-text-muted mb-4">
+          Planned: load-in and rehearsal dates on the engagement.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Load-in date" optional>
+            <input
+              type="date"
+              className={inputCls}
+              value={loadIn}
+              onChange={(e) => setLoadIn(e.target.value)}
+            />
+          </FormField>
+          <FormField label="Rehearsal date" optional>
+            <input
+              type="date"
+              className={inputCls}
+              value={rehearsal}
+              onChange={(e) => setRehearsal(e.target.value)}
+            />
+          </FormField>
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {isPrimary && (
-          <span className="text-xs font-medium bg-ems-accent/15 text-ems-accent px-2 py-0.5 rounded">
-            Primary
-          </span>
-        )}
-        <button type="button" onClick={() => setEditing(true)}
-          className="text-xs text-text-muted hover:text-ems-accent px-2 py-1 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-opacity">
-          Edit
-        </button>
-        <button type="button" onClick={() => void handleDelete()} disabled={deleting}
-          className="text-xs text-text-muted hover:text-ems-coral px-2 py-1 rounded hover:bg-elevated opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50">
-          {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Delete'}
-        </button>
+
+      <div className="border-t border-border pt-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Artist finance</h3>
+        <p className="text-xs text-text-muted mb-4">Planned: dbo.ArtistFinance (per engagement).</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <FormField label="Deal type" optional>
+            <input
+              className={inputCls}
+              value={dealType}
+              onChange={(e) => setDealType(e.target.value)}
+              placeholder="e.g. Guarantee vs split"
+              maxLength={100}
+            />
+          </FormField>
+          <FormField label="Guarantee" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={guarantee}
+              onChange={(e) => setGuarantee(e.target.value)}
+              placeholder="0"
+            />
+          </FormField>
+          <FormField label="Split %" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={splitPct}
+              onChange={(e) => setSplitPct(e.target.value)}
+              placeholder="0–100"
+            />
+          </FormField>
+        </div>
       </div>
-    </li>
+
+      <div className="border-t border-border pt-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Engagement finances</h3>
+        <p className="text-xs text-text-muted mb-4">Planned: dbo.EngagementFinances.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormField label="Breakeven" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={breakeven}
+              onChange={(e) => setBreakeven(e.target.value)}
+            />
+          </FormField>
+          <FormField label="Gross potential" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={grossPotential}
+              onChange={(e) => setGrossPotential(e.target.value)}
+            />
+          </FormField>
+          <FormField label="Projected gross" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={projectedGross}
+              onChange={(e) => setProjectedGross(e.target.value)}
+            />
+          </FormField>
+          <FormField label="Projected margin" optional>
+            <input
+              className={inputCls}
+              inputMode="decimal"
+              value={projectedMargin}
+              onChange={(e) => setProjectedMargin(e.target.value)}
+            />
+          </FormField>
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-6">
+        <h3 className="text-sm font-semibold text-text-primary mb-1">Tax &amp; withholding</h3>
+        <p className="text-xs text-text-muted mb-4">
+          Planned: link to dbo.NonResidentWithholding or equivalent on the engagement.
+        </p>
+        <FormField label="Notes (reference only)" optional>
+          <input
+            className={inputCls}
+            value={withholdingNotes}
+            onChange={(e) => setWithholdingNotes(e.target.value)}
+            placeholder="e.g. rate / form reference — not saved"
+          />
+        </FormField>
+      </div>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Main detail page
 // ---------------------------------------------------------------------------
-
 interface Props {
   engagementId: number;
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
@@ -426,15 +732,15 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
   const [tab, setTab] = useState('Overview');
   const [showEdit, setShowEdit] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
-  const [overviewNotes, setOverviewNotes] = useState('');
 
+  // ── Data ────────────────────────────────────────────────────────────────
   const detailQuery = useQuery({
     queryKey: ['engagements', engagementId],
     queryFn: () => fetchEngagement(engagementId),
+    retry: 2,
   });
 
   useEffect(() => {
-    setOverviewNotes('');
     setTab('Overview');
   }, [engagementId]);
 
@@ -448,6 +754,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
       ]);
       return { attractions, tours, companies };
     },
+    staleTime: 60_000,
   });
 
   const venueId = detailQuery.data?.primaryVenueCompanyId;
@@ -456,7 +763,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
     const r = detailQuery.data;
     if (r?.tourId == null) return null as number | null;
     const tours = lookupsQuery.data?.tours;
-    if (tours === undefined) return undefined as number | null | undefined;
+    if (tours === undefined) return undefined as unknown as number | null;
     const t = tours.find((x) => x.tourId === r.tourId);
     return t?.tourManagementCompanyId ?? null;
   }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
@@ -476,6 +783,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
       tourMgmtCompanyId > 0,
   });
 
+  // ── Status inline patch ─────────────────────────────────────────────────
   const patchMutation = useMutation({
     mutationFn: (body: Parameters<typeof updateEngagement>[1]) =>
       updateEngagement(engagementId, body),
@@ -486,11 +794,12 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
+  // ── Delete ──────────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: () => deleteEngagement(engagementId),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['engagements'] });
-      addToast('Engagement removed.', 'warning');
+      addToast('Engagement deleted.', 'warning');
       onNavigate('engagements');
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
@@ -509,11 +818,12 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
     );
   };
 
-  const statusSelectOptions = useMemo(() => {
-    const merged = new Set<string>([...ENGAGEMENT_STATUS_ENUM, row?.engagementStatus ?? ''].filter(Boolean));
-    return toOptions(Array.from(merged));
-  }, [row?.engagementStatus]);
+  const statusSelectOptions = useMemo(
+    () => ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s })),
+    [],
+  );
 
+  // ── Performances ────────────────────────────────────────────────────────
   const performancesQuery = useQuery({
     queryKey: ['engagements', engagementId, 'performances'],
     queryFn: () => fetchEngagementPerformances(engagementId),
@@ -522,24 +832,42 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
 
   const [showAddPerformance, setShowAddPerformance] = useState(false);
   const [pfDate, setPfDate] = useState('');
-  const [pfDoor, setPfDoor] = useState('19:00');
-  const [pfShow, setPfShow] = useState('20:00');
-  const [pfRuntime, setPfRuntime] = useState('120');
+  const [pfTime, setPfTime] = useState('20:00');
+  const [pfStatus, setPfStatus] = useState('Public');
+  const [pfErrors, setPfErrors] = useState<{ date?: string; time?: string }>({});
 
   const createPerformanceMut = useMutation({
-    mutationFn: (body: { performanceDate: string; performanceTime: string }) =>
+    mutationFn: (body: { performanceDate: string; performanceTime: string; performanceStatus: string }) =>
       createEngagementPerformance(engagementId, body),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] });
       addToast('Show date saved.', 'success');
       setShowAddPerformance(false);
+      setPfDate('');
+      setPfTime('20:00');
+      setPfStatus('Public');
+      setPfErrors({});
     },
     onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
   });
 
-  const inputClsModal =
-    'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20';
+  const handleAddPerformance = () => {
+    const errs: { date?: string; time?: string } = {};
+    if (!pfDate.trim()) errs.date = 'Date is required.';
+    if (!pfTime.trim()) errs.time = 'Show time is required.';
+    if (Object.keys(errs).length) {
+      setPfErrors(errs);
+      return;
+    }
+    setPfErrors({});
+    createPerformanceMut.mutate({
+      performanceDate: pfDate,
+      performanceTime: pfTime,
+      performanceStatus: pfStatus || 'Public',
+    });
+  };
 
+  // ── Loading / Error states ──────────────────────────────────────────────
   if (detailQuery.isLoading) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-text-muted">
@@ -559,8 +887,22 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
         >
           ← Back to Engagements
         </button>
-        <div className="text-ems-coral text-sm border border-ems-coral/30 rounded-lg px-3 py-2">
-          {detailQuery.error ? friendlyApiError(detailQuery.error) : 'Engagement not found.'}
+        <div className="flex items-start gap-3 text-sm text-ems-coral border border-ems-coral/30 rounded-lg px-4 py-3 bg-ems-coral-dim">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="font-medium">Could not load engagement</p>
+            <p className="text-xs text-ems-coral/80 mt-0.5">
+              {detailQuery.error ? friendlyApiError(detailQuery.error) : 'Engagement not found.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => detailQuery.refetch()}
+            className="flex items-center gap-1 text-xs hover:underline shrink-0"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -568,35 +910,50 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
 
   return (
     <div className="space-y-4">
+      {/* Back nav */}
       <button
         type="button"
         onClick={() => onNavigate('engagements')}
-        className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1"
+        className="text-text-muted hover:text-text-primary text-sm flex items-center gap-1 transition-colors"
       >
         ← Back to Engagements
       </button>
 
       {/* Header card */}
-      <div className="bg-card border border-border rounded-lg p-4">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
+      <div className="bg-card border border-border rounded-lg p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-lg font-bold text-text-primary leading-tight">
+              {row.attractionName ?? row.tourName}
+            </h1>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <span>
-                <span className="text-text-muted text-xs font-medium">Attraction: </span>
-                <span className="text-text-primary font-semibold">{row.attractionName ?? '—'}</span>
-              </span>
-              <span>
-                <span className="text-text-muted text-xs font-medium">Tour: </span>
-                <span className="text-text-primary font-semibold">{row.tourName ?? '—'}</span>
-              </span>
-              <span>
-                <span className="text-text-muted text-xs font-medium">Venue: </span>
-                <span className="text-text-primary font-semibold">{row.venueCompanyName ?? row.venueName ?? '—'}</span>
-              </span>
+              {row.attractionName && (
+                <span className="flex items-center gap-1.5 text-text-secondary">
+                  <Tag className="h-3.5 w-3.5 text-text-muted" />
+                  {row.tourName}
+                </span>
+              )}
+              {(row.venueCompanyName ?? row.venueName) && (
+                <span className="flex items-center gap-1.5 text-text-secondary">
+                  <Building2 className="h-3.5 w-3.5 text-text-muted" />
+                  {row.venueCompanyName ?? row.venueName}
+                </span>
+              )}
+              {(row.city || row.stateProvince) && (
+                <span className="flex items-center gap-1.5 text-text-secondary">
+                  <MapPin className="h-3.5 w-3.5 text-text-muted" />
+                  {[row.city, row.stateProvince].filter(Boolean).join(', ')}
+                </span>
+              )}
             </div>
-            <p className="text-xs text-text-muted">Engagement #{row.engagementId}</p>
+            <p className="text-xs text-text-muted">
+              Engagement #{row.engagementId}
+              {row.dmaMarketName ? ` · ${row.dmaMarketName}` : ''}
+            </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+
+          {/* Action area */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
             <div className="w-44">
               <Select2
                 options={statusSelectOptions}
@@ -606,14 +963,26 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                 disabled={patchMutation.isPending}
               />
             </div>
-            <Button variant="outline" size="sm" onClick={() => setShowEdit(true)} disabled={!lookupsQuery.data}>
-              Edit details
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowEdit(true)}
+              disabled={!lookupsQuery.data || lookupsQuery.isPending}
+            >
+              {lookupsQuery.isPending ? (
+                <span className="inline-flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading…
+                </span>
+              ) : (
+                'Edit details'
+              )}
             </Button>
             {row.appCreated && (
               <button
                 type="button"
                 onClick={() => setPendingDelete(true)}
-                className="text-ems-coral text-xs hover:underline"
+                className="text-ems-coral text-xs hover:underline transition-colors"
               >
                 Delete
               </button>
@@ -621,111 +990,93 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
           </div>
         </div>
 
-        {/* DB fields grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4 pt-4 border-t border-border text-sm">
+        {/* Detail grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-5 pt-5 border-t border-border text-sm">
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Attraction</span>
-            <span className="text-text-primary font-medium">{row.attractionName}</span>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Attraction</span>
+            <span className="text-text-primary">{row.attractionName ?? '—'}</span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Tour</span>
-            <span className="text-text-primary font-medium">{row.tourName ?? '—'}</span>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Tour</span>
+            <span className="text-text-primary">{row.tourName ?? '—'}</span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Venue</span>
-            <span className="text-text-primary font-medium">
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Venue</span>
+            <span className="text-text-primary">
               {row.venueCompanyName ?? row.venueName ?? '—'}
             </span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Location</span>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Location</span>
             <span className="text-text-secondary">
               {[row.city, row.stateProvince].filter(Boolean).join(', ') || '—'}
             </span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">Market (DMA)</span>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">Market (DMA)</span>
             <span className="text-text-secondary">{row.dmaMarketName ?? '—'}</span>
           </div>
           <div>
-            <span className="text-text-muted text-xs block mb-0.5">
-              Scaling{' '}
-              <span className="text-text-muted/60 font-normal">(dbo.Engagement.EngagementScaling)</span>
+            <span className="text-text-muted text-xs block mb-0.5 font-medium">
+              Opening show date and time
             </span>
-            <span className="text-text-secondary">{row.engagementScaling ?? '—'}</span>
+            <span className="text-text-secondary">
+              {row.openingPerformanceDate && row.openingPerformanceTime
+                ? `${formatOpeningDateSafe(row.openingPerformanceDate)} · ${formatSqlTimeDisplay(row.openingPerformanceTime)}`
+                : '—'}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
       <TabBar
-        tabs={['Overview', 'Venues', 'Contacts', 'Dates', 'Audit Log']}
+        tabs={['Overview', 'Venues', 'Contacts', 'Dates', 'Finance', 'Audit Log']}
         active={tab}
         onChange={setTab}
       />
 
-      {/* Overview */}
+      {/* ── Overview ─────────────────────────────────────────────────────── */}
       {tab === 'Overview' && (
-        <div className="bg-card border border-border rounded-lg p-4 space-y-4">
-          <div>
-            <label className="text-xs font-medium text-text-secondary block mb-1.5">
-              Notes (optional – frontend only, not stored in dbo.Engagement)
-            </label>
-            <textarea
-              className="w-full min-h-[100px] bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent resize-y"
-              placeholder="Add notes for your team…"
-              value={overviewNotes}
-              onChange={(e) => setOverviewNotes(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm border-t border-border pt-4">
+        <div className="bg-card border border-border rounded-lg p-5 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <div>
-              <span className="text-text-muted text-xs block mb-0.5">
-                Deal type{' '}
-                <span className="text-text-muted/60">(maps to dbo.ArtistFinance.ArtistDealType)</span>
-              </span>
-              <span className="text-text-secondary">—</span>
+              <span className="text-text-muted text-xs block mb-1 font-medium">Engagement</span>
+              <span className="text-text-primary text-sm">{row.displayTitle || '—'}</span>
             </div>
             <div>
-              <span className="text-text-muted text-xs block mb-0.5">
-                Guarantee{' '}
-                <span className="text-text-muted/60">(maps to dbo.ArtistFinance.ArtistGuarantee)</span>
-              </span>
-              <span className="text-text-secondary">—</span>
+              <span className="text-text-muted text-xs block mb-1 font-medium">Status</span>
+              <span className="text-text-primary">{row.engagementStatus}</span>
             </div>
             <div>
-              <span className="text-text-muted text-xs block mb-0.5">
-                Breakeven{' '}
-                <span className="text-text-muted/60">(maps to dbo.EngagementFinances.EstimatedBreakeven)</span>
-              </span>
-              <span className="text-text-secondary">—</span>
+              <span className="text-text-muted text-xs block mb-1 font-medium">Tour</span>
+              <span className="text-text-primary">{row.tourName || '—'}</span>
             </div>
             <div>
-              <span className="text-text-muted text-xs block mb-0.5">
-                Gross potential{' '}
-                <span className="text-text-muted/60">(dbo.EngagementFinances.GrossPotential)</span>
+              <span className="text-text-muted text-xs block mb-1 font-medium">Venue</span>
+              <span className="text-text-primary">
+                {row.venueCompanyName ?? row.venueName ?? '—'}
               </span>
-              <span className="text-text-secondary">—</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Venues */}
+      {/* ── Venues ───────────────────────────────────────────────────────── */}
       {tab === 'Venues' && (
-        <div className="bg-card border border-border rounded-lg p-4">
+        <div className="bg-card border border-border rounded-lg p-5">
           <VenuesTab engagementId={engagementId} addToast={addToast} />
         </div>
       )}
 
-      {/* Contacts */}
+      {/* ── Contacts ─────────────────────────────────────────────────────── */}
       {tab === 'Contacts' && (
         <div className="space-y-6">
           {/* Venue contacts */}
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-2">Venue contacts</h3>
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-3">Venue contacts</h3>
             {!venueId ? (
-              <p className="text-sm text-text-muted">No primary venue is linked.</p>
+              <p className="text-sm text-text-muted">No venue is linked.</p>
             ) : venueContactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -734,55 +1085,18 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
             ) : venueContactsQuery.error ? (
               <p className="text-sm text-ems-coral">{friendlyApiError(venueContactsQuery.error)}</p>
             ) : (
-              <div className="bg-card border border-border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[400px]">
-                    <thead>
-                      <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                        <th className="text-left py-2 px-3">Name</th>
-                        <th className="text-left py-2 px-3">Role</th>
-                        <th className="text-left py-2 px-3">Email</th>
-                        <th className="text-left py-2 px-3">Phone</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(venueContactsQuery.data ?? []).length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="py-6 text-center text-text-muted text-sm">
-                            No contacts for this venue.
-                          </td>
-                        </tr>
-                      ) : (
-                        (venueContactsQuery.data ?? []).map((c) => (
-                          <tr key={c.contactAssignmentId} className="border-b border-border/50">
-                            <td className="py-2 px-3 text-text-primary">
-                              {c.firstName} {c.lastName}
-                            </td>
-                            <td className="py-2 px-3 text-text-secondary text-xs">
-                              {c.roleName} · {c.departmentName}
-                            </td>
-                            <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
-                            <td className="py-2 px-3 text-text-secondary text-xs">
-                              {c.cellPhone || c.workPhone || '—'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <ContactsTable contacts={venueContactsQuery.data ?? []} />
             )}
           </div>
 
-          {/* Tour contacts */}
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary mb-2">Tour contacts</h3>
-            <p className="text-xs text-text-muted mb-2">
+          {/* Tour management contacts */}
+          <div className="bg-card border border-border rounded-lg p-5">
+            <h3 className="text-sm font-semibold text-text-primary mb-1">Tour management contacts</h3>
+            <p className="text-xs text-text-muted mb-3">
               Contacts for the Tour Management Company assigned to this tour.
             </p>
             {row.tourId == null ? (
-              <p className="text-sm text-text-muted">No tour is linked to this engagement.</p>
+              <p className="text-sm text-text-muted">No tour linked.</p>
             ) : lookupsQuery.isPending ? (
               <div className="flex items-center gap-2 text-text-muted text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -790,7 +1104,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
               </div>
             ) : tourMgmtCompanyId === null ? (
               <p className="text-sm text-text-muted">
-                No Tour Management Company is assigned to this tour.
+                No Tour Management Company assigned to this tour.
               </p>
             ) : tourContactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted text-sm">
@@ -800,81 +1114,53 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
             ) : tourContactsQuery.error ? (
               <p className="text-sm text-ems-coral">{friendlyApiError(tourContactsQuery.error)}</p>
             ) : (
-              <div className="bg-card border border-border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[400px]">
-                    <thead>
-                      <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                        <th className="text-left py-2 px-3">Name</th>
-                        <th className="text-left py-2 px-3">Role</th>
-                        <th className="text-left py-2 px-3">Email</th>
-                        <th className="text-left py-2 px-3">Phone</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(tourContactsQuery.data ?? []).length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="py-6 text-center text-text-muted text-sm">
-                            No contacts for this company.
-                          </td>
-                        </tr>
-                      ) : (
-                        (tourContactsQuery.data ?? []).map((c) => (
-                          <tr key={c.contactAssignmentId} className="border-b border-border/50">
-                            <td className="py-2 px-3 text-text-primary">
-                              {c.firstName} {c.lastName}
-                            </td>
-                            <td className="py-2 px-3 text-text-secondary text-xs">
-                              {c.roleName} · {c.departmentName}
-                            </td>
-                            <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
-                            <td className="py-2 px-3 text-text-secondary text-xs">
-                              {c.cellPhone || c.workPhone || '—'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <ContactsTable contacts={tourContactsQuery.data ?? []} />
             )}
           </div>
         </div>
       )}
 
-      {/* Dates */}
+      {/* ── Dates ────────────────────────────────────────────────────────── */}
       {tab === 'Dates' && (
-        <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+        <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">
-                Show dates &amp; performances
-              </h3>
-              <p className="text-xs text-text-muted mt-1 max-w-xl">
-                Each row = one dbo.Performance record (PerformanceDate + PerformanceTime, both
-                required by DB). One engagement can have multiple performances.
-              </p>
+              <h3 className="text-sm font-semibold text-text-primary">Show dates & performances</h3>
+              <p className="text-xs text-text-muted mt-1">Each row is one show date and time.</p>
             </div>
             <button
               type="button"
-              onClick={() => setShowAddPerformance(true)}
-              className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:opacity-95"
+              onClick={() => { setShowAddPerformance(true); setPfErrors({}); }}
+              className="inline-flex items-center justify-center shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-medium hover:bg-ems-accent/90 transition-colors"
             >
               + Add date
             </button>
           </div>
+
           {performancesQuery.isLoading ? (
             <div className="flex items-center gap-2 text-text-muted text-sm py-6">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading performances…
             </div>
           ) : performancesQuery.error ? (
-            <p className="text-sm text-ems-coral">{friendlyApiError(performancesQuery.error)}</p>
+            <div className="flex items-center gap-2 text-ems-coral text-sm py-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {friendlyApiError(performancesQuery.error)}
+              <button
+                type="button"
+                onClick={() => performancesQuery.refetch()}
+                className="text-xs underline ml-1"
+              >
+                Retry
+              </button>
+            </div>
           ) : (performancesQuery.data ?? []).length === 0 ? (
-            <p className="text-sm text-text-muted py-4">
-              No performances yet. Add a show date to create the first performance.
-            </p>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <CalendarDays className="h-8 w-8 text-text-muted/50" />
+              <p className="text-sm text-text-muted">
+                No performances yet. Add a show date to get started.
+              </p>
+            </div>
           ) : (
             <ul className="space-y-2">
               {(performancesQuery.data ?? []).map((p, idx) => (
@@ -883,7 +1169,11 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                   perf={p}
                   isPrimary={idx === 0}
                   engagementId={engagementId}
-                  onRefresh={() => qc.invalidateQueries({ queryKey: ['engagements', engagementId, 'performances'] })}
+                  onRefresh={() =>
+                    qc.invalidateQueries({
+                      queryKey: ['engagements', engagementId, 'performances'],
+                    })
+                  }
                   addToast={addToast}
                 />
               ))}
@@ -892,98 +1182,96 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
         </div>
       )}
 
-      {/* Audit Log */}
+      {/* ── Finance & logistics ─────────────────────────────────────────── */}
+      {tab === 'Finance' && <EngagementFinancePanel />}
+
+      {/* ── Audit Log ────────────────────────────────────────────────────── */}
       {tab === 'Audit Log' && (
         <div className="bg-card border border-border rounded-lg p-8 text-center text-sm text-text-muted">
-          No activity history is available in this app yet.
+          No activity history is available yet.
         </div>
       )}
 
-      {/* Add performance modal */}
+      {/* ── Add performance modal ─────────────────────────────────────────── */}
       {showAddPerformance && (
         <Modal
           title="Add show date"
           onClose={() => !createPerformanceMut.isPending && setShowAddPerformance(false)}
-          width={560}
+          width={520}
           allowContentOverflow
         >
-          <div className="space-y-4">
-            <div className="text-xs text-text-muted bg-elevated border border-border/50 rounded-md px-3 py-2">
-              <strong className="text-text-secondary">DB fields saved:</strong> PerformanceDate,
-              PerformanceTime, PerformanceStatus (default "Public"). Door time and runtime are
-              frontend-only planning fields.
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Show date (required)" required>
+          <div className="space-y-0">
+            {/* Row 1: Date + Show Time */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
+              <FormField label="Show date" required>
                 <input
                   type="date"
-                  className={inputClsModal}
+                  className={inputCls}
                   value={pfDate}
-                  onChange={(e) => setPfDate(e.target.value)}
+                  onChange={(e) => { setPfDate(e.target.value); setPfErrors((p) => ({ ...p, date: undefined })); }}
                 />
+                {pfErrors.date && (
+                  <p className="mt-1 text-xs text-ems-coral">{pfErrors.date}</p>
+                )}
               </FormField>
-              <FormField label="Door time (frontend only)">
+
+              <FormField label="Show / curtain time" required>
                 <input
                   type="time"
-                  className={inputClsModal}
-                  value={pfDoor}
-                  onChange={(e) => setPfDoor(e.target.value)}
+                  className={inputCls}
+                  value={pfTime}
+                  onChange={(e) => { setPfTime(e.target.value); setPfErrors((p) => ({ ...p, time: undefined })); }}
                 />
+                {pfErrors.time && (
+                  <p className="mt-1 text-xs text-ems-coral">{pfErrors.time}</p>
+                )}
               </FormField>
-              <FormField label="Show / curtain time (required)" required>
-                <input
-                  type="time"
-                  className={inputClsModal}
-                  value={pfShow}
-                  onChange={(e) => setPfShow(e.target.value)}
-                />
-              </FormField>
-              <FormField label="Runtime minutes (frontend only)">
-                <input
-                  type="number"
-                  min={0}
-                  className={inputClsModal}
-                  value={pfRuntime}
-                  onChange={(e) => setPfRuntime(e.target.value)}
+            </div>
+
+            <div className="border-t border-border/60 pb-5" />
+
+            {/* Row 2: Status */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4 pb-5">
+              <FormField label="Status">
+                <Select2
+                  options={PERFORMANCE_STATUS_OPTIONS}
+                  value={pfStatus}
+                  onChange={setPfStatus}
+                  placeholder="Select status…"
                 />
               </FormField>
             </div>
+
             <div className="flex gap-2 justify-end pt-4 border-t border-border">
               <button
                 type="button"
                 onClick={() => setShowAddPerformance(false)}
                 disabled={createPerformanceMut.isPending}
-                className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+                className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 disabled={createPerformanceMut.isPending}
-                onClick={() => {
-                  if (!pfDate.trim()) {
-                    addToast('Choose a show date.', 'warning');
-                    return;
-                  }
-                  if (!pfShow.trim()) {
-                    addToast('Choose a show time.', 'warning');
-                    return;
-                  }
-                  createPerformanceMut.mutate({
-                    performanceDate: pfDate,
-                    performanceTime: pfShow,
-                  });
-                }}
-                className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60"
+                onClick={handleAddPerformance}
+                className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent text-background text-sm px-5 py-2 rounded-md font-medium disabled:opacity-60 hover:bg-ems-accent/90 transition-colors"
               >
-                {createPerformanceMut.isPending ? 'Saving…' : 'Add date'}
+                {createPerformanceMut.isPending ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  'Add date'
+                )}
               </button>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Edit modal */}
+      {/* ── Edit modal ───────────────────────────────────────────────────── */}
       {showEdit && lookupsQuery.data && (
         <EditEngagementModal
           row={row}
@@ -1002,13 +1290,14 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
         />
       )}
 
-      {/* Delete dialog */}
+      {/* ── Delete confirm ───────────────────────────────────────────────── */}
       <AlertDialog open={pendingDelete} onOpenChange={setPendingDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this engagement?</AlertDialogTitle>
             <AlertDialogDescription>
-              Only engagements created in this app can be deleted. This cannot be undone.
+              Permanently delete engagement <strong>#{row.engagementId}</strong> (
+              {row.displayTitle}). This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1018,7 +1307,14 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
             >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Deleting…
+                </span>
+              ) : (
+                'Delete'
+              )}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1028,9 +1324,64 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
 }
 
 // ---------------------------------------------------------------------------
-// Edit modal
+// Contacts table (shared)
 // ---------------------------------------------------------------------------
+function ContactsTable({
+  contacts,
+}: {
+  contacts: {
+    contactAssignmentId: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+    cellPhone?: string | null;
+    workPhone?: string | null;
+    roleName: string;
+    departmentName: string;
+  }[];
+}) {
+  if (contacts.length === 0) {
+    return (
+      <p className="text-sm text-text-muted py-2">No contacts found.</p>
+    );
+  }
+  return (
+    <div className="bg-elevated border border-border rounded-lg overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[400px]">
+          <thead>
+            <tr className="text-text-muted text-xs border-b border-border bg-surface">
+              <th className="text-left py-2 px-3">Name</th>
+              <th className="text-left py-2 px-3">Role</th>
+              <th className="text-left py-2 px-3">Email</th>
+              <th className="text-left py-2 px-3">Phone</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contacts.map((c) => (
+              <tr key={c.contactAssignmentId} className="border-b border-border/50 hover:bg-hover">
+                <td className="py-2 px-3 text-text-primary font-medium">
+                  {c.firstName} {c.lastName}
+                </td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {c.roleName} · {c.departmentName}
+                </td>
+                <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
+                <td className="py-2 px-3 text-text-secondary text-xs">
+                  {c.cellPhone || c.workPhone || '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
+// ---------------------------------------------------------------------------
+// Edit engagement modal
+// ---------------------------------------------------------------------------
 function EditEngagementModal({
   row,
   attractions,
@@ -1049,37 +1400,36 @@ function EditEngagementModal({
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
   const venueCompanies = useMemo(
-    () => companies.filter((c) => c.companyTypeName === 'Venue'),
+    () =>
+      companies
+        .filter((c) => c.companyTypeName === 'Venue')
+        .sort((a, b) =>
+          a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
+        ),
     [companies],
+  );
+
+  const sortedAttractions = useMemo(
+    () =>
+      [...attractions].sort((a, b) =>
+        a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }),
+      ),
+    [attractions],
   );
 
   const attractionOptions = useMemo(
     () =>
-      [...attractions]
-        .sort((a, b) =>
-          a.attractionName.localeCompare(b.attractionName, undefined, { sensitivity: 'base' }),
-        )
-        .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
-    [attractions],
+      sortedAttractions.map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [sortedAttractions],
   );
 
   const venueOptions = useMemo(
-    () =>
-      [...venueCompanies]
-        .sort((a, b) =>
-          a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
-        )
-        .map((v) => ({ value: String(v.companyId), label: v.companyName })),
+    () => venueCompanies.map((v) => ({ value: String(v.companyId), label: v.companyName })),
     [venueCompanies],
   );
 
-  const statusOptions = useMemo(() => toOptions([...ENGAGEMENT_STATUS_ENUM]), []);
-  const bookerOptions = useMemo(
-    () => USERS.map((u) => ({ value: u.id, label: `${u.name} (${u.role})` })),
-    [],
-  );
-  const dealTypeOptions = useMemo(
-    () => DEAL_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+  const statusOptions = useMemo(
+    () => ENGAGEMENT_STATUS_ENUM.map((s) => ({ value: s, label: s })),
     [],
   );
 
@@ -1088,25 +1438,26 @@ function EditEngagementModal({
   );
   const [tourId, setTourId] = useState<string>(row.tourId != null ? String(row.tourId) : '');
   const [primaryVenueId, setPrimaryVenueId] = useState<string>(
-    String(row.primaryVenueCompanyId ?? venueCompanies[0]?.companyId ?? ''),
+    row.primaryVenueCompanyId != null ? String(row.primaryVenueCompanyId) : '',
   );
   const [recordStatus, setRecordStatus] = useState(row.engagementStatus);
-  const [engagementScaling, setEngagementScaling] = useState(row.engagementScaling ?? '');
-  // FRONTEND-ONLY fields
-  const [bookerId, setBookerId] = useState<string>('');
-  const [dealType, setDealType] = useState(DEAL_TYPE_OPTIONS[0]?.value ?? 'Guarantee');
-  const [guarantee, setGuarantee] = useState('');
-  const [showDate, setShowDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
 
   const attractionIdNum = Number(attractionId);
+
   const toursForAttraction = useMemo(
     () =>
       attractionId && Number.isFinite(attractionIdNum)
-        ? tours.filter((t) => t.attractionId === attractionIdNum)
+        ? tours
+            .filter((t) => t.attractionId === attractionIdNum)
+            .sort((a, b) =>
+              a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' }),
+            )
         : [],
     [tours, attractionId, attractionIdNum],
   );
+
   const tourOptions = useMemo(
     () => toursForAttraction.map((t) => ({ value: String(t.tourId), label: t.tourName })),
     [toursForAttraction],
@@ -1121,35 +1472,29 @@ function EditEngagementModal({
     setTourId('');
   }, [attractionId]);
 
-  const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const clearError = (field: string) =>
+    setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
+
+  const validate = (): boolean => {
+    const next: Record<string, string> = {};
+    if (!recordStatus) next.status = 'Status is required.';
+    if (!tourId) next.tour = 'Tour is required.';
+    if (!primaryVenueId) next.venue = 'Venue is required.';
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleSubmit = async () => {
-    if (!recordStatus.trim() || recordStatus.length > 50) {
-      addToast('Status is required (max 50 characters).', 'warning');
-      return;
-    }
-    const tid = tourId ? Number(tourId) : null;
-    if (tourId && !Number.isFinite(tid)) {
-      addToast('Invalid tour.', 'warning');
-      return;
-    }
-    if (!primaryVenueId) {
-      addToast('Select a primary venue.', 'warning');
+    if (!validate()) {
+      addToast('Please fill in all required fields.', 'warning');
       return;
     }
     setSubmitting(true);
     try {
       await onSave({
-        engagementStatus: recordStatus.trim(),
-        engagementScaling: engagementScaling.trim() || null,
-        tourId: tid ?? undefined,
+        engagementStatus: recordStatus,
+        tourId: Number(tourId),
         primaryVenueCompanyId: Number(primaryVenueId),
-        // FRONTEND-ONLY fields
-        dealType: dealType || null,
-        guarantee: guarantee ? Number(guarantee) : null,
-        showDate: showDate || null,
-        bookerId: bookerId || null,
       });
     } catch (e) {
       addToast(friendlyApiError(e), 'error');
@@ -1159,114 +1504,76 @@ function EditEngagementModal({
   };
 
   return (
-    <Modal title="Edit engagement" onClose={onClose} width={960} allowContentOverflow>
-      <div className="space-y-5">
-        {/* DB-backed fields */}
-        <div className="rounded-lg border border-border/50 bg-elevated/30 px-4 py-3">
-          <p className="text-[11px] text-text-muted mb-3 font-medium uppercase tracking-wide">
-            DB-backed fields (dbo.Engagement + dbo.EngagementVenue)
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <Modal title="Edit engagement" onClose={onClose} width={720} allowContentOverflow>
+      <div className="flex flex-col">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
+          <div className="sm:col-span-2">
             <FormField label="Status" required>
               <Select2
                 options={statusOptions}
                 value={recordStatus}
-                onChange={setRecordStatus}
+                onChange={(v) => { setRecordStatus(v); clearError('status'); }}
                 placeholder="Select status…"
               />
-            </FormField>
-            <FormField label="Scaling (EngagementScaling)">
-              <input
-                className={inputCls}
-                value={engagementScaling}
-                onChange={(e) => setEngagementScaling(e.target.value)}
-                placeholder="e.g. GA, Reserved, Mixed"
-                maxLength={50}
-              />
+              {errors.status && (
+                <p className="mt-1 text-xs text-ems-coral">{errors.status}</p>
+              )}
             </FormField>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <FormField label="Filter by Attraction (optional)">
-              <Select2
-                options={attractionOptions}
-                value={attractionId}
-                onChange={setAttractionId}
-                placeholder="Select attraction…"
-              />
-            </FormField>
-            <FormField label="Tour" required>
-              <Select2
-                options={tourOptions.length
+
+          <FormField label="Filter by Attraction">
+            <Select2
+              options={[{ value: '', label: 'All attractions' }, ...attractionOptions]}
+              value={attractionId}
+              onChange={(v) => { setAttractionId(v); clearError('tour'); }}
+              placeholder="All attractions"
+              allowClear
+            />
+          </FormField>
+
+          <FormField label="Tour" required>
+            <Select2
+              options={
+                tourOptions.length
                   ? tourOptions
-                  : [{ value: '', label: attractionId ? 'No tours for this attraction' : 'Select attraction first…' }]}
-                value={tourId}
-                onChange={setTourId}
-                placeholder="No tour"
-                allowClear
-                disabled={!attractionId}
-              />
-            </FormField>
-          </div>
-          <div className="mt-4">
-            <FormField label="Venue (EngagementVenue, IsPrimary=1)" required>
+                  : [
+                      {
+                        value: '',
+                        label: attractionId
+                          ? 'No tours for this attraction'
+                          : 'Select attraction first…',
+                      },
+                    ]
+              }
+              value={tourId}
+              onChange={(v) => { setTourId(v); clearError('tour'); }}
+              placeholder="Select tour…"
+            />
+            {errors.tour && (
+              <p className="mt-1 text-xs text-ems-coral">{errors.tour}</p>
+            )}
+          </FormField>
+
+          <div className="sm:col-span-2">
+            <FormField label="Venue" required>
               <Select2
                 options={venueOptions}
                 value={primaryVenueId}
-                onChange={setPrimaryVenueId}
+                onChange={(v) => { setPrimaryVenueId(v); clearError('venue'); }}
                 placeholder="Select venue…"
               />
+              {errors.venue && (
+                <p className="mt-1 text-xs text-ems-coral">{errors.venue}</p>
+              )}
             </FormField>
           </div>
         </div>
 
-        {/* Frontend-only fields */}
-        <div className="rounded-lg border border-dashed border-border px-4 py-3">
-          <p className="text-[11px] text-text-muted mb-3 font-medium uppercase tracking-wide">
-            Frontend-only fields (not in dbo.Engagement — backend may persist separately)
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Booker (optional)">
-              <Select2
-                options={bookerOptions}
-                value={bookerId}
-                onChange={setBookerId}
-                placeholder="Select booker…"
-                allowClear
-              />
-            </FormField>
-            <FormField label="Show date (optional)">
-              <input
-                type="date"
-                className={inputCls}
-                value={showDate}
-                onChange={(e) => setShowDate(e.target.value)}
-              />
-            </FormField>
-            <FormField label="Deal type (optional)">
-              <Select2
-                options={dealTypeOptions}
-                value={dealType}
-                onChange={setDealType}
-                placeholder="Select…"
-              />
-            </FormField>
-            <FormField label="Guarantee (optional)">
-              <input
-                type="number"
-                className={inputCls}
-                value={guarantee}
-                onChange={(e) => setGuarantee(e.target.value)}
-                min={0}
-              />
-            </FormField>
-          </div>
-        </div>
-
-        <div className="flex gap-2 justify-end pt-4 border-t border-border">
+        <div className="flex gap-2 justify-end pt-6 mt-2 border-t border-border">
           <button
             type="button"
             onClick={onClose}
-            className="text-text-secondary text-sm px-3 py-1.5 hover:text-text-primary disabled:opacity-50"
+            className="text-text-secondary text-sm px-4 py-2 rounded-md hover:text-text-primary hover:bg-hover disabled:opacity-50 transition-colors"
             disabled={submitting}
           >
             Cancel
@@ -1275,9 +1582,16 @@ function EditEngagementModal({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={submitting}
-            className="inline-flex items-center justify-center gap-2 min-w-[7.5rem] bg-ems-accent text-background text-sm px-4 py-1.5 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent text-background text-sm px-5 py-2 rounded-md font-medium disabled:opacity-60 disabled:cursor-not-allowed hover:bg-ems-accent/90 transition-colors"
           >
-            {submitting ? 'Saving…' : 'Save'}
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Saving…
+              </>
+            ) : (
+              'Save Changes'
+            )}
           </button>
         </div>
       </div>

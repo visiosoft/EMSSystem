@@ -253,11 +253,28 @@ export function SelectInput({ options, value, onChange, placeholder }: { options
   );
 }
 
-export function FormField({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: React.ReactNode }) {
+export function FormField({
+  label,
+  required,
+  optional,
+  error,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  /** Show “(Optional)” — use for fields not yet persisted to the database */
+  optional?: boolean;
+  error?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1">
       <label className="text-xs font-medium text-text-secondary">
-        {label}{required && <span className="text-ems-coral ml-0.5">*</span>}
+        {label}
+        {required && <span className="text-ems-coral ml-0.5">*</span>}
+        {optional && (
+          <span className="text-text-muted font-normal ml-1">(Optional)</span>
+        )}
       </label>
       {children}
       {error && <p className="text-xs text-ems-coral">{error}</p>}

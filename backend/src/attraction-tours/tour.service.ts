@@ -1,11 +1,13 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
 import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
@@ -40,6 +42,8 @@ export interface TourListRow {
 
 @Injectable()
 export class TourService {
+  private readonly logger = new Logger(TourService.name);
+
   constructor(
     @InjectRepository(Tour)
     private readonly tourRepo: Repository<Tour>,
@@ -193,7 +197,20 @@ export class TourService {
       }
       existing.venueTypePreferenceId = dto.venueTypePreferenceId;
     }
-    await this.tourRepo.save(existing);
+    try {
+      await this.tourRepo.save(existing);
+    } catch (e: unknown) {
+      if (e instanceof QueryFailedError) {
+        const d = String((e as QueryFailedError).driverError ?? e.message);
+        this.logger.warn(`Tour update failed (tourId=${id}): ${d}`);
+        throw new BadRequestException({
+          message:
+            'Could not update the tour. The talent agent / company may be invalid for this tour, or the change conflicts with existing data.',
+          detail: d,
+        });
+      }
+      throw e;
+    }
   }
 
   async remove(id: number): Promise<void> {

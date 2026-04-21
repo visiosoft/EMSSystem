@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Tour } from './tour.entity';
 
 @Entity({ name: 'EngagementProject', schema: 'dbo' })
 export class EngagementProject {
@@ -7,6 +8,10 @@ export class EngagementProject {
 
   @Column({ name: 'TourID', type: 'int' })
   tourId: number;
+
+  @ManyToOne(() => Tour)
+  @JoinColumn({ name: 'TourID' })
+  tour: Tour;
 
   @Column({ name: 'ProjectStage', type: 'nvarchar', length: 50 })
   projectStage: string;

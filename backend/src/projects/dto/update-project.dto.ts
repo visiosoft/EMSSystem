@@ -1,4 +1,5 @@
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PROJECT_STAGE_VALUES } from './create-project.dto';
 
 export class UpdateProjectDto {
@@ -13,6 +14,7 @@ export class UpdateProjectDto {
   createdBy?: string | null;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   tourId?: number;
@@ -21,7 +23,14 @@ export class UpdateProjectDto {
   @IsOptional() name?: string | null;
   @IsOptional() bookerId?: string | null;
   @IsOptional() agentContactId?: string | null;
-  @IsOptional() dmaIds?: string[];
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  dmaIds?: number[];
   @IsOptional() targetOnSale?: string | null;
-  @IsOptional() notes?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  notes?: string | null;
 }

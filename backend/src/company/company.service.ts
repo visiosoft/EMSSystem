@@ -21,6 +21,7 @@ import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyContactDto } from './dto/create-company-contact.dto';
@@ -405,31 +406,32 @@ export class CompanyService {
     if (!existing)
       throw new NotFoundException(`Company ${companyId} not found`);
 
-    let mailingAddressId = existing.mailingAddressId;
-    const physicalAddr = existing.physicalAddress;
-    const mailingAddr = existing.mailingAddress;
+    const oldPhysicalId = existing.physicalAddressId;
+    const oldMailingId = existing.mailingAddressId;
 
+    // Never UPDATE dbo.Address in place when the new values might match another row —
+    // UX_Address dedupes on (line1, city, state, country, postal) and SQL Server
+    // rejects updates that would duplicate. Reuse the same get-or-create path as create().
+    let physicalAddressId = oldPhysicalId;
     if (dto.physical) {
-      physicalAddr.addressLine1 = dto.physical.addressLine1.trim();
-      physicalAddr.addressLine2 = dto.physical.addressLine2?.trim() || null;
-      physicalAddr.city = dto.physical.city.trim();
-      physicalAddr.stateProvince = dto.physical.stateProvince.trim();
-      physicalAddr.postalCode = dto.physical.postalCode.trim();
-      physicalAddr.country = dto.physical.country.trim();
-      await this.addressRepo.save(physicalAddr);
+      const resolved = await this.getOrCreateAddress(
+        this.dataSource.manager,
+        dto.physical,
+      );
+      physicalAddressId = resolved.addressId;
     }
 
+    let mailingAddressId = oldMailingId;
     if (dto.mailingSameAsPhysical === true) {
-      mailingAddressId = existing.physicalAddressId;
+      mailingAddressId = physicalAddressId;
     } else if (dto.mailing) {
-      mailingAddr.addressLine1 = dto.mailing.addressLine1.trim();
-      mailingAddr.addressLine2 = dto.mailing.addressLine2?.trim() || null;
-      mailingAddr.city = dto.mailing.city.trim();
-      mailingAddr.stateProvince = dto.mailing.stateProvince.trim();
-      mailingAddr.postalCode = dto.mailing.postalCode.trim();
-      mailingAddr.country = dto.mailing.country.trim();
-      await this.addressRepo.save(mailingAddr);
-      mailingAddressId = mailingAddr.addressId;
+      const resolved = await this.getOrCreateAddress(
+        this.dataSource.manager,
+        dto.mailing,
+      );
+      mailingAddressId = resolved.addressId;
+    } else if (dto.physical && oldMailingId === oldPhysicalId) {
+      mailingAddressId = physicalAddressId;
     }
 
     if (dto.companyName !== undefined) {
@@ -450,6 +452,7 @@ export class CompanyService {
       if (resolved != null) dmaId = resolved;
     }
     existing.dmaid = dmaId;
+    existing.physicalAddressId = physicalAddressId;
     existing.mailingAddressId = mailingAddressId;
 
     return this.companyRepo.save(existing);
@@ -743,7 +746,7 @@ export class CompanyService {
         (r as Record<string, unknown>)[k.toLowerCase()];
       return {
         engagementId: Number(g('engagementId')),
-        engagementStatus: String(g('engagementStatus')),
+        engagementStatus: normalizeEngagementStatus(String(g('engagementStatus'))),
         tourName: g('tourName') != null ? String(g('tourName')) : null,
         attractionName:
           g('attractionName') != null ? String(g('attractionName')) : null,
