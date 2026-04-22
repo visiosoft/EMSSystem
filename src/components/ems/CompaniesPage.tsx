@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  StatusBadge,
   Avatar,
   SearchInput,
   TabBar,
@@ -488,9 +487,6 @@ function InlineEditableOverview({
         <div className="space-y-3">
           <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">
             Mailing Address
-            <span className="ml-2 font-normal text-text-muted normal-case tracking-normal">
-              (leave blank to use physical)
-            </span>
           </h4>
           <InlineEditField label="Street" value={mailStreet} onChange={mark(setMailStreet)} placeholder="Same as physical" />
           <div className="grid grid-cols-2 gap-4">
@@ -603,7 +599,6 @@ function mapContactRow(
     companyId,
     firstName: row.firstName,
     lastName: row.lastName,
-    title: '',
     roles: [row.roleName],
     email: row.email,
     phone: row.workPhone || '',
@@ -640,7 +635,6 @@ function ContactFormDb({
 }) {
   const [firstName, setFirstName] = useState(initial?.firstName || '');
   const [lastName, setLastName] = useState(initial?.lastName || '');
-  const [title, setTitle] = useState(initial?.title || '');
   const [email, setEmail] = useState(initial?.email || '');
   const [workPhone, setWorkPhone] = useState(initial?.workPhone || '');
   const [cellPhone, setCellPhone] = useState(initial?.cellPhone || '');
@@ -654,7 +648,6 @@ function ContactFormDb({
   useEffect(() => {
     setFirstName(initial?.firstName || '');
     setLastName(initial?.lastName || '');
-    setTitle(initial?.title || '');
     setEmail(initial?.email || '');
     setWorkPhone(initial?.workPhone || '');
     setCellPhone(initial?.cellPhone || '');
@@ -685,71 +678,58 @@ function ContactFormDb({
 
   return (
     <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
-      <p className="text-xs text-text-muted">
-        Job title is optional — it is not saved to the database.
-      </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <FormField label="First Name" required>
-            <input
-              className={inputCls}
-              maxLength={100}
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Last Name" required>
-            <input
-              className={inputCls}
-              maxLength={100}
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Title">
-            <input
-              className={inputCls}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Optional — not saved to the database"
-            />
-          </FormField>
-        </div>
-        <div className="space-y-3">
-          <FormField label="Email" required>
-            <input
-              type="email"
-              className={inputCls}
-              maxLength={254}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Work Phone">
-            <input
-              type="tel"
-              className={inputCls}
-              maxLength={30}
-              value={workPhone}
-              onChange={(e) => setWorkPhone(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Cell Phone">
-            <input
-              type="tel"
-              className={inputCls}
-              maxLength={30}
-              value={cellPhone}
-              onChange={(e) => setCellPhone(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Role" required>
-            <Select2
-              options={[{ value: '', label: 'Select role…' }, ...roleOpts]}
-              value={roleId}
-              onChange={setRoleId}
-            />
-          </FormField>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <FormField label="First Name" required>
+          <input
+            className={inputCls}
+            maxLength={100}
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Last Name" required>
+          <input
+            className={inputCls}
+            maxLength={100}
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Email" required>
+          <input
+            type="email"
+            className={inputCls}
+            maxLength={254}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Work Phone">
+          <input
+            type="tel"
+            className={inputCls}
+            maxLength={30}
+            value={workPhone}
+            onChange={(e) => setWorkPhone(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Cell Phone">
+          <input
+            type="tel"
+            className={inputCls}
+            maxLength={30}
+            value={cellPhone}
+            onChange={(e) => setCellPhone(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Role" required>
+          <Select2
+            options={[{ value: '', label: 'Select role…' }, ...roleOpts]}
+            value={roleId}
+            onChange={setRoleId}
+          />
+        </FormField>
+        <div className="sm:col-span-2">
           <FormField label="Department" required>
             <Select2
               options={[{ value: '', label: 'Select department…' }, ...deptOpts]}
@@ -826,7 +806,6 @@ function CompanyFormDb({
         ? String(companyTypes[0].companyTypeId)
         : '',
   );
-  const [status, setStatus] = useState(initial?.status || 'Active');
   const [resolvedDma, setResolvedDma] = useState<string | null>(
     initial?.dmaMarketName ?? null,
   );
@@ -877,7 +856,6 @@ function CompanyFormDb({
           ? String(companyTypes[0].companyTypeId)
           : '',
     );
-    setStatus(initial.status || 'Active');
     setPhysicalStreet(initial.physicalStreet || '');
     setPhysicalCity(initial.physicalCity || '');
     setPhysicalState(initial.physicalState || '');
@@ -1095,16 +1073,6 @@ function CompanyFormDb({
             value={companyTypeId}
             onChange={setCompanyTypeId}
           />
-        </FormField>
-        <FormField label="Status">
-          <Select2
-            options={toOptions(['Active', 'Prospective', 'Inactive'])}
-            value={status}
-            onChange={setStatus}
-          />
-          <p className="text-[11px] text-text-muted mt-1">
-            Optional — not saved in the database.
-          </p>
         </FormField>
       </div>
 
@@ -1776,7 +1744,6 @@ export function CompaniesPage({ addToast }: Props) {
                 <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
                   {selectedCompany.type}
                 </span>
-                <StatusBadge status={selectedCompany.status} />
               </div>
             </div>
             {/* Delete button in header */}
@@ -1865,7 +1832,6 @@ export function CompaniesPage({ addToast }: Props) {
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border">
                       <th className="text-left py-2">Name</th>
-                      <th className="text-left py-2">Title</th>
                       <th className="text-left py-2">Roles</th>
                       <th className="text-left py-2">Email</th>
                       <th className="text-left py-2">Phone</th>
@@ -1878,7 +1844,6 @@ export function CompaniesPage({ addToast }: Props) {
                         <td className="py-2 text-text-primary">
                           {ct.firstName} {ct.lastName}
                         </td>
-                        <td className="py-2 text-text-secondary">{ct.title || '—'}</td>
                         <td className="py-2">
                           {ct.roles.map((r) => (
                             <span

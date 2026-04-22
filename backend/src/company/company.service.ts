@@ -374,7 +374,11 @@ export class CompanyService {
       venue.seatingCapacity = dto.seatingCapacity;
     }
     if (dto.salesTaxRate !== undefined) {
-      venue.salesTaxRate = dto.salesTaxRate?.trim() || null;
+      const raw = dto.salesTaxRate;
+      venue.salesTaxRate =
+        raw === null || raw === undefined
+          ? null
+          : String(raw).trim() || null;
     }
     if (dto.taxInCart !== undefined) {
       venue.taxInCart = dto.taxInCart;

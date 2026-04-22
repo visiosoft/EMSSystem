@@ -33,7 +33,7 @@ export interface ToastItem {
 
 export function ToastContainer({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) {
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+    <div className="fixed top-4 right-4 z-[100] flex flex-col-reverse gap-2 max-w-sm">
       {toasts.map(t => (
         <Toast key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
       ))}

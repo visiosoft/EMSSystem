@@ -74,7 +74,6 @@ export interface Company {
   state: string;
   dmaIds: string[];
   serviceAreaDmaIds: string[];
-  status: string;
   /** dbo.Company.CompanyTypeID when loaded from API */
   companyTypeId?: number;
   /** dbo.Company.DMAID when loaded from API */
@@ -98,50 +97,41 @@ export interface Company {
 export const COMPANIES: Company[] = [
   { id: 'co-01', name: 'United Center',
     type: 'Venue', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20000, seatedCap: 18500, gaCap: 1500, stageType: 'End Stage', isDefault: true },
                                      { name: 'Half House', totalCap: 10000, seatedCap: 9200, gaCap: 800, stageType: 'End Stage', isDefault: false }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 4000,
       inHouseAudio: true, inHouseLighting: true, exclusiveTicketingId: 'co-09', houseAgencyId: 'co-12' } },
   { id: 'co-02', name: 'Madison Square Garden',
     type: 'Venue', city: 'New York', state: 'NY', dmaIds: ['dma-01'], serviceAreaDmaIds: ['dma-01'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 20789, seatedCap: 19500, gaCap: 1289, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:30 PM', loadInDocks: 8, parking: 0,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-03', name: 'Crypto.com Arena',
     type: 'Venue', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19068, seatedCap: 17500, gaCap: 1568, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 6, parking: 2800,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-04', name: 'Bridgestone Arena',
     type: 'Venue', city: 'Nashville', state: 'TN', dmaIds: ['dma-13'], serviceAreaDmaIds: ['dma-13'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19500, seatedCap: 18000, gaCap: 1500, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 5, parking: 3500,
       inHouseAudio: true, inHouseLighting: false } },
   { id: 'co-05', name: 'Amalie Arena',
     type: 'Venue', city: 'Tampa', state: 'FL', dmaIds: ['dma-14'], serviceAreaDmaIds: ['dma-14'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'Full House', totalCap: 19092, seatedCap: 17800, gaCap: 1292, stageType: 'End Stage', isDefault: true }],
       ageRestriction: 'All Ages', curfew: '11:00 PM', loadInDocks: 4, parking: 2200,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-06', name: 'The Fillmore Detroit',
     type: 'Venue', city: 'Detroit', state: 'MI', dmaIds: ['dma-15'], serviceAreaDmaIds: ['dma-15'],
-    status: 'Active',
     venueProfile: { configurations: [{ name: 'General Admission', totalCap: 2600, seatedCap: 400, gaCap: 2200, stageType: 'Proscenium', isDefault: true }],
       ageRestriction: '18+', curfew: '2:00 AM', loadInDocks: 2, parking: 800,
       inHouseAudio: true, inHouseLighting: true } },
   { id: 'co-07', name: 'Creative Ventures Agency',
-    type: 'TalentAgency', city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [],
-    status: 'Active' },
+    type: 'TalentAgency', city: 'Beverly Hills', state: 'CA', dmaIds: [], serviceAreaDmaIds: [] },
   { id: 'co-08', name: 'United Talent Partners',
-    type: 'TalentAgency', city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [],
-    status: 'Active' },
+    type: 'TalentAgency', city: 'New York', state: 'NY', dmaIds: [], serviceAreaDmaIds: [] },
   { id: 'co-09', name: 'TicketFlow',
     type: 'Ticketing', city: 'Nashville', state: 'TN', dmaIds: [], serviceAreaDmaIds: [],
-    status: 'Active',
     ticketing: {
       seatingChartFiles: [],
       ticketingSystem: 'Ticketmaster',
@@ -152,14 +142,11 @@ export const COMPANIES: Company[] = [
       ],
     } },
   { id: 'co-10', name: 'IATSE Local 2',
-    type: 'Labor', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    status: 'Active' },
+    type: 'Labor', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'] },
   { id: 'co-11', name: 'Pacific Stagecraft',
-    type: 'Labor', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'],
-    status: 'Active' },
+    type: 'Labor', city: 'Los Angeles', state: 'CA', dmaIds: ['dma-02'], serviceAreaDmaIds: ['dma-02'] },
   { id: 'co-12', name: 'Momentum Live Media',
-    type: 'AdAgency', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'],
-    status: 'Active' },
+    type: 'AdAgency', city: 'Chicago', state: 'IL', dmaIds: ['dma-03'], serviceAreaDmaIds: ['dma-03'] },
 ];
 
 export interface Contact {
@@ -167,7 +154,6 @@ export interface Contact {
   companyId: string;
   firstName: string;
   lastName: string;
-  title: string;
   roles: string[];
   email: string;
   phone: string;
@@ -186,22 +172,22 @@ export interface Contact {
 }
 
 export const CONTACTS: Contact[] = [
-  { id: 'ct-01', companyId: 'co-01', firstName: 'Ray', lastName: 'Kowalski', title: 'Box Office Manager', roles: ['BoxOffice', 'Settlement'], email: 'r.kowalski@uc.com', phone: '(312) 555-0188', status: 'Active' },
-  { id: 'ct-02', companyId: 'co-01', firstName: 'Brenda', lastName: 'Cole', title: 'House Production Manager', roles: ['ProductionManager'], email: 'b.cole@uc.com', phone: '(312) 555-0122', status: 'Active' },
-  { id: 'ct-03', companyId: 'co-01', firstName: 'Tyler', lastName: 'Marsh', title: 'Marketing Director', roles: ['Marketing'], email: 't.marsh@uc.com', phone: '(312) 555-0109', status: 'Active' },
-  { id: 'ct-04', companyId: 'co-07', firstName: 'Marcus', lastName: 'Gold', title: 'Senior Agent', roles: ['Booking'], email: 'm.gold@creativeventures.com', phone: '(310) 555-0142', status: 'Active' },
-  { id: 'ct-05', companyId: 'co-07', firstName: 'Lisa', lastName: 'Chen', title: 'Agent', roles: ['Booking'], email: 'l.chen@creativeventures.com', phone: '(310) 555-0165', status: 'Active' },
-  { id: 'ct-06', companyId: 'co-08', firstName: 'Derek', lastName: 'Sullivan', title: 'VP Agent', roles: ['Booking'], email: 'd.sullivan@utp.com', phone: '(212) 555-0177', status: 'Active' },
-  { id: 'ct-07', companyId: 'co-08', firstName: 'Nina', lastName: 'Vasquez', title: 'Agent', roles: ['Booking'], email: 'n.vasquez@utp.com', phone: '(212) 555-0133', status: 'Active' },
-  { id: 'ct-08', companyId: 'co-07', firstName: 'Jake', lastName: 'Morrison', title: 'Tour Manager', roles: ['Other'], email: 'jake.m@cv.com', phone: '(213) 555-0191', status: 'Active' },
-  { id: 'ct-09', companyId: 'co-07', firstName: 'Dana', lastName: 'Rosario', title: 'Production Manager', roles: ['ProductionManager'], email: 'd.rosario@tour.com', phone: '(213) 555-0104', status: 'Active' },
-  { id: 'ct-10', companyId: 'co-07', firstName: 'Wei', lastName: 'Chen', title: 'Tour Accountant', roles: ['Settlement'], email: 'w.chen@tour.com', phone: '(213) 555-0133', status: 'Active' },
-  { id: 'ct-11', companyId: 'co-07', firstName: 'Lena', lastName: 'Park', title: 'Publicist', roles: ['Marketing'], email: 'l.park@parkpr.com', phone: '(310) 555-0177', status: 'Active' },
-  { id: 'ct-12', companyId: 'co-04', firstName: 'Carl', lastName: 'Hughes', title: 'Box Office Director', roles: ['BoxOffice'], email: 'c.hughes@bridgestone.com', phone: '(615) 555-0144', status: 'Active' },
-  { id: 'ct-13', companyId: 'co-04', firstName: 'Sarah', lastName: 'Nolan', title: 'Production Manager', roles: ['ProductionManager'], email: 's.nolan@bridgestone.com', phone: '(615) 555-0128', status: 'Active' },
-  { id: 'ct-14', companyId: 'co-02', firstName: 'James', lastName: 'Ferraro', title: 'VP Booking', roles: ['Booking', 'BoxOffice'], email: 'j.ferraro@msg.com', phone: '(212) 555-0199', status: 'Active' },
-  { id: 'ct-15', companyId: 'co-09', firstName: 'Alicia', lastName: 'Moran', title: 'Account Manager', roles: ['BoxOffice'], email: 'a.moran@ticketflow.com', phone: '(615) 555-0166', status: 'Active' },
-  { id: 'ct-16', companyId: 'co-06', firstName: 'Damon', lastName: 'Pierce', title: 'General Manager', roles: ['Booking', 'BoxOffice'], email: 'd.pierce@fillmoredetroit.com', phone: '(313) 555-0155', status: 'Active' },
+  { id: 'ct-01', companyId: 'co-01', firstName: 'Ray', lastName: 'Kowalski', roles: ['BoxOffice', 'Settlement'], email: 'r.kowalski@uc.com', phone: '(312) 555-0188', status: 'Active' },
+  { id: 'ct-02', companyId: 'co-01', firstName: 'Brenda', lastName: 'Cole', roles: ['ProductionManager'], email: 'b.cole@uc.com', phone: '(312) 555-0122', status: 'Active' },
+  { id: 'ct-03', companyId: 'co-01', firstName: 'Tyler', lastName: 'Marsh', roles: ['Marketing'], email: 't.marsh@uc.com', phone: '(312) 555-0109', status: 'Active' },
+  { id: 'ct-04', companyId: 'co-07', firstName: 'Marcus', lastName: 'Gold', roles: ['Booking'], email: 'm.gold@creativeventures.com', phone: '(310) 555-0142', status: 'Active' },
+  { id: 'ct-05', companyId: 'co-07', firstName: 'Lisa', lastName: 'Chen', roles: ['Booking'], email: 'l.chen@creativeventures.com', phone: '(310) 555-0165', status: 'Active' },
+  { id: 'ct-06', companyId: 'co-08', firstName: 'Derek', lastName: 'Sullivan', roles: ['Booking'], email: 'd.sullivan@utp.com', phone: '(212) 555-0177', status: 'Active' },
+  { id: 'ct-07', companyId: 'co-08', firstName: 'Nina', lastName: 'Vasquez', roles: ['Booking'], email: 'n.vasquez@utp.com', phone: '(212) 555-0133', status: 'Active' },
+  { id: 'ct-08', companyId: 'co-07', firstName: 'Jake', lastName: 'Morrison', roles: ['Other'], email: 'jake.m@cv.com', phone: '(213) 555-0191', status: 'Active' },
+  { id: 'ct-09', companyId: 'co-07', firstName: 'Dana', lastName: 'Rosario', roles: ['ProductionManager'], email: 'd.rosario@tour.com', phone: '(213) 555-0104', status: 'Active' },
+  { id: 'ct-10', companyId: 'co-07', firstName: 'Wei', lastName: 'Chen', roles: ['Settlement'], email: 'w.chen@tour.com', phone: '(213) 555-0133', status: 'Active' },
+  { id: 'ct-11', companyId: 'co-07', firstName: 'Lena', lastName: 'Park', roles: ['Marketing'], email: 'l.park@parkpr.com', phone: '(310) 555-0177', status: 'Active' },
+  { id: 'ct-12', companyId: 'co-04', firstName: 'Carl', lastName: 'Hughes', roles: ['BoxOffice'], email: 'c.hughes@bridgestone.com', phone: '(615) 555-0144', status: 'Active' },
+  { id: 'ct-13', companyId: 'co-04', firstName: 'Sarah', lastName: 'Nolan', roles: ['ProductionManager'], email: 's.nolan@bridgestone.com', phone: '(615) 555-0128', status: 'Active' },
+  { id: 'ct-14', companyId: 'co-02', firstName: 'James', lastName: 'Ferraro', roles: ['Booking', 'BoxOffice'], email: 'j.ferraro@msg.com', phone: '(212) 555-0199', status: 'Active' },
+  { id: 'ct-15', companyId: 'co-09', firstName: 'Alicia', lastName: 'Moran', roles: ['BoxOffice'], email: 'a.moran@ticketflow.com', phone: '(615) 555-0166', status: 'Active' },
+  { id: 'ct-16', companyId: 'co-06', firstName: 'Damon', lastName: 'Pierce', roles: ['Booking', 'BoxOffice'], email: 'd.pierce@fillmoredetroit.com', phone: '(313) 555-0155', status: 'Active' },
 ];
 
 /** Values for attraction genre multi-select and tour-type picklists */

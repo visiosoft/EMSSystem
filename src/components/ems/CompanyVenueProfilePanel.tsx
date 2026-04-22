@@ -19,6 +19,17 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+/** API / DB decimals may arrive as numbers; keep controlled inputs as strings. */
+function taxRateToFormValue(v: unknown): string {
+  if (v == null || v === '') return '';
+  return String(v);
+}
+
+function trimTaxRatePayload(v: unknown): string | null {
+  const s = String(v ?? '').trim();
+  return s || null;
+}
+
 export function CompanyVenueProfilePanel({
   company,
   venueTypes,
@@ -71,7 +82,7 @@ export function CompanyVenueProfilePanel({
     const full = d as Exclude<typeof d, { missing: true }>;
     setVenueName(full.venueName);
     setSeatingCapacity(String(full.seatingCapacity));
-    setSalesTaxRate(full.salesTaxRate ?? '');
+    setSalesTaxRate(taxRateToFormValue(full.salesTaxRate));
     setTaxInCart(full.taxInCart);
     setInsuranceLanguage(full.insuranceLanguage ?? '');
     setInsurancePolicyCopyRequirements(full.insurancePolicyCopyRequirements ?? '');
@@ -107,7 +118,7 @@ export function CompanyVenueProfilePanel({
       await updateVenueProfile(companyId, {
         venueName: venueName.trim(),
         seatingCapacity: cap,
-        salesTaxRate: salesTaxRate.trim() || null,
+        salesTaxRate: trimTaxRatePayload(salesTaxRate),
         taxInCart,
         insuranceLanguage: insuranceLanguage.trim() || null,
         insurancePolicyCopyRequirements:

@@ -15,7 +15,6 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
     state: pa?.stateProvince ?? '',
     dmaIds: [String(row.dmaId)],
     serviceAreaDmaIds: [],
-    status: 'Active',
     physicalStreet: pa?.addressLine1 ?? '',
     physicalCity: pa?.city ?? '',
     physicalState: pa?.stateProvince ?? '',
