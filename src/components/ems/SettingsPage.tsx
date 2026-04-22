@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
-import { StatusBadge, TabBar, ActionMenu, Modal, FormField } from './Primitives';
+import { StatusBadge, TabBar, ActionMenu, Modal, FormField, SearchInput } from './Primitives';
 import { Select2, toOptions } from './Select2';
-import { apiFetch } from '@/api/config';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import { fetchDmaMarketsPaged } from '@/api/companyApi';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface UserRow { id: string; name: string; role: string; email: string; lastLogin: string; }
-
-interface DmaMarket { marketName: string; }
 
 interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
@@ -20,43 +20,93 @@ interface Props {
   onUpdateDmas?: (dmas: unknown[]) => void; // kept for API compat
 }
 
-// ─── DMA market fetch ─────────────────────────────────────────────────────────
-
-function fetchDmaMarkets(): Promise<DmaMarket[]> {
-  return apiFetch<DmaMarket[]>('/lookups/dma-markets');
+function DmaMarketsTableSkeleton() {
+  return (
+    <div
+      className="bg-card border border-border rounded-lg overflow-hidden min-h-[22rem]"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-8 border-b border-border bg-surface/40">
+        <Loader2 className="h-10 w-10 text-ems-accent animate-spin shrink-0" aria-hidden />
+        <div className="text-center max-w-sm space-y-1">
+          <p className="text-sm font-semibold text-text-primary">Loading DMA markets</p>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Fetching {PAGE_SIZE} rows from the server…
+          </p>
+        </div>
+      </div>
+      <div className="overflow-x-auto overflow-y-clip">
+        <table className="w-full text-sm min-w-[360px]">
+          <thead>
+            <tr className="text-text-muted text-xs border-b border-border bg-surface">
+              <th className="text-left py-2.5 px-3">Market name</th>
+              <th className="text-left py-2.5 px-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+              <tr key={i} className="border-b border-border/40">
+                <td className="py-3 px-3">
+                  <Skeleton className="h-4 w-48 max-w-[16rem] bg-muted/80" />
+                </td>
+                <td className="py-3 px-3">
+                  <Skeleton className="h-6 w-16 rounded-full bg-muted/80" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
-  const qc = useQueryClient();
   const [tab, setTab] = useState('Users');
   const [showInvite, setShowInvite] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('Booker');
   const [editUser, setEditUser] = useState<UserRow | null>(null);
-  const [dmaSearch, setDmaSearch] = useState('');
+  const [dmaSearchInput, setDmaSearchInput] = useState('');
+  const [dmaSearchDebounced, setDmaSearchDebounced] = useState('');
   const [dmaPage, setDmaPage] = useState(1);
-
-  const DMA_PAGE_SIZE = 50;
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
+  const { offset: dmaOffset, limit: dmaLimit } = getPageParams(dmaPage);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDmaSearchDebounced(dmaSearchInput.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [dmaSearchInput]);
+
+  useEffect(() => {
+    setDmaPage(1);
+  }, [dmaSearchDebounced]);
+
   const dmaQuery = useQuery({
-    queryKey: ['dma-markets'],
-    queryFn: fetchDmaMarkets,
+    queryKey: ['dma-markets', 'settings', dmaPage, dmaSearchDebounced, dmaOffset, dmaLimit],
+    queryFn: () =>
+      fetchDmaMarketsPaged(dmaOffset, dmaLimit, dmaSearchDebounced || undefined),
     staleTime: 5 * 60 * 1000,
     enabled: tab === 'Lookup Tables',
+    placeholderData: (prev) => prev,
   });
 
-  const filteredDmas = (dmaQuery.data ?? []).filter(d =>
-    !dmaSearch.trim() || d.marketName.toLowerCase().includes(dmaSearch.toLowerCase()),
-  );
-  const dmaPageCount = Math.max(1, Math.ceil(filteredDmas.length / DMA_PAGE_SIZE));
+  const dmaTotal = dmaQuery.data?.total ?? 0;
+  const dmaRows = dmaQuery.data?.data ?? [];
+  const dmaPageCount = getTotalPages(dmaTotal);
   const dmaPageClamped = Math.min(dmaPage, dmaPageCount);
-  const dmaRows = filteredDmas.slice((dmaPageClamped - 1) * DMA_PAGE_SIZE, dmaPageClamped * DMA_PAGE_SIZE);
+  const { rangeStart: dmaRangeStart, rangeEnd: dmaRangeEnd } = getPageRange(dmaPageClamped, dmaTotal);
+  const dmaTableLoading = dmaQuery.isPending || dmaQuery.isFetching;
 
-  React.useEffect(() => { setDmaPage(1); }, [dmaSearch]);
+  useEffect(() => {
+    if (dmaPage > dmaPageCount) setDmaPage(dmaPageCount);
+  }, [dmaPage, dmaPageCount]);
 
   return (
     <div className="space-y-4">
@@ -136,88 +186,93 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
       {tab === 'Lookup Tables' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <h3 className="text-sm font-medium text-text-primary">
-                DMA Markets
-              </h3>
-              {!dmaQuery.isPending && (
-                <p className="text-xs text-text-muted mt-0.5">
-                  {filteredDmas.length.toLocaleString()} distinct market{filteredDmas.length !== 1 ? 's' : ''}
-                  {dmaSearch ? ' matching search' : ' in database'}
-                </p>
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-medium text-text-primary">DMA Markets</h3>
+              {!dmaTableLoading && !dmaQuery.isError && (
+                <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
+                  {dmaTotal.toLocaleString()}
+                </span>
               )}
             </div>
-            {dmaQuery.isFetching && (
-              <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
-            )}
           </div>
 
-          {/* Search */}
-          <input
-            className={inputCls + ' max-w-xs'}
-            value={dmaSearch}
-            onChange={e => setDmaSearch(e.target.value)}
-            placeholder="Search market names…"
-          />
+          <div className="w-full sm:w-72">
+            <SearchInput
+              value={dmaSearchInput}
+              onChange={setDmaSearchInput}
+              placeholder="Search market name or postal code…"
+              disabled={dmaTableLoading}
+            />
+          </div>
 
-          {/* Error */}
           {dmaQuery.isError && (
-            <div className="text-sm text-ems-coral border border-ems-coral/30 rounded px-3 py-2 bg-ems-coral-dim">
+            <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
               Could not load DMA markets: {friendlyApiError(dmaQuery.error)}
             </div>
           )}
 
-          {/* Loading */}
-          {dmaQuery.isPending && (
-            <div className="flex items-center gap-2 text-sm text-text-muted py-6">
-              <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
-              Loading DMA markets…
-            </div>
-          )}
-
-          {/* Table */}
-          {!dmaQuery.isPending && (
+          {dmaTableLoading ? (
+            <DmaMarketsTableSkeleton />
+          ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm bg-card border border-border rounded-lg min-w-[300px]">
+              <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+                <table className="w-full text-sm min-w-[360px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                      <th className="text-left py-2.5 px-3">Market Name</th>
+                      <th className="text-left py-2.5 px-3">Market name</th>
                       <th className="text-left py-2.5 px-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dmaRows.length === 0 && (
+                    {dmaRows.length === 0 && !dmaQuery.isError && (
                       <tr>
-                        <td colSpan={2} className="py-8 text-center text-sm text-text-muted">
-                          {dmaSearch ? 'No markets match your search.' : 'No DMA markets found.'}
+                        <td colSpan={2} className="py-12 px-3 text-center text-sm text-text-muted">
+                          {dmaSearchDebounced
+                            ? 'No DMA rows match your search.'
+                            : 'No DMA markets returned from the database.'}
                         </td>
                       </tr>
                     )}
-                    {dmaRows.map(d => (
-                      <tr key={d.marketName} className="border-b border-border/50">
-                        <td className="py-2.5 px-3 text-text-primary">{d.marketName}</td>
-                        <td className="py-2.5 px-3"><StatusBadge status="Active" /></td>
+                    {dmaRows.map((d) => (
+                      <tr key={d.dmaid} className="border-b border-border/50 hover:bg-hover/60">
+                        <td className="py-2.5 px-3 text-text-primary font-medium">{d.marketName}</td>
+                        <td className="py-2.5 px-3">
+                          <StatusBadge status="Active" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Pagination */}
-              {filteredDmas.length > DMA_PAGE_SIZE && (
-                <div className="flex items-center justify-between text-xs text-text-secondary px-1">
-                  <span className="tabular-nums">
-                    Showing {(dmaPageClamped - 1) * DMA_PAGE_SIZE + 1}–{Math.min(dmaPageClamped * DMA_PAGE_SIZE, filteredDmas.length)} of {filteredDmas.length.toLocaleString()}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button disabled={dmaPageClamped <= 1} onClick={() => setDmaPage(p => p - 1)}
-                      className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs">
+              {dmaTotal > 0 && (
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
+                  <p className="tabular-nums">
+                    Showing{' '}
+                    <span className="text-text-primary font-medium">
+                      {dmaRangeStart}–{dmaRangeEnd}
+                    </span>{' '}
+                    of <span className="text-text-primary font-medium">{dmaTotal.toLocaleString()}</span>
+                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                      disabled={dmaPageClamped <= 1 || dmaQuery.isFetching}
+                      onClick={() => setDmaPage((p) => Math.max(1, p - 1))}
+                    >
                       Previous
                     </button>
-                    <span className="tabular-nums">Page {dmaPageClamped} / {dmaPageCount}</span>
-                    <button disabled={dmaPageClamped >= dmaPageCount} onClick={() => setDmaPage(p => p + 1)}
-                      className="px-3 py-1.5 rounded border border-border bg-elevated hover:bg-hover disabled:opacity-40 text-xs">
+                    <span className="text-text-muted tabular-nums px-1">
+                      Page {dmaPageClamped} / {dmaPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                      disabled={dmaPageClamped >= dmaPageCount || dmaQuery.isFetching}
+                      onClick={() => setDmaPage((p) => Math.min(dmaPageCount, p + 1))}
+                    >
                       Next
                     </button>
                   </div>

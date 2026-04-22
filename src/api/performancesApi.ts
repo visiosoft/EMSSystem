@@ -25,3 +25,30 @@ export function fetchPerformances(year?: number, month?: number) {
   const qs = params.toString();
   return apiFetch<ApiPerformanceCalendarRow[]>(`/performances${qs ? `?${qs}` : ''}`);
 }
+
+export interface ApiPerformancesPageResponse {
+  data: ApiPerformanceCalendarRow[];
+  total: number;
+}
+
+/** Calendar list view — server-side pages of up to 25 rows for a given month. */
+export function fetchPerformancesPaged(
+  year: number,
+  month: number,
+  offset: number,
+  limit: number,
+  visibility: string[],
+) {
+  const params = new URLSearchParams({
+    year: String(year),
+    month: String(month),
+    offset: String(offset),
+    limit: String(limit),
+  });
+  for (const v of visibility) {
+    params.append('visibility', v);
+  }
+  return apiFetch<ApiPerformancesPageResponse>(
+    `/performances/paged?${params.toString()}`,
+  );
+}

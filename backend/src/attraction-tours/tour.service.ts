@@ -92,6 +92,57 @@ export class TourService {
     }));
   }
 
+  async listPaginated(
+    offset: number,
+    limit: number,
+    q?: string,
+  ): Promise<{ data: TourListRow[]; total: number }> {
+    const qb = this.tourRepo
+      .createQueryBuilder('t')
+      .innerJoinAndSelect('t.attraction', 'a')
+      .innerJoinAndSelect('t.class', 'c')
+      .leftJoinAndSelect('t.tourManagementCompany', 'm')
+      .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .orderBy('t.tourName', 'ASC');
+
+    const trimmed = (q ?? '').trim();
+    if (trimmed) {
+      qb.andWhere(
+        `(LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(a.attractionName) LIKE LOWER(:like) OR LOWER(c.className) LIKE LOWER(:like) OR LOWER(ISNULL(m.companyName, '')) LIKE LOWER(:like))`,
+        { like: `%${trimmed}%` },
+      );
+    }
+
+    const total = await qb.getCount();
+    const rows = await qb.skip(offset).take(limit).getMany();
+
+    return {
+      data: rows.map((t) => ({
+        tourId: t.tourId,
+        tourName: t.tourName,
+        attractionId: t.attractionId,
+        attractionName: t.attraction?.attractionName ?? '',
+        classId: t.classId,
+        className: t.class?.className ?? '',
+        audienceGender: t.audienceGender,
+        audienceAgeRange: t.audienceAgeRange,
+        ascap: t.ascap,
+        bmi: t.bmi,
+        sesac: t.sesac,
+        gmr: t.gmr,
+        tourInsuranceLanguage: t.tourInsuranceLanguage,
+        tourManagementCompanyId: t.tourManagementCompanyId,
+        tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+        techRiderLinkId: t.techRiderLinkId,
+        venueTypePreferenceId: t.venueTypePreferenceId,
+        venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
+        appCreated: this.emsCreated.canDeleteTour(t.tourId),
+      })),
+      total,
+    };
+  }
+
+
   async create(dto: CreateTourDto): Promise<{ tourId: number }> {
     const attraction = await this.attractionRepo.findOne({
       where: { attractionId: dto.attractionId },

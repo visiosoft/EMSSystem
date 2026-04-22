@@ -67,7 +67,11 @@ import {
   fetchTours,
   updateTour,
 } from '@/api/attractionToursApi';
-import { companiesApiQueryKey, fetchCompanies, fetchDmaMarkets } from '@/api/companyApi';
+import {
+  companiesPickerQueryKey,
+  fetchCompaniesPickerRows,
+  fetchDmaMarkets,
+} from '@/api/companyApi';
 import { AddTourForm } from './AddTourForm';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -365,7 +369,11 @@ function AddVenueForm({
   projectId: number; existingIds: Set<number>;
   onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
-  const companiesQuery = useQuery({ queryKey: companiesApiQueryKey, queryFn: fetchCompanies, staleTime: 60_000 });
+  const companiesQuery = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+  });
   const [venueId, setVenueId] = useState('');
   const [venueStatus, setVenueStatus] = useState<VenueStatus>('Proposed');
   const [saving, setSaving] = useState(false);
@@ -593,9 +601,22 @@ function CreateProjectForm({
   onSaved: (id: number) => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
-  const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
-  const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
-  const companiesQuery = useQuery({ queryKey: companiesApiQueryKey, queryFn: fetchCompanies, staleTime: 60_000 });
+  const projectWizardLookupLimit = 8000;
+  const attractionsQuery = useQuery({
+    queryKey: ['attractions', 'picker', 0, projectWizardLookupLimit],
+    queryFn: async () => (await fetchAttractions(0, projectWizardLookupLimit)).data,
+    staleTime: 60_000,
+  });
+  const toursQuery = useQuery({
+    queryKey: ['tours', 'picker', 0, projectWizardLookupLimit],
+    queryFn: async () => (await fetchTours(0, projectWizardLookupLimit)).data,
+    staleTime: 60_000,
+  });
+  const companiesQuery = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+  });
   const classesQuery = useQuery({ queryKey: ['classes'], queryFn: fetchClasses, staleTime: 60_000 });
   const [step, setStep] = useState(1);
 
@@ -1130,9 +1151,17 @@ function EditProjectForm({
 }: {
   project: ApiProjectListRow; onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
 }) {
-  // Load attractions and tours for tour selection
-  const attractionsQuery = useQuery({ queryKey: ['attractions'], queryFn: fetchAttractions, staleTime: 60_000 });
-  const toursQuery = useQuery({ queryKey: ['tours'], queryFn: fetchTours, staleTime: 60_000 });
+  const projectEditLookupLimit = 8000;
+  const attractionsQuery = useQuery({
+    queryKey: ['attractions', 'picker', 0, projectEditLookupLimit],
+    queryFn: async () => (await fetchAttractions(0, projectEditLookupLimit)).data,
+    staleTime: 60_000,
+  });
+  const toursQuery = useQuery({
+    queryKey: ['tours', 'picker', 0, projectEditLookupLimit],
+    queryFn: async () => (await fetchTours(0, projectEditLookupLimit)).data,
+    staleTime: 60_000,
+  });
 
   const [projectStage, setProjectStage] = useState<ProjectStage>(project.projectStage);
   const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');

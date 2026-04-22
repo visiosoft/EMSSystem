@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import {
@@ -24,8 +26,13 @@ export class CompanyController {
   constructor(private readonly companyService: CompanyService) {}
 
   @Get()
-  findAll() {
-    return this.companyService.findAll();
+  findAll(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+    @Query('companyType') companyType?: string,
+  ) {
+    return this.companyService.findAllPaginated(offset, limit, q, companyType);
   }
 
   @Post()

@@ -42,6 +42,46 @@ export class AttractionService {
     }));
   }
 
+  async listPaginated(
+    offset: number,
+    limit: number,
+    q?: string,
+  ): Promise<{ data: AttractionListRow[]; total: number }> {
+    const trimmed = (q ?? '').trim();
+    const baseQb = this.attractionRepo
+      .createQueryBuilder('a')
+      .orderBy('a.attractionName', 'ASC');
+    if (trimmed) {
+      baseQb.andWhere('LOWER(a.attractionName) LIKE LOWER(:like)', {
+        like: `%${trimmed}%`,
+      });
+    }
+    const total = await baseQb.getCount();
+    const attractions = await baseQb.skip(offset).take(limit).getMany();
+    const ids = attractions.map((a) => a.attractionId);
+    const countMap = new Map<number, number>();
+    if (ids.length > 0) {
+      const countsRaw = await this.tourRepo
+        .createQueryBuilder('t')
+        .select('t.attractionId', 'aid')
+        .addSelect('COUNT(*)', 'cnt')
+        .where('t.attractionId IN (:...ids)', { ids })
+        .groupBy('t.attractionId')
+        .getRawMany<{ aid: number; cnt: string }>();
+      for (const r of countsRaw) countMap.set(Number(r.aid), Number(r.cnt));
+    }
+    return {
+      data: attractions.map((a) => ({
+        attractionId: a.attractionId,
+        attractionName: a.attractionName,
+        activeTourCount: countMap.get(a.attractionId) ?? 0,
+        appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
+      })),
+      total,
+    };
+  }
+
+
   async create(dto: CreateAttractionDto): Promise<{ attractionId: number }> {
     // Attraction only has AttractionName + AttractionManagementLinkID (nullable)
     const row = this.attractionRepo.create({

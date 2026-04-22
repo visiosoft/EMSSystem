@@ -66,8 +66,16 @@ export interface CreateTourPayload {
 
 export type UpdateTourPayload = Partial<CreateTourPayload>;
 
-export function fetchAttractions() {
-  return apiFetch<ApiAttractionListRow[]>('/attractions');
+export interface ApiPaginatedResponse<T> {
+  data: T[];
+  total: number;
+}
+
+export function fetchAttractions(offset = 0, limit = 25, q?: string) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const trimmed = q?.trim();
+  if (trimmed) params.set('q', trimmed);
+  return apiFetch<ApiPaginatedResponse<ApiAttractionListRow>>(`/attractions?${params}`);
 }
 
 export function createAttraction(body: CreateAttractionPayload) {
@@ -88,8 +96,11 @@ export function deleteAttraction(id: number) {
   return apiFetch<void>(`/attractions/${id}`, { method: 'DELETE' });
 }
 
-export function fetchTours() {
-  return apiFetch<ApiTourListRow[]>('/tours');
+export function fetchTours(offset = 0, limit = 25, q?: string) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const trimmed = q?.trim();
+  if (trimmed) params.set('q', trimmed);
+  return apiFetch<ApiPaginatedResponse<ApiTourListRow>>(`/tours?${params}`);
 }
 
 export function createTour(body: CreateTourPayload) {

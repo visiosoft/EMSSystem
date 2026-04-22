@@ -95,7 +95,11 @@ export class LookupsService {
       .take(limit);
 
     if (query.trim()) {
-      qb.where('d.marketName LIKE :query', { query: `%${query.trim()}%` });
+      const sq = `%${query.trim()}%`;
+      qb.where(
+        '(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, \'\')) LIKE LOWER(:sq))',
+        { sq },
+      );
     }
 
     const rows = await qb.getRawMany<Record<string, unknown>>();
@@ -103,5 +107,42 @@ export class LookupsService {
       dmaid: Number(r.dmaid ?? r.DMAID),
       marketName: String(r.marketName ?? r.MarketName ?? ''),
     }));
+  }
+
+
+  /** Paginated DMA markets with optional search filter. */
+  async findDmaMarketsPaginated(
+    offset: number,
+    limit: number,
+    query = '',
+  ): Promise<{ data: { dmaid: number; marketName: string }[]; total: number }> {
+    const qb = this.dmaRepo
+      .createQueryBuilder('d')
+      .select('d.dmaid', 'dmaid')
+      .addSelect('d.marketName', 'marketName')
+      .orderBy('d.marketName', 'ASC')
+      .addOrderBy('d.dmaid', 'ASC');
+
+    if (query.trim()) {
+      const sq = `%${query.trim()}%`;
+      qb.where(
+        '(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, \'\')) LIKE LOWER(:sq))',
+        { sq },
+      );
+    }
+
+    const total = await qb.getCount();
+    const rows = await qb
+      .offset(offset)
+      .limit(limit)
+      .getRawMany<Record<string, unknown>>();
+
+    return {
+      data: rows.map((r) => ({
+        dmaid: Number(r.dmaid ?? r.DMAID),
+        marketName: String(r.marketName ?? r.MarketName ?? ''),
+      })),
+      total,
+    };
   }
 }

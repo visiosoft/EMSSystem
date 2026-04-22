@@ -125,14 +125,46 @@ export interface UpdateCompanyPayload {
   mailingSameAsPhysical?: boolean;
 }
 
+export interface ApiPaginatedResponse<T> {
+  data: T[];
+  total: number;
+}
+
 /**
  * React Query key for raw `GET /companies` (ApiCompanyListRow[]).
  * Do not use `['companies']` alone for fetchCompanies — CompaniesPage stores UI-mapped rows under that key.
+ * Include offset + limit in the key so React Query re-fetches on page change.
  */
-export const companiesApiQueryKey = ['companies', 'api'] as const;
+export type CompanyListQueryOpts = { q?: string; companyType?: string };
 
-export function fetchCompanies() {
-  return apiFetch<ApiCompanyListRow[]>('/companies');
+export function companiesApiQueryKey(
+  offset: number,
+  limit: number,
+  q = '',
+  companyType = 'All',
+) {
+  return ['companies', 'api', offset, limit, q, companyType] as const;
+}
+
+export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOpts) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const trimmed = opts?.q?.trim();
+  if (trimmed) params.set('q', trimmed);
+  const ct = opts?.companyType?.trim();
+  if (ct && ct !== 'All') params.set('companyType', ct);
+  return apiFetch<ApiPaginatedResponse<ApiCompanyListRow>>(`/companies?${params}`);
+}
+
+/** One-shot cap for venue/company pickers (avoids loading unbounded rows). */
+export const COMPANIES_PICKER_LIMIT = 5000;
+
+export function companiesPickerQueryKey() {
+  return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const;
+}
+
+export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> {
+  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT);
+  return res.data ?? [];
 }
 
 export function fetchCompany(id: number) {
@@ -291,6 +323,25 @@ export function searchDmaMarkets(query?: string, limit = 50) {
   return apiFetch<ApiDmaMarket[]>(`/lookups/dma-markets/search?${params.toString()}`);
 }
 
+/**
+ * First chunk of DMA rows for pickers (e.g. project wizard). Prefer `searchDmaMarkets` / paged
+ * APIs for large lists — `GET /lookups/dma-markets` is paginated `{ data, total }`.
+ */
 export function fetchDmaMarkets() {
-  return apiFetch<ApiDmaMarket[]>('/lookups/dma-markets');
+  return searchDmaMarkets('', 500);
+}
+
+export interface ApiDmaMarketsPageResponse {
+  data: ApiDmaMarket[];
+  total: number;
+}
+
+export function fetchDmaMarketsPaged(offset: number, limit: number, q?: string) {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+  const trimmed = q?.trim();
+  if (trimmed) params.set('q', trimmed);
+  return apiFetch<ApiDmaMarketsPageResponse>(`/lookups/dma-markets?${params.toString()}`);
 }

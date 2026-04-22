@@ -46,7 +46,12 @@ import {
   type ApiEngagementVenueRow,
 } from '@/api/engagementApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
-import { companiesApiQueryKey, fetchCompanies, fetchCompanyContacts } from '@/api/companyApi';
+import {
+  companiesPickerQueryKey,
+  fetchCompanies,
+  fetchCompaniesPickerRows,
+  fetchCompanyContacts,
+} from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
@@ -161,8 +166,8 @@ function VenuesTab({
   });
 
   const companiesQuery = useQuery({
-    queryKey: companiesApiQueryKey,
-    queryFn: fetchCompanies,
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
     staleTime: 60_000,
   });
 
@@ -747,12 +752,17 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
   const lookupsQuery = useQuery({
     queryKey: ['engagements-lookups'],
     queryFn: async () => {
+      const lookupLimit = 10000;
       const [attractions, tours, companies] = await Promise.all([
-        fetchAttractions(),
-        fetchTours(),
-        fetchCompanies(),
+        fetchAttractions(0, lookupLimit),
+        fetchTours(0, lookupLimit),
+        fetchCompanies(0, lookupLimit),
       ]);
-      return { attractions, tours, companies };
+      return {
+        attractions: attractions.data ?? [],
+        tours: tours.data ?? [],
+        companies: companies.data ?? [],
+      };
     },
     staleTime: 60_000,
   });

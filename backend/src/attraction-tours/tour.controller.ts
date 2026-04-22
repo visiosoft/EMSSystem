@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { CreateTourDto } from './dto/create-tour.dto';
 import { UpdateTourDto } from './dto/update-tour.dto';
@@ -17,8 +19,12 @@ export class TourController {
   constructor(private readonly tourService: TourService) {}
 
   @Get()
-  list() {
-    return this.tourService.list();
+  list(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+  ) {
+    return this.tourService.listPaginated(offset, limit, q);
   }
 
   @Post()

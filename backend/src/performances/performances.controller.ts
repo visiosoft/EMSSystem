@@ -1,9 +1,43 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Controller,
+  DefaultValuePipe,
+  Get,
+  ParseIntPipe,
+  Query,
+} from '@nestjs/common';
 import { PerformancesService } from './performances.service';
 
 @Controller('performances')
 export class PerformancesController {
   constructor(private readonly performancesService: PerformancesService) {}
+
+  /**
+   * Paginated list for Calendar “List” view (25 rows max per request).
+   * Must be registered before the bare `@Get()` route.
+   */
+  @Get('paged')
+  findPaged(
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('visibility') visibility?: string | string[],
+  ) {
+    const visList = visibility
+      ? Array.isArray(visibility)
+        ? visibility
+        : visibility.split(',').map((s) => s.trim()).filter(Boolean)
+      : ['Unknown', 'Private', 'Public'];
+    const safeLimit = Math.min(25, Math.max(1, limit));
+    const safeOffset = Math.max(0, offset);
+    return this.performancesService.findAllPaginated(
+      year,
+      month,
+      safeOffset,
+      safeLimit,
+      visList,
+    );
+  }
 
   /**
    * GET /api/performances
@@ -22,3 +56,4 @@ export class PerformancesController {
     );
   }
 }
+

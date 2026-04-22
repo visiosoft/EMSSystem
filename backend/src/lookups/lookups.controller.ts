@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { LookupsService } from './lookups.service';
 
 @Controller('lookups')
@@ -57,7 +57,17 @@ export class LookupsController {
   }
 
   @Get('dma-markets')
-  dmaMarkets() {
-    return this.lookupsService.findDmaMarkets();
+  dmaMarkets(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') query?: string,
+  ) {
+    const safeLimit = Math.min(25, Math.max(1, limit));
+    const safeOffset = Math.max(0, offset);
+    return this.lookupsService.findDmaMarketsPaginated(
+      safeOffset,
+      safeLimit,
+      query?.trim() ?? '',
+    );
   }
 }

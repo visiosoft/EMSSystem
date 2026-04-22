@@ -20,6 +20,7 @@ import {
   deleteCompany,
   deleteContactAssignment,
   companiesApiQueryKey,
+  type ApiPaginatedResponse,
   fetchCompanies,
   fetchCompanyContacts,
   fetchCompanyEngagements,
@@ -50,9 +51,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-
-/** Rows per page (10–20 range; keeps a full “screen” of table rows visible). */
-const COMPANIES_PAGE_SIZE = 15;
+import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
@@ -1328,7 +1327,7 @@ function CompanyFormDb({
   );
 }
 
-function CompaniesTableSkeleton({ rows = COMPANIES_PAGE_SIZE }: { rows?: number }) {
+function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]"
@@ -1391,6 +1390,7 @@ function CompaniesTableSkeleton({ rows = COMPANIES_PAGE_SIZE }: { rows?: number 
 export function CompaniesPage({ addToast }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
   const [page, setPage] = useState(1);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
@@ -1402,18 +1402,29 @@ export function CompaniesPage({ addToast }: Props) {
     null,
   );
 
+  const { offset, limit } = getPageParams(page);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
   const companiesQuery = useQuery({
-    queryKey: ['companies'],
+    queryKey: companiesApiQueryKey(offset, limit, searchDebounced, typeFilter),
     queryFn: async () => {
-      const rows: ApiCompanyListRow[] = await fetchCompanies();
-      return rows.map(mapApiCompanyToCompany);
+      const res: ApiPaginatedResponse<ApiCompanyListRow> = await fetchCompanies(offset, limit, {
+        q: searchDebounced || undefined,
+        companyType: typeFilter !== 'All' ? typeFilter : undefined,
+      });
+      return { data: res.data.map(mapApiCompanyToCompany), total: res.total };
     },
+    placeholderData: (prev) => prev,
   });
 
   /** Reload the companies list from the API (exact key so child queries are untouched). */
   const refetchCompanyList = useCallback(async () => {
-    await qc.refetchQueries({ queryKey: ['companies'], exact: true });
-    await qc.refetchQueries({ queryKey: companiesApiQueryKey, exact: true });
+    await qc.invalidateQueries({ queryKey: ['companies', 'api'] });
+    await qc.invalidateQueries({ queryKey: ['companies', 'picker'] });
   }, [qc]);
 
   const lookupsQuery = useQuery({
@@ -1421,7 +1432,8 @@ export function CompaniesPage({ addToast }: Props) {
     queryFn: fetchLookups,
   });
 
-  const companies = companiesQuery.data ?? [];
+  const companies = companiesQuery.data?.data ?? [];
+  const serverTotal = companiesQuery.data?.total ?? 0;
   const seatingTypes: ApiSeatingType[] = lookupsQuery.data?.seatingTypes ?? [];
   const venueTypes = lookupsQuery.data?.venueTypes ?? [];
   const roles: ApiRole[] = lookupsQuery.data?.roles ?? [];
@@ -1466,42 +1478,12 @@ export function CompaniesPage({ addToast }: Props) {
 
   const companyContacts = contactsQuery.data ?? [];
 
-  const filtered = useMemo(() => {
-    const rows = companies.filter((c) => {
-      if (search && !c.name.toLowerCase().includes(search.toLowerCase())) {
-        return false;
-      }
-      if (typeFilter !== 'All' && c.type !== typeFilter) return false;
-      return true;
-    });
-    return [...rows].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    );
-  }, [companies, search, typeFilter]);
+  // Reset to page 1 when debounced search or type filter changes.
+  useEffect(() => { setPage(1); }, [searchDebounced, typeFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / COMPANIES_PAGE_SIZE));
-
-  const paginated = useMemo(
-    () =>
-      filtered.slice(
-        (page - 1) * COMPANIES_PAGE_SIZE,
-        page * COMPANIES_PAGE_SIZE,
-      ),
-    [filtered, page],
-  );
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, typeFilter]);
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
-
-  const isLoadingCompanies = companiesQuery.isPending;
-  const rangeStart =
-    filtered.length === 0 ? 0 : (page - 1) * COMPANIES_PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * COMPANIES_PAGE_SIZE, filtered.length);
+  const pageCount = getTotalPages(serverTotal);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
+  const isLoadingCompanies = companiesQuery.isPending || companiesQuery.isFetching;
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
@@ -1598,7 +1580,7 @@ export function CompaniesPage({ addToast }: Props) {
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
             <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-              {filtered.length}
+              {serverTotal.toLocaleString()}
             </span>
           )}
         </div>
@@ -1633,7 +1615,7 @@ export function CompaniesPage({ addToast }: Props) {
       </div>
 
       {isLoadingCompanies ? (
-        <CompaniesTableSkeleton rows={COMPANIES_PAGE_SIZE} />
+        <CompaniesTableSkeleton rows={PAGE_SIZE} />
       ) : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
@@ -1647,19 +1629,19 @@ export function CompaniesPage({ addToast }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && !companiesQuery.isError && (
+                {companies.length === 0 && !companiesQuery.isError && (
                   <tr>
                     <td
                       colSpan={4}
                       className="py-12 px-3 text-center text-sm text-text-muted"
                     >
-                      {companies.length === 0
+                      {!searchDebounced && typeFilter === 'All'
                         ? 'No companies returned from the database.'
                         : 'No companies match your search or filters.'}
                     </td>
                   </tr>
                 )}
-                {paginated.map((c) => (
+                {companies.map((c) => (
                   <tr
                     key={c.id}
                     onClick={() => {
@@ -1688,26 +1670,23 @@ export function CompaniesPage({ addToast }: Props) {
             </table>
           </div>
 
-          {filtered.length > 0 && (
+          {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
                 Showing{' '}
                 <span className="text-text-primary font-medium">
                   {rangeStart}–{rangeEnd}
                 </span>{' '}
-                of <span className="text-text-primary font-medium">{filtered.length}</span>
-                {filtered.length > COMPANIES_PAGE_SIZE && (
-                  <span className="text-text-muted">
-                    {' '}
-                    ({COMPANIES_PAGE_SIZE} per page)
-                  </span>
-                )}
+                of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
+                <span className="text-text-muted">
+                  {' '}({PAGE_SIZE} per page)
+                </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={page <= 1}
+                  disabled={page <= 1 || isLoadingCompanies}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
                   Previous
@@ -1718,7 +1697,7 @@ export function CompaniesPage({ addToast }: Props) {
                 <button
                   type="button"
                   className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={page >= pageCount}
+                  disabled={page >= pageCount || isLoadingCompanies}
                   onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                 >
                   Next

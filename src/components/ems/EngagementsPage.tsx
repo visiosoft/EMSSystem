@@ -118,12 +118,17 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const lookupsQuery = useQuery({
     queryKey: ['engagements-lookups'],
     queryFn: async () => {
+      const lookupLimit = 10000;
       const [attractions, tours, companies] = await Promise.all([
-        fetchAttractions(),
-        fetchTours(),
-        fetchCompanies(),
+        fetchAttractions(0, lookupLimit),
+        fetchTours(0, lookupLimit),
+        fetchCompanies(0, lookupLimit),
       ]);
-      return { attractions, tours, companies };
+      return {
+        attractions: attractions.data ?? [],
+        tours: tours.data ?? [],
+        companies: companies.data ?? [],
+      };
     },
     retry: 2,
   });

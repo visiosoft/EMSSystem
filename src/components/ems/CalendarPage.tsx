@@ -1,9 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { StatusBadge } from './Primitives';
-import { fetchPerformances, type ApiPerformanceCalendarRow } from '@/api/performancesApi';
+import {
+  fetchPerformances,
+  fetchPerformancesPaged,
+  type ApiPerformanceCalendarRow,
+} from '@/api/performancesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +62,53 @@ function entryLabel(p: ApiPerformanceCalendarRow): string {
   return p.attractionName ?? p.tourName ?? `Engagement #${p.engagementId}`;
 }
 
+function CalendarListTableSkeleton() {
+  return (
+    <div
+      className="bg-card border border-border rounded-lg overflow-hidden min-h-[22rem]"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-8 border-b border-border bg-surface/40">
+        <Loader2 className="h-10 w-10 text-ems-accent animate-spin shrink-0" aria-hidden />
+        <div className="text-center max-w-sm space-y-1">
+          <p className="text-sm font-semibold text-text-primary">Loading performances</p>
+          <p className="text-xs text-text-muted leading-relaxed">
+            Fetching {PAGE_SIZE} rows from the server…
+          </p>
+        </div>
+      </div>
+      <div className="overflow-x-auto overflow-y-clip">
+        <table className="w-full text-sm min-w-[700px]">
+          <thead>
+            <tr className="text-text-muted text-xs border-b border-border bg-surface">
+              <th className="text-left py-2.5 px-3">Date</th>
+              <th className="text-left py-2.5 px-3">Time</th>
+              <th className="text-left py-2.5 px-3">Attraction</th>
+              <th className="text-left py-2.5 px-3">Tour</th>
+              <th className="text-left py-2.5 px-3">Venue</th>
+              <th className="text-left py-2.5 px-3">City</th>
+              <th className="text-left py-2.5 px-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+              <tr key={i} className="border-b border-border/40">
+                {Array.from({ length: 7 }).map((__, j) => (
+                  <td key={j} className="py-3 px-3">
+                    <Skeleton className="h-4 w-full max-w-[7rem] bg-muted/80" />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── CalendarPage ─────────────────────────────────────────────────────────────
 
 export function CalendarPage({ onNavigate }: Props) {
@@ -67,13 +120,55 @@ export function CalendarPage({ onNavigate }: Props) {
     () => new Set(ENGAGEMENT_VISIBILITY_STATUSES),
   );
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [listPage, setListPage] = useState(1);
 
-  // Fetch performances for the visible month (+/- 1 month buffer handled by broad fetch)
-  const perfQuery = useQuery({
-    queryKey: ['performances', year, month + 1],
-    queryFn: () => fetchPerformances(year, month + 1), // API uses 1-based month
+  const visibilityKey = useMemo(
+    () => [...activeStatuses].sort().join(','),
+    [activeStatuses],
+  );
+  const visibilityForApi = useMemo(
+    () =>
+      activeStatuses.size === 0
+        ? [...ENGAGEMENT_VISIBILITY_STATUSES]
+        : Array.from(activeStatuses),
+    [activeStatuses],
+  );
+
+  const gridQuery = useQuery({
+    queryKey: ['performances', 'grid', year, month + 1],
+    queryFn: () => fetchPerformances(year, month + 1),
+    enabled: viewMode === 'grid',
     staleTime: 2 * 60 * 1000,
   });
+
+  const { offset: listOffset, limit: listLimit } = getPageParams(listPage);
+  const listQuery = useQuery({
+    queryKey: ['performances', 'list', year, month + 1, listPage, visibilityKey, listOffset, listLimit],
+    queryFn: () =>
+      fetchPerformancesPaged(year, month + 1, listOffset, listLimit, visibilityForApi),
+    enabled: viewMode === 'list',
+    staleTime: 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
+
+  const listTotal = listQuery.data?.total ?? 0;
+  const listRows = listQuery.data?.data ?? [];
+  const listPageCount = getTotalPages(listTotal);
+  const listPageClamped = Math.min(listPage, listPageCount);
+  const { rangeStart: listRangeStart, rangeEnd: listRangeEnd } = getPageRange(
+    listPageClamped,
+    listTotal,
+  );
+  const listLoading = listQuery.isPending || listQuery.isFetching;
+  const gridLoading = gridQuery.isPending || gridQuery.isFetching;
+
+  useEffect(() => {
+    setListPage(1);
+  }, [year, month, visibilityKey]);
+
+  useEffect(() => {
+    if (listPage > listPageCount) setListPage(listPageCount);
+  }, [listPage, listPageCount]);
 
   const prevMonth = () => {
     if (month === 0) { setMonth(11); setYear(y => y - 1); }
@@ -92,14 +187,15 @@ export function CalendarPage({ onNavigate }: Props) {
   };
 
   const toggleStatus = (s: string) => {
-    setActiveStatuses(prev => {
+    setActiveStatuses((prev) => {
       const next = new Set(prev);
-      next.has(s) ? next.delete(s) : next.add(s);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
       return next;
     });
   };
 
-  const performances = perfQuery.data ?? [];
+  const performances = gridQuery.data ?? [];
 
   // Filter by active status filters (use engagementStatus or performanceStatus)
   const visiblePerfs = useMemo(() => {
@@ -161,7 +257,7 @@ export function CalendarPage({ onNavigate }: Props) {
         <span className="text-base font-semibold text-text-primary ml-1">
           {MONTH_NAMES[month]} {year}
         </span>
-        {perfQuery.isFetching && (
+        {(gridQuery.isFetching || listQuery.isFetching) && (
           <Loader2 className="h-4 w-4 animate-spin text-ems-accent" aria-hidden />
         )}
       </div>
@@ -185,14 +281,15 @@ export function CalendarPage({ onNavigate }: Props) {
       </div>
 
       {/* Error */}
-      {perfQuery.isError && (
+      {(gridQuery.isError || listQuery.isError) && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded px-3 py-2 bg-ems-coral-dim">
-          Could not load performances: {friendlyApiError(perfQuery.error)}
+          Could not load performances:{' '}
+          {friendlyApiError((gridQuery.error ?? listQuery.error) as Error)}
         </div>
       )}
 
-      {/* Loading skeleton */}
-      {perfQuery.isPending && (
+      {/* Grid loading */}
+      {gridLoading && viewMode === 'grid' && (
         <div className="flex items-center justify-center py-20 text-text-muted gap-2">
           <Loader2 className="h-6 w-6 animate-spin text-ems-accent" />
           <span className="text-sm">Loading performances…</span>
@@ -200,7 +297,7 @@ export function CalendarPage({ onNavigate }: Props) {
       )}
 
       {/* Grid view */}
-      {!perfQuery.isPending && viewMode === 'grid' && (
+      {!gridLoading && viewMode === 'grid' && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           {/* Day-of-week headers */}
           <div className="grid grid-cols-7 border-b border-border">
@@ -263,45 +360,56 @@ export function CalendarPage({ onNavigate }: Props) {
       )}
 
       {/* List view */}
-      {!perfQuery.isPending && viewMode === 'list' && (
-        <div className="bg-card border border-border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm min-w-[700px]">
-            <thead>
-              <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                <th className="text-left py-2.5 px-3">Date</th>
-                <th className="text-left py-2.5 px-3">Time</th>
-                <th className="text-left py-2.5 px-3">Attraction</th>
-                <th className="text-left py-2.5 px-3">Tour</th>
-                <th className="text-left py-2.5 px-3">Venue</th>
-                <th className="text-left py-2.5 px-3">City</th>
-                <th className="text-left py-2.5 px-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visiblePerfs.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-10 text-center text-sm text-text-muted">
-                    No performances in {MONTH_NAMES[month]} {year}.
-                  </td>
+      {viewMode === 'list' && listLoading && <CalendarListTableSkeleton />}
+
+      {viewMode === 'list' && !listLoading && (
+        <>
+          <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead>
+                <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                  <th className="text-left py-2.5 px-3">Date</th>
+                  <th className="text-left py-2.5 px-3">Time</th>
+                  <th className="text-left py-2.5 px-3">Attraction</th>
+                  <th className="text-left py-2.5 px-3">Tour</th>
+                  <th className="text-left py-2.5 px-3">Venue</th>
+                  <th className="text-left py-2.5 px-3">City</th>
+                  <th className="text-left py-2.5 px-3">Status</th>
                 </tr>
-              )}
-              {visiblePerfs
-                .sort((a, b) => a.performanceDate.localeCompare(b.performanceDate) || a.performanceTime.localeCompare(b.performanceTime))
-                .map(p => (
+              </thead>
+              <tbody>
+                {listRows.length === 0 && !listQuery.isError && (
+                  <tr>
+                    <td colSpan={7} className="py-12 px-3 text-center text-sm text-text-muted">
+                      No performances in {MONTH_NAMES[month]} {year}
+                      {activeStatuses.size > 0 &&
+                      activeStatuses.size < ENGAGEMENT_VISIBILITY_STATUSES.length
+                        ? ' for the selected filters.'
+                        : '.'}
+                    </td>
+                  </tr>
+                )}
+                {listRows.map((p) => (
                   <tr
                     key={p.performanceId}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                     onClick={() => onNavigate('engagement-detail', { engagementId: p.engagementId })}
                   >
                     <td className="py-2.5 px-3 text-text-secondary text-xs tabular-nums whitespace-nowrap">
-                      {new Date(p.performanceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {new Date(p.performanceDate + 'T12:00:00').toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
                     </td>
                     <td className="py-2.5 px-3 text-text-secondary text-xs tabular-nums">
                       {formatTime12(p.performanceTime)}
                     </td>
                     <td className="py-2.5 px-3 text-text-primary font-medium">{p.attractionName ?? '—'}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{p.tourName ?? '—'}</td>
-                    <td className="py-2.5 px-3 text-text-secondary">{p.venueName ?? p.venueCompanyName ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-text-secondary">
+                      {p.venueName ?? p.venueCompanyName ?? '—'}
+                    </td>
                     <td className="py-2.5 px-3 text-text-secondary text-xs">
                       {[p.city, p.stateProvince].filter(Boolean).join(', ') || '—'}
                     </td>
@@ -310,9 +418,44 @@ export function CalendarPage({ onNavigate }: Props) {
                     </td>
                   </tr>
                 ))}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+
+          {listTotal > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
+              <p className="tabular-nums">
+                Showing{' '}
+                <span className="text-text-primary font-medium">
+                  {listRangeStart}–{listRangeEnd}
+                </span>{' '}
+                of <span className="text-text-primary font-medium">{listTotal.toLocaleString()}</span>
+                <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={listPageClamped <= 1 || listQuery.isFetching}
+                  onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
+                <span className="text-text-muted tabular-nums px-1">
+                  Page {listPageClamped} / {listPageCount}
+                </span>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={listPageClamped >= listPageCount || listQuery.isFetching}
+                  onClick={() => setListPage((p) => Math.min(listPageCount, p + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Side panel: selected day detail */}
@@ -354,7 +497,7 @@ export function CalendarPage({ onNavigate }: Props) {
       )}
 
       {/* Empty grid state */}
-      {!perfQuery.isPending && viewMode === 'grid' && visiblePerfs.length === 0 && (
+      {!gridLoading && viewMode === 'grid' && visiblePerfs.length === 0 && (
         <div className="text-sm text-text-muted text-center py-6">
           No performances found for {MONTH_NAMES[month]} {year}.
         </div>

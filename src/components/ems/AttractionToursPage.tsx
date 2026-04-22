@@ -38,16 +38,18 @@ import {
   type ApiVenueType,
 } from '@/api/attractionToursApi';
 import {
-  fetchCompanies,
+  companiesPickerQueryKey,
+  fetchCompaniesPickerRows,
   fetchCompanyContacts,
   type ApiCompanyContact,
   type ApiCompanyListRow,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
 
-const PAGE_SIZE = 15;
 
 /**
  * Talent-agency picklist plus the tour's current management company when that
@@ -77,7 +79,7 @@ function buildTourManagementSelectOptions(
 /** Matches Companies page loading + table shell styling. */
 function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 'tours' }) {
   const isAttr = variant === 'attractions';
-  const colCount = isAttr ? 4 : 5;
+  const colCount = isAttr ? 2 : 5;
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]"
@@ -103,9 +105,7 @@ function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 't
               {isAttr ? (
                 <>
                   <th className="text-left py-2.5 px-3">Attraction Name</th>
-                  <th className="text-left py-2.5 px-3">Genre</th>
                   <th className="text-left py-2.5 px-3">Active Tours</th>
-                  <th className="w-10" />
                 </>
               ) : (
                 <>
@@ -763,6 +763,7 @@ export function AttractionToursPage({ addToast }: Props) {
   const qc = useQueryClient();
   const [pageTab, setPageTab] = useState('Attractions');
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [page, setPage] = useState(1);
 
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
@@ -777,29 +778,60 @@ export function AttractionToursPage({ addToast }: Props) {
   const [pendingDeleteAttraction, setPendingDeleteAttraction] = useState<ApiAttractionListRow | null>(null);
   const [pendingDeleteTour, setPendingDeleteTour] = useState<ApiTourListRow | null>(null);
 
+  const { offset: attrOffset, limit: attrLimit } = getPageParams(pageTab === 'Attractions' ? page : 1);
+  const { offset: tourOffset, limit: tourLimit } = getPageParams(pageTab === 'Tours' ? page : 1);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
   const attractionsQuery = useQuery({
-    queryKey: ['attractions'],
-    queryFn: fetchAttractions,
+    queryKey: ['attractions', attrOffset, attrLimit, searchDebounced],
+    queryFn: () => fetchAttractions(attrOffset, attrLimit, searchDebounced || undefined),
+    placeholderData: (prev) => prev,
+    enabled: pageTab === 'Attractions',
   });
   const toursQuery = useQuery({
-    queryKey: ['tours'],
-    queryFn: fetchTours,
+    queryKey: ['tours', tourOffset, tourLimit, searchDebounced],
+    queryFn: () => fetchTours(tourOffset, tourLimit, searchDebounced || undefined),
+    placeholderData: (prev) => prev,
+    enabled: pageTab === 'Tours',
   });
-  const lookupsQuery = useQuery({
-    queryKey: ['attraction-tours-lookups'],
+  /** Classes + venue types only — avoids loading thousands of companies on every visit. */
+  const lightLookupsQuery = useQuery({
+    queryKey: ['attraction-tours-lookups', 'light'],
     queryFn: async () => {
-      const [classes, companies, venueTypes] = await Promise.all([fetchClasses(), fetchCompanies(), fetchVenueTypesLookup()]);
-      return { classes, companies, venueTypes };
+      const [classes, venueTypes] = await Promise.all([fetchClasses(), fetchVenueTypesLookup()]);
+      return { classes, venueTypes };
     },
   });
 
-  const attractions = attractionsQuery.data ?? [];
-  const tours = toursQuery.data ?? [];
+  const attractionsPage = attractionsQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiAttractionListRow> | undefined;
+  const toursPage = toursQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiTourListRow> | undefined;
+  const attractions = attractionsPage?.data ?? [];
+  const tours = toursPage?.data ?? [];
+  const attractionsTotal = attractionsPage?.total ?? 0;
+  const toursTotal = toursPage?.total ?? 0;
+
+  /** Large company picklist only when tour drawer or edit-tour modal needs talent-agency options. */
+  const needTourCompanyPicklist =
+    editTour != null ||
+    (pageTab === 'Tours' &&
+      selectedTourId != null &&
+      tours.some((t) => t.tourId === selectedTourId));
+
+  const companiesQuery = useQuery({
+    queryKey: companiesPickerQueryKey(),
+    queryFn: fetchCompaniesPickerRows,
+    staleTime: 60_000,
+    enabled: needTourCompanyPicklist,
+  });
 
   const refetchAll = async () => {
     await Promise.all([
-      qc.refetchQueries({ queryKey: ['attractions'], exact: true }),
-      qc.refetchQueries({ queryKey: ['tours'], exact: true }),
+      qc.invalidateQueries({ queryKey: ['attractions'] }),
+      qc.invalidateQueries({ queryKey: ['tours'] }),
     ]);
   };
 
@@ -866,42 +898,21 @@ export function AttractionToursPage({ addToast }: Props) {
     onError: (e) => addToast(friendlyApiError(e, 'Could not delete tour.'), 'error'),
   });
 
+  /** Initial load + server pagination refetch (matches Companies: skeleton until each request finishes). */
   const loading =
-    attractionsQuery.isPending || toursQuery.isPending || lookupsQuery.isPending;
+    lightLookupsQuery.isPending ||
+    (pageTab === 'Attractions' &&
+      (attractionsQuery.isPending || attractionsQuery.isFetching)) ||
+    (pageTab === 'Tours' && (toursQuery.isPending || toursQuery.isFetching));
+  /** Top progress bar when a non-blocking refetch runs (pagination uses full `loading` skeleton). */
   const refreshing = attractionsQuery.isFetching || toursQuery.isFetching;
 
-  const filteredAttractions = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return attractions.filter(
-      (a) => !q || a.attractionName.toLowerCase().includes(q),
-    );
-  }, [attractions, search]);
+  const serverTotal = pageTab === 'Attractions' ? attractionsTotal : toursTotal;
+  const pageCount = getTotalPages(serverTotal);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
+  const paginated = pageTab === 'Attractions' ? attractions : tours;
 
-  const filteredTours = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return tours.filter(
-      (t) =>
-        !q ||
-        t.tourName.toLowerCase().includes(q) ||
-        t.attractionName.toLowerCase().includes(q) ||
-        t.className.toLowerCase().includes(q) ||
-        (t.tourManagementCompanyName && t.tourManagementCompanyName.toLowerCase().includes(q)),
-    );
-  }, [tours, search]);
-
-  const listForTab = pageTab === 'Attractions' ? filteredAttractions : filteredTours;
-  const pageCount = Math.max(1, Math.ceil(listForTab.length / PAGE_SIZE));
-  const paginated = listForTab.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const rangeStart = listForTab.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(page * PAGE_SIZE, listForTab.length);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, pageTab]);
-
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount);
-  }, [page, pageCount]);
+  useEffect(() => { setPage(1); }, [searchDebounced, pageTab]);
 
   const selectedAttraction = selectedAttractionId
     ? attractions.find((a) => a.attractionId === selectedAttractionId) ?? null
@@ -912,10 +923,10 @@ export function AttractionToursPage({ addToast }: Props) {
     ? tours.filter((t) => t.attractionId === selectedAttraction.attractionId)
     : [];
 
-  const lookups = lookupsQuery.data;
-  const classes = lookups?.classes ?? [];
-  const companies = lookups?.companies ?? [];
-  const venueTypes = lookups?.venueTypes ?? [];
+  const light = lightLookupsQuery.data;
+  const classes = light?.classes ?? [];
+  const venueTypes = light?.venueTypes ?? [];
+  const companies = companiesQuery.data ?? [];
 
   const managementCompanyOptions = useMemo(() => {
     const talentAgencies = companies.filter(
@@ -1054,12 +1065,16 @@ export function AttractionToursPage({ addToast }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {(attractionsQuery.isError || toursQuery.isError || lookupsQuery.isError) && (
+      {(attractionsQuery.isError ||
+        toursQuery.isError ||
+        lightLookupsQuery.isError ||
+        (needTourCompanyPicklist && companiesQuery.isError)) && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
           Could not load Attraction-Tours data.{' '}
           {(attractionsQuery.error as Error)?.message ||
             (toursQuery.error as Error)?.message ||
-            (lookupsQuery.error as Error)?.message}
+            (lightLookupsQuery.error as Error)?.message ||
+            (companiesQuery.error as Error)?.message}
           . Is the API running at <code className="text-xs">/api</code>?
         </div>
       )}
@@ -1071,7 +1086,7 @@ export function AttractionToursPage({ addToast }: Props) {
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
             <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-              {listForTab.length}
+              {serverTotal.toLocaleString()}
             </span>
           )}
           <TabBar tabs={['Attractions', 'Tours']} active={pageTab} onChange={setPageTab} />
@@ -1123,10 +1138,10 @@ export function AttractionToursPage({ addToast }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAttractions.length === 0 && !attractionsQuery.isError && (
+                    {attractions.length === 0 && !attractionsQuery.isError && (
                       <tr>
                         <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {attractions.length === 0
+                          {!searchDebounced
                             ? 'No attractions found.'
                             : 'No attractions match your search.'}
                         </td>
@@ -1145,23 +1160,21 @@ export function AttractionToursPage({ addToast }: Props) {
                   </tbody>
                 </table>
               </div>
-              {filteredAttractions.length > 0 && (
+              {attractionsTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">
                     Showing{' '}
                     <span className="text-text-primary font-medium">
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
-                    of <span className="text-text-primary font-medium">{filteredAttractions.length}</span>
-                    {filteredAttractions.length > PAGE_SIZE && (
-                      <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
-                    )}
+                    of <span className="text-text-primary font-medium">{attractionsTotal.toLocaleString()}</span>
+                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
                       className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page <= 1}
+                      disabled={page <= 1 || attractionsQuery.isFetching}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
                       Previous
@@ -1172,7 +1185,7 @@ export function AttractionToursPage({ addToast }: Props) {
                     <button
                       type="button"
                       className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page >= pageCount}
+                      disabled={page >= pageCount || attractionsQuery.isFetching}
                       onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                     >
                       Next
@@ -1197,10 +1210,10 @@ export function AttractionToursPage({ addToast }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTours.length === 0 && !toursQuery.isError && (
+                    {tours.length === 0 && !toursQuery.isError && (
                       <tr>
                         <td colSpan={5} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {tours.length === 0 ? 'No tours found.' : 'No tours match your search.'}
+                          {!searchDebounced ? 'No tours found.' : 'No tours match your search.'}
                         </td>
                       </tr>
                     )}
@@ -1224,23 +1237,21 @@ export function AttractionToursPage({ addToast }: Props) {
                   </tbody>
                 </table>
               </div>
-              {filteredTours.length > 0 && (
+              {toursTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">
                     Showing{' '}
                     <span className="text-text-primary font-medium">
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
-                    of <span className="text-text-primary font-medium">{filteredTours.length}</span>
-                    {filteredTours.length > PAGE_SIZE && (
-                      <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
-                    )}
+                    of <span className="text-text-primary font-medium">{toursTotal.toLocaleString()}</span>
+                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
                       className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page <= 1}
+                      disabled={page <= 1 || toursQuery.isFetching}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
                       Previous
@@ -1251,7 +1262,7 @@ export function AttractionToursPage({ addToast }: Props) {
                     <button
                       type="button"
                       className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                      disabled={page >= pageCount}
+                      disabled={page >= pageCount || toursQuery.isFetching}
                       onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                     >
                       Next

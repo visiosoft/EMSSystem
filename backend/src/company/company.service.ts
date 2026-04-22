@@ -203,6 +203,54 @@ export class CompanyService {
     }));
   }
 
+  async findAllPaginated(
+    offset: number,
+    limit: number,
+    search?: string,
+    companyType?: string,
+  ): Promise<{ data: CompanyDetail[]; total: number }> {
+    const qb = this.companyRepo
+      .createQueryBuilder('c')
+      .innerJoinAndSelect('c.companyType', 'ct')
+      .leftJoinAndSelect('c.physicalAddress', 'pa')
+      .leftJoinAndSelect('c.mailingAddress', 'ma')
+      .leftJoinAndSelect('c.dma', 'd')
+      .orderBy('c.companyName', 'ASC');
+
+    const q = (search ?? '').trim();
+    if (q) {
+      const like = `%${q}%`;
+      qb.andWhere(
+        `(LOWER(c.companyName) LIKE LOWER(:like) OR LOWER(ISNULL(pa.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(pa.stateProvince, '')) LIKE LOWER(:like) OR LOWER(ISNULL(d.marketName, '')) LIKE LOWER(:like))`,
+        { like },
+      );
+    }
+    const typeName = (companyType ?? '').trim();
+    if (typeName && typeName !== 'All') {
+      qb.andWhere('ct.companyTypeName = :typeName', { typeName });
+    }
+
+    const total = await qb.getCount();
+    const rows = await qb.skip(offset).take(limit).getMany();
+
+    return {
+      data: rows.map((c) => ({
+        companyId: c.companyId,
+        companyName: c.companyName,
+        companyTypeId: c.companyTypeId,
+        companyTypeName: c.companyType.companyTypeName,
+        physicalCity: c.physicalAddress?.city ?? '',
+        physicalStateProvince: c.physicalAddress?.stateProvince ?? '',
+        dmaId: c.dmaid,
+        dmaMarketName: c.dma?.marketName ?? '',
+        physicalAddress: c.physicalAddress,
+        mailingAddress: c.mailingAddress,
+      })),
+      total,
+    };
+  }
+
+
   async findOne(companyId: number): Promise<CompanyDetail> {
     const c = await this.companyRepo.findOne({
       where: { companyId },
