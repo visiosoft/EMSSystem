@@ -53,33 +53,8 @@ import {
   fetchCompanyContacts,
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function formatOpeningDateSafe(iso: string | null | undefined): string {
-  if (iso == null || typeof iso !== 'string') return '—';
-  const ymd = iso.trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '—';
-  const d = new Date(`${ymd}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatSqlTimeDisplay(sqlTime: string): string {
-  const raw = sqlTime.trim().slice(0, 8);
-  const [h, m] = raw.split(':').map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return sqlTime;
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-}
 
 const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
   value: s,
@@ -988,15 +963,16 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                 'Edit details'
               )}
             </Button>
-            {row.appCreated && (
-              <button
-                type="button"
-                onClick={() => setPendingDelete(true)}
-                className="text-ems-coral text-xs hover:underline transition-colors"
-              >
-                Delete
-              </button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPendingDelete(true)}
+              disabled={deleteMutation.isPending}
+              className="border-ems-coral/40 text-ems-coral hover:bg-ems-coral-dim hover:text-ems-coral"
+            >
+              Delete Engagement
+            </Button>
           </div>
         </div>
 
@@ -1300,30 +1276,62 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
         />
       )}
 
-      {/* ── Delete confirm ───────────────────────────────────────────────── */}
-      <AlertDialog open={pendingDelete} onOpenChange={setPendingDelete}>
-        <AlertDialogContent>
+      {/* ── Delete confirm (same pattern as Companies) ─────────────────── */}
+      <AlertDialog
+        open={pendingDelete}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setPendingDelete(false);
+        }}
+      >
+        <AlertDialogContent className="z-[340] border-border bg-card text-text-primary shadow-xl sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this engagement?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Permanently delete engagement <strong>#{row.engagementId}</strong> (
-              {row.displayTitle}). This cannot be undone.
+            <AlertDialogTitle className="text-text-primary font-semibold text-lg">
+              Remove this engagement?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
+              You’re about to remove{' '}
+              <span className="font-medium text-text-primary">
+                {row.displayTitle}
+              </span>{' '}
+              (engagement <span className="font-mono tabular-nums">#{row.engagementId}</span>) from
+              your list. If something blocks the removal, you’ll see a short explanation right
+              after you confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+          {deleteMutation.isPending && (
+            <div
+              className="flex items-center gap-2.5 rounded-lg border border-border border-dashed bg-surface/60 px-3 py-2.5 text-sm text-text-secondary"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2
+                className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                aria-hidden
+              />
+              <span>Removing engagement…</span>
+            </div>
+          )}
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
+              disabled={deleteMutation.isPending}
+              className="border-border bg-elevated text-text-primary hover:bg-hover mt-0"
+            >
+              Cancel
+            </AlertDialogCancel>
             <Button
+              type="button"
               variant="destructive"
               disabled={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate()}
+              className="bg-ems-coral text-white hover:bg-ems-coral/90 sm:ml-0"
+              onClick={() => void deleteMutation.mutate()}
             >
               {deleteMutation.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Deleting…
-                </span>
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Removing…
+                </>
               ) : (
-                'Delete'
+                'Yes, remove engagement'
               )}
             </Button>
           </AlertDialogFooter>

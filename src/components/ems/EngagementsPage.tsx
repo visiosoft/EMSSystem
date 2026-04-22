@@ -1,39 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   SearchInput,
   FilterChips,
   Modal,
   FormField,
-  ActionMenu,
   StatusBadge,
 } from './Primitives';
 import { Select2, toOptions } from './Select2';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
   createEngagement,
-  deleteEngagement,
   updateEngagement,
-  fetchEngagements,
+  fetchEngagementsPaged,
+  engagementsPagedQueryKey,
+  fetchEngagementFilterOptions,
   type ApiEngagementListRow,
+  type EngagementPagedQueryOpts,
 } from '@/api/engagementApi';
 import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import { fetchCompanies } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { formatFirstShowLine } from '@/lib/engagementDisplay';
+import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
-
-const PAGE_SIZE = 15;
 
 interface Props {
   onNavigate: (view: string, data?: Record<string, unknown>) => void;
@@ -62,11 +54,11 @@ function EngagementsTableSkeleton() {
         </div>
       </div>
       <div className="overflow-x-auto overflow-y-clip">
-        <table className="w-full text-sm min-w-[800px]">
+        <table className="w-full table-fixed text-sm min-w-[960px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               {Array.from({ length: 7 }).map((_, i) => (
-                <th key={i} className="text-left py-2.5 px-3">
+                <th key={i} className="text-left py-2.5 px-3 min-w-0">
                   <Skeleton className="h-3 w-16" />
                 </th>
               ))}
@@ -95,6 +87,7 @@ function EngagementsTableSkeleton() {
 export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [statusFilter, setStatusFilter] = useState(initFilter || 'All');
   const [attractionFilter, setAttractionFilter] = useState('');
   const [dmaFilter, setDmaFilter] = useState('');
@@ -102,16 +95,38 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [timingFilter, setTimingFilter] = useState<'all' | 'upcoming' | 'past'>('all');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ApiEngagementListRow | null>(null);
 
   useEffect(() => {
     if (initFilter) setStatusFilter(initFilter);
   }, [initFilter]);
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
-  const engagementsQuery = useQuery({
-    queryKey: ['engagements'],
-    queryFn: fetchEngagements,
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  const { offset, limit } = getPageParams(page);
+
+  const pagedOpts: EngagementPagedQueryOpts = {
+    q: searchDebounced || undefined,
+    status: statusFilter !== 'All' ? statusFilter : undefined,
+    attraction: attractionFilter || undefined,
+    dma: dmaFilter || undefined,
+    venue: venueFilter || undefined,
+    timing: timingFilter,
+  };
+
+  const engagementsPagedQuery = useQuery({
+    queryKey: engagementsPagedQueryKey(offset, limit, pagedOpts),
+    queryFn: () => fetchEngagementsPaged(offset, limit, pagedOpts),
+    placeholderData: (prev) => prev,
+    retry: 2,
+  });
+
+  const filterOptsQuery = useQuery({
+    queryKey: ['engagements', 'filter-options'],
+    queryFn: fetchEngagementFilterOptions,
+    staleTime: 5 * 60_000,
     retry: 2,
   });
 
@@ -133,104 +148,66 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     retry: 2,
   });
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteEngagement(id),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['engagements'] });
-      addToast('Engagement deleted successfully.', 'success');
-      setPendingDelete(null);
-    },
-    onError: (e: unknown) => addToast(friendlyApiError(e), 'error'),
-  });
+  const rows = engagementsPagedQuery.data?.data ?? [];
+  const serverTotal = engagementsPagedQuery.data?.total ?? 0;
 
-  const rows = engagementsQuery.data ?? [];
+  const filterOpts = filterOptsQuery.data;
 
-  // ── Filter options from live data ──────────────────────────────────────────
   const attractionOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) if (r.attractionName) seen.set(r.attractionName, r.attractionName);
+    const names = filterOpts?.attractionNames ?? [];
     return [
       { value: '', label: 'All Attractions' },
-      ...[...seen.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([v, l]) => ({ value: v, label: l })),
+      ...names.map((n) => ({ value: n, label: n })),
     ];
-  }, [rows]);
+  }, [filterOpts?.attractionNames]);
 
   const dmaOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) if (r.dmaMarketName) seen.set(r.dmaMarketName, r.dmaMarketName);
+    const names = filterOpts?.dmaMarketNames ?? [];
     return [
       { value: '', label: 'All Markets' },
-      ...[...seen.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([v, l]) => ({ value: v, label: l })),
+      ...names.map((n) => ({ value: n, label: n })),
     ];
-  }, [rows]);
+  }, [filterOpts?.dmaMarketNames]);
 
   const venueOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) {
-      const name = r.venueCompanyName ?? r.venueName;
-      if (name) seen.set(name, name);
-    }
+    const names = filterOpts?.venueLabels ?? [];
     return [
       { value: '', label: 'All Venues' },
-      ...[...seen.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([v, l]) => ({ value: v, label: l })),
+      ...names.map((n) => ({ value: n, label: n })),
     ];
-  }, [rows]);
+  }, [filterOpts?.venueLabels]);
 
-  // ── Filtering ──────────────────────────────────────────────────────────────
-  const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-
-  const filtered = useMemo(() => {
-    return rows.filter((r) => {
-      if (statusFilter !== 'All' && r.engagementStatus !== statusFilter) return false;
-      if (attractionFilter && r.attractionName !== attractionFilter) return false;
-      if (dmaFilter && r.dmaMarketName !== dmaFilter) return false;
-      if (venueFilter) {
-        const vname = r.venueCompanyName ?? r.venueName ?? '';
-        if (vname !== venueFilter) return false;
-      }
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      const hay = [
-        r.displayTitle,
-        r.attractionName,
-        r.tourName ?? '',
-        r.venueCompanyName ?? '',
-        r.venueName ?? '',
-        r.dmaMarketName ?? '',
-        r.engagementStatus,
-        String(r.engagementId),
-      ]
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [rows, search, statusFilter, attractionFilter, dmaFilter, venueFilter, today, timingFilter]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = getTotalPages(serverTotal);
   const pageClamped = Math.min(page, pageCount);
-  const pageRows = filtered.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE);
-  const rangeStart = filtered.length === 0 ? 0 : (pageClamped - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(pageClamped * PAGE_SIZE, filtered.length);
+  const { rangeStart, rangeEnd } = getPageRange(pageClamped, serverTotal);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
-  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  const hasActiveFilters =
+    !!searchDebounced ||
+    statusFilter !== 'All' ||
+    !!attractionFilter ||
+    !!dmaFilter ||
+    !!venueFilter ||
+    timingFilter !== 'all';
 
-  const loading = engagementsQuery.isPending || lookupsQuery.isPending;
+  useEffect(() => {
+    setPage(1);
+  }, [searchDebounced, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const engagementsLoading =
+    engagementsPagedQuery.isPending || engagementsPagedQuery.isFetching;
+  const lookupsLoading = lookupsQuery.isPending;
+  /** List + create-modal lookups (same as before); filter-options loads in parallel for dropdowns. */
+  const loading = engagementsLoading || lookupsLoading;
   const refreshing =
-    (engagementsQuery.isFetching && !engagementsQuery.isPending) ||
-    (lookupsQuery.isFetching && !lookupsQuery.isPending);
-  const error = engagementsQuery.error || lookupsQuery.error;
+    (engagementsPagedQuery.isFetching && !engagementsPagedQuery.isPending) ||
+    (lookupsQuery.isFetching && !lookupsQuery.isPending) ||
+    (filterOptsQuery.isFetching && !filterOptsQuery.isPending);
+  const error =
+    engagementsPagedQuery.error || lookupsQuery.error || filterOptsQuery.error;
 
   return (
     <div className="space-y-4">
@@ -255,7 +232,8 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
           <button
             type="button"
             onClick={() => {
-              void engagementsQuery.refetch();
+              void engagementsPagedQuery.refetch();
+              void filterOptsQuery.refetch();
               void lookupsQuery.refetch();
             }}
             className="flex items-center gap-1 text-xs text-ems-coral hover:underline shrink-0"
@@ -274,7 +252,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
             <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
-              {filtered.length}
+              {serverTotal.toLocaleString()}
             </span>
           )}
         </div>
@@ -361,29 +339,38 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
       ) : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-            <table className="w-full text-sm min-w-[800px]">
+            <table className="w-full table-fixed text-sm min-w-[960px]">
+              <colgroup>
+                <col className="w-[22%] min-w-0" />
+                <col className="w-[12%] min-w-0" />
+                <col className="w-[12%] min-w-0" />
+                <col className="w-[15%] min-w-0" />
+                <col className="w-[16%] min-w-0" />
+                <col className="w-[15%] min-w-0" />
+                <col className="w-[8%] min-w-0" />
+              </colgroup>
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   <th className="text-left py-2.5 px-3">Engagement</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Tour</th>
+                  <th className="text-left py-2.5 px-3">First Show</th>
                   <th className="text-left py-2.5 px-3">Venue</th>
                   <th className="text-left py-2.5 px-3">Market</th>
                   <th className="text-left py-2.5 px-3">Status</th>
-                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && !engagementsQuery.isError && (
+                {rows.length === 0 && !engagementsPagedQuery.isError && (
                   <tr>
                     <td colSpan={7} className="py-12 px-3 text-center text-sm text-text-muted">
-                      {rows.length === 0
+                      {serverTotal === 0 && !hasActiveFilters
                         ? 'No engagements loaded yet.'
                         : 'No engagements match your search or filters.'}
                     </td>
                   </tr>
                 )}
-                {pageRows.map((r) => (
+                {rows.map((r) => (
                   <tr
                     key={r.engagementId}
                     onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
@@ -401,7 +388,16 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
                       {r.tourName ?? '—'}
                     </td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[180px] truncate">
+                    <td
+                      className="py-2.5 px-3 text-text-secondary text-xs min-w-0 truncate"
+                      title={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
+                    >
+                      {formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
+                    </td>
+                    <td
+                      className="py-2.5 px-3 text-text-secondary min-w-0 truncate"
+                      title={r.venueCompanyName ?? r.venueName ?? '—'}
+                    >
                       {r.venueCompanyName ?? r.venueName ?? '—'}
                     </td>
                     <td className="py-2.5 px-3 text-xs text-text-secondary max-w-[140px] truncate">
@@ -410,26 +406,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     <td className="py-2.5 px-3">
                       <StatusBadge status={r.engagementStatus} />
                     </td>
-                    <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                      <ActionMenu
-                        items={[
-                          {
-                            label: 'View details',
-                            onClick: () =>
-                              onNavigate('engagement-detail', { engagementId: r.engagementId }),
-                          },
-                          ...(r.appCreated
-                            ? [
-                                {
-                                  label: 'Delete',
-                                  danger: true as const,
-                                  onClick: () => setPendingDelete(r),
-                                },
-                              ]
-                            : []),
-                        ]}
-                      />
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -437,23 +413,22 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
           </div>
 
           {/* Pagination */}
-          {filtered.length > 0 && (
+          {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
                 Showing{' '}
                 <span className="text-text-primary font-medium">
                   {rangeStart}–{rangeEnd}
                 </span>{' '}
-                of <span className="text-text-primary font-medium">{filtered.length}</span>
-                {filtered.length > PAGE_SIZE && (
-                  <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
-                )}
+                of{' '}
+                <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
+                <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={pageClamped <= 1}
+                  disabled={pageClamped <= 1 || engagementsPagedQuery.isFetching}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
                   Previous
@@ -464,7 +439,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                 <button
                   type="button"
                   className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
-                  disabled={pageClamped >= pageCount}
+                  disabled={pageClamped >= pageCount || engagementsPagedQuery.isFetching}
                   onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                 >
                   Next
@@ -489,37 +464,6 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
           }}
         />
       )}
-
-      {/* Delete confirm */}
-      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete engagement?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes engagement{' '}
-              <strong>#{pendingDelete?.engagementId}</strong>{' '}
-              ({pendingDelete?.displayTitle}). This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={deleteMutation.isPending}
-              onClick={() => pendingDelete && deleteMutation.mutate(pendingDelete.engagementId)}
-            >
-              {deleteMutation.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Deleting…
-                </span>
-              ) : (
-                'Delete'
-              )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

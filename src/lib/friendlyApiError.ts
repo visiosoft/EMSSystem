@@ -22,7 +22,10 @@ function apiDetail(error: unknown): string {
 const fkLike =
   /foreign key|FOREIGN KEY|conflicted with the FOREIGN KEY|REFERENCE constraint|violates .*constraint/i;
 
-/** Turns API/network errors into short, user-facing copy (no schema jargon). */
+/**
+ * Text for toasts and inline UI. Uses the API’s `message` only — **never** `detail`
+ * (SQL / driver text stays in the JSON for DevTools → Network → response only).
+ */
 export function friendlyApiError(
   error: unknown,
   fallback = 'Something went wrong. Please try again.',
@@ -76,6 +79,9 @@ export function friendlyApiError(
   }
   if (/internal server error/i.test(raw)) {
     return 'Something unexpected happened. Please try again in a moment.';
+  }
+  if (!msg && detail) {
+    return 'We couldn’t complete this action. For technical details, open the browser Network tab and inspect the response for this request.';
   }
   return raw;
 }

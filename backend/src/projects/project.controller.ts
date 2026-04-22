@@ -22,6 +22,13 @@ import { ProjectService } from './project.service';
 export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}
 
+  // ─── Project meta (must be registered before :id) ───────────────────────
+
+  @Get('meta/project-stages')
+  projectStagesMeta() {
+    return this.projectService.getProjectStageMeta();
+  }
+
   // ─── Project CRUD ─────────────────────────────────────────────────────────
 
   @Get()

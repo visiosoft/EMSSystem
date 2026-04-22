@@ -18,15 +18,26 @@ import { apiFetch } from './config';
 // Lookup types
 // ---------------------------------------------------------------------------
 
-/** Valid values for EngagementProject.ProjectStage */
-export const PROJECT_STAGE_VALUES = [
-  'Active',
-  'OffersSent',
-  'PartiallyBooked',
-  'FullyBooked',
-  'Dead',
-] as const;
-export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
+/**
+ * `ProjectStage` is whatever the database allows on `dbo.EngagementProject.ProjectStage`
+ * (from the column CHECK, or from `PROJECT_STAGE_ALLOWLIST` on the server). Load the list
+ * with `fetchProjectStageMeta()`.
+ */
+export type ProjectStage = string;
+
+export interface ProjectStageMeta {
+  projectStages: string[];
+  source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+}
+
+/** Human-readable label for a stage (works for any string from the DB). */
+export function projectStageDisplayLabel(
+  value: string,
+  knownLabels?: Record<string, string>,
+): string {
+  if (knownLabels?.[value]) return knownLabels[value];
+  return value.replace(/([A-Z])/g, ' $1').trim() || value;
+}
 
 /** Valid values for EngagementProjectVenue.VenueStatus */
 export const VENUE_STATUS_VALUES = [
@@ -198,6 +209,10 @@ export interface UpdateProjectPayload {
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
+
+export function fetchProjectStageMeta() {
+  return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
+}
 
 export function fetchProjects() {
   return apiFetch<ApiProjectListRow[]>('/projects');

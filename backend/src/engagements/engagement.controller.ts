@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
@@ -9,6 +10,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
 import { CreateEngagementDto } from './dto/create-engagement.dto';
@@ -25,6 +27,37 @@ export class EngagementController {
   @Get()
   list() {
     return this.engagementService.list();
+  }
+
+  /** Distinct attraction / market / venue labels for list filters (must stay before `:id`). */
+  @Get('filter-options')
+  filterOptions() {
+    return this.engagementService.filterOptions();
+  }
+
+  @Get('paged')
+  listPaged(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('attraction') attraction?: string,
+    @Query('dma') dma?: string,
+    @Query('venue') venue?: string,
+    @Query('timing') timing?: string,
+  ) {
+    const t =
+      timing === 'upcoming' || timing === 'past'
+        ? timing
+        : ('all' as const);
+    return this.engagementService.listPaginated(offset, limit, {
+      q,
+      status,
+      attractionName: attraction,
+      dmaMarketName: dma,
+      venueLabel: venue,
+      timing: t,
+    });
   }
 
   @Get(':id')

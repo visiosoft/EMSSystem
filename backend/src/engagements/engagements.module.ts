@@ -6,6 +6,7 @@ import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EngagementController } from './engagement.controller';
@@ -17,6 +18,7 @@ import { EngagementService } from './engagement.service';
       Engagement,
       EngagementVenue,
       Performance,
+      TicketingSales,
       Attraction,
       Tour,
       Venue,

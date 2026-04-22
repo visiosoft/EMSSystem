@@ -12,14 +12,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export const PROJECT_STAGE_VALUES = [
-  'Active',
-  'OffersSent',
-  'PartiallyBooked',
-  'FullyBooked',
-  'Dead',
-] as const;
-
 export const VENUE_STATUS_VALUES = [
   'Proposed',
   'Offered',
@@ -80,7 +72,7 @@ export class CreateProjectDto {
   tourId: number;
 
   @IsString()
-  @IsIn(PROJECT_STAGE_VALUES as unknown as string[])
+  @MaxLength(50)
   projectStage: string;
 
   @IsOptional()

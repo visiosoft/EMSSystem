@@ -20,10 +20,19 @@ import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto';
+import { parseStringLiteralsFromCheckDefinition } from './project-stage-check.util';
 
 @Injectable()
 export class ProjectService {
   private readonly logger = new Logger(ProjectService.name);
+  private static readonly PROJECT_STAGE_LIST_TTL_MS = 60_000;
+  private projectStageListCache: {
+    at: number;
+    result: {
+      values: string[];
+      source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+    };
+  } | null = null;
 
   constructor(
     @InjectRepository(EngagementProject)
@@ -59,6 +68,129 @@ export class ProjectService {
     const parts = t.split(':');
     if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
     return t;
+  }
+
+  private parseProjectStageEnvFallback(): string[] {
+    const raw = process.env.PROJECT_STAGE_ALLOWLIST?.trim();
+    if (!raw) return [];
+    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  private async loadProjectStageValuesFromDatabase(): Promise<string[] | null> {
+    const rows: { definition: string }[] = await this.dataSource.query(
+      `
+      SELECT cc.definition AS [definition]
+      FROM sys.check_constraints AS cc
+      INNER JOIN sys.objects AS t ON cc.parent_object_id = t.object_id
+      WHERE t.object_id = OBJECT_ID('dbo.EngagementProject', 'U')
+        AND cc.is_disabled = 0
+        AND cc.definition LIKE N'%ProjectStage%'
+    `,
+    );
+    if (!rows?.length) return null;
+    const collected = new Set<string>();
+    for (const r of rows) {
+      for (const v of parseStringLiteralsFromCheckDefinition(r.definition)) {
+        collected.add(v);
+      }
+    }
+    if (collected.size === 0) return null;
+    return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  /**
+   * Values that already exist in the table are guaranteed to satisfy the CHECK
+   * (as long as the CHECK has not changed since the rows were inserted).
+   */
+  private async loadProjectStagesFromExistingRows(): Promise<string[] | null> {
+    const rows: Record<string, string>[] = await this.dataSource.query(
+      `
+      SELECT DISTINCT LTRIM(RTRIM(CAST([ProjectStage] AS NVARCHAR(200)))) AS [stage]
+      FROM [dbo].[EngagementProject]
+      WHERE [ProjectStage] IS NOT NULL
+        AND LEN(LTRIM(RTRIM(CAST([ProjectStage] AS NVARCHAR(200))))) > 0
+    `,
+    );
+    if (!rows?.length) return null;
+    const collected = new Set<string>();
+    for (const r of rows) {
+      const val = r['stage'] ?? r['Stage'];
+      if (val != null) collected.add(String(val).trim());
+    }
+    if (collected.size === 0) return null;
+    return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  private async resolveProjectStageAllowlist(): Promise<{
+    values: string[];
+    source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+  }> {
+    const fromEnv = this.parseProjectStageEnvFallback();
+    if (fromEnv.length > 0) {
+      return { values: fromEnv, source: 'environment' };
+    }
+    try {
+      const fromCheck = await this.loadProjectStageValuesFromDatabase();
+      if (fromCheck && fromCheck.length > 0) {
+        return { values: fromCheck, source: 'check_constraint' };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not read CHECK definition for dbo.EngagementProject.ProjectStage: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    try {
+      const fromRows = await this.loadProjectStagesFromExistingRows();
+      if (fromRows && fromRows.length > 0) {
+        this.logger.log(
+          `Project stage list taken from existing dbo.EngagementProject rows (${fromRows.length} distinct value(s)).`,
+        );
+        return { values: fromRows, source: 'existing_rows' };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not read distinct ProjectStage from dbo.EngagementProject: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    this.logger.warn(
+      'No project stages: set PROJECT_STAGE_ALLOWLIST on the API to the exact values allowed by the database CHECK, or add at least one project row the DB will accept so we can read distinct ProjectStage values.',
+    );
+    return { values: [], source: 'empty' };
+  }
+
+  /**
+   * Allowed `ProjectStage` values: parsed from the SQL Server CHECK on the column, or
+   * from env `PROJECT_STAGE_ALLOWLIST` (comma-separated) if the CHECK cannot be read.
+   */
+  async getProjectStageMeta(): Promise<{
+    projectStages: string[];
+    source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+  }> {
+    const now = Date.now();
+    if (this.projectStageListCache && now - this.projectStageListCache.at < ProjectService.PROJECT_STAGE_LIST_TTL_MS) {
+      const r = this.projectStageListCache.result;
+      return { projectStages: r.values, source: r.source };
+    }
+    const r = await this.resolveProjectStageAllowlist();
+    this.projectStageListCache = { at: now, result: r };
+    return { projectStages: r.values, source: r.source };
+  }
+
+  /**
+   * When the allowlist is empty (CHECK not readable, no env, no existing rows), we do **not** block
+   * the request here — SQL Server enforces the CHECK and returns the real driver error in `detail`
+   * on failure. When we do have an allowlist, we match the previous app validation.
+   */
+  private async assertValidProjectStage(stage: string): Promise<void> {
+    const { projectStages } = await this.getProjectStageMeta();
+    if (projectStages.length === 0) {
+      return;
+    }
+    if (!projectStages.includes(stage)) {
+      throw new BadRequestException({
+        message: `Invalid project stage "${stage}". Allowed values: ${projectStages.join(', ')}.`,
+      });
+    }
   }
 
   private async assertTourExists(tourId: number): Promise<Tour> {
@@ -178,6 +310,7 @@ export class ProjectService {
 
   async create(dto: CreateProjectDto): Promise<{ engagementProjectId: number }> {
     await this.assertTourExists(dto.tourId);
+    await this.assertValidProjectStage(dto.projectStage);
 
     // Validate all venues before writing anything
     for (const v of dto.venues ?? []) {
@@ -219,9 +352,12 @@ export class ProjectService {
       if (err instanceof QueryFailedError) {
         const d = String((err as QueryFailedError).driverError ?? err.message);
         this.logger.warn(`Create project failed: ${d}`);
+        const isStageCheck =
+          /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
         throw new BadRequestException({
-          message:
-            'Could not create the project. Check that the tour exists and that project data matches database rules (stage, tour link, and related keys).',
+          message: isStageCheck
+            ? 'This project stage isn’t accepted for this project. Choose a different stage, or ask your administrator to update the allowed stages for your system.'
+            : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
           detail: d,
         });
       }
@@ -231,7 +367,10 @@ export class ProjectService {
 
   async update(id: number, dto: UpdateProjectDto): Promise<void> {
     const project = await this.assertProjectExists(id);
-    if (dto.projectStage !== undefined) project.projectStage = dto.projectStage;
+    if (dto.projectStage !== undefined) {
+      await this.assertValidProjectStage(dto.projectStage);
+      project.projectStage = dto.projectStage;
+    }
     if (dto.createdBy !== undefined) project.createdBy = dto.createdBy?.trim() ?? null;
     if (dto.tourId !== undefined) {
       await this.assertTourExists(dto.tourId);
@@ -245,7 +384,7 @@ export class ProjectService {
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
         throw new BadRequestException({
           message:
-            'Could not update the project. Check project stage, tour link, and related data.',
+            'Could not update the project. Check the information you entered, or ask your administrator if something is blocked by your system’s rules.',
           detail: d,
         });
       }

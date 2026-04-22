@@ -1,12 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
@@ -14,6 +13,7 @@ import { Dma } from '../entities/dma.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Performance } from '../entities/performance.entity';
+import { TicketingSales } from '../entities/ticketing-sales.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { EmsAppCreatedStore } from '../attraction-tours/ems-app-created.store';
@@ -55,6 +55,16 @@ export interface EngagementVenueRow {
   isPrimary: boolean;
 }
 
+/** Query params for {@link EngagementService.listPaginated}. */
+export interface EngagementListFilters {
+  q?: string;
+  status?: string;
+  attractionName?: string;
+  dmaMarketName?: string;
+  venueLabel?: string;
+  timing?: 'all' | 'upcoming' | 'past';
+}
+
 function pickRaw(r: Record<string, unknown>, key: string): unknown {
   if (key in r) return r[key];
   const lower = key.toLowerCase();
@@ -77,6 +87,8 @@ export class EngagementService {
     private readonly companyRepo: Repository<Company>,
     @InjectRepository(Performance)
     private readonly performanceRepo: Repository<Performance>,
+    @InjectRepository(TicketingSales)
+    private readonly ticketingSalesRepo: Repository<TicketingSales>,
     private readonly emsCreated: EmsAppCreatedStore,
     private readonly dataSource: DataSource,
   ) {}
@@ -161,24 +173,8 @@ export class EngagementService {
         'addr.stateProvince     AS stateProvince',
         'dma.marketName         AS dmaMarketName',
       ])
-      .addSelect(
-        `(
-          SELECT TOP 1 op.PerformanceDate
-          FROM dbo.[Performance] op
-          WHERE op.EngagementID = e.EngagementID
-          ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
-        )`,
-        'openingPerformanceDate',
-      )
-      .addSelect(
-        `(
-          SELECT TOP 1 op.PerformanceTime
-          FROM dbo.[Performance] op
-          WHERE op.EngagementID = e.EngagementID
-          ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
-        )`,
-        'openingPerformanceTime',
-      );
+      .addSelect(this.openingPerformanceDateSubquery(), 'openingPerformanceDate')
+      .addSelect(this.openingPerformanceTimeSubquery(), 'openingPerformanceTime');
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
@@ -186,6 +182,50 @@ export class EngagementService {
       qb.orderBy('e.engagementId', 'DESC');
     }
     return qb;
+  }
+
+  /**
+   * Normalize opening date to `yyyy-MM-dd` (never pass driver Date through JSON).
+   * Drops `1970-01-01` (epoch placeholder from bad/missing data).
+   */
+  private parseOpeningDateOnly(raw: unknown): string | null {
+    if (raw == null || raw === '') return null;
+    if (raw instanceof Date) {
+      if (Number.isNaN(raw.getTime())) return null;
+      const y = raw.getUTCFullYear();
+      const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(raw.getUTCDate()).padStart(2, '0');
+      const ymd = `${y}-${m}-${d}`;
+      return ymd === '1970-01-01' ? null : ymd;
+    }
+    const s = String(raw).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!m) return null;
+    return m[1] === '1970-01-01' ? null : m[1];
+  }
+
+  /**
+   * Normalize opening time to `HH:mm:ss` (wall clock, no long locale strings).
+   */
+  private parseOpeningTimeOnly(raw: unknown): string | null {
+    if (raw == null || raw === '') return null;
+    if (raw instanceof Date) {
+      if (Number.isNaN(raw.getTime())) return null;
+      const h = String(raw.getUTCHours()).padStart(2, '0');
+      const min = String(raw.getUTCMinutes()).padStart(2, '0');
+      const sec = String(raw.getUTCSeconds()).padStart(2, '0');
+      return `${h}:${min}:${sec}`;
+    }
+    const s = String(raw).trim();
+    const t = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (t) {
+      const h = String(Math.min(23, Math.max(0, parseInt(t[1], 10)))).padStart(2, '0');
+      const min = t[2].padStart(2, '0');
+      const sec = (t[3] ?? '00').padStart(2, '0');
+      return `${h}:${min}:${sec}`;
+    }
+    if (s.length > 20 && (s.includes('GMT') || s.includes('1970'))) return null;
+    return null;
   }
 
   private mapRaw(r: Record<string, unknown>): EngagementListRow {
@@ -199,13 +239,8 @@ export class EngagementService {
     const venueLabel = venueCompanyName ?? venueName ?? 'TBD';
     const engagementId = Number(g('engagementId'));
 
-    const openingDate =
-      g('openingPerformanceDate') != null
-        ? String(g('openingPerformanceDate')).slice(0, 10)
-        : null;
-    const openingTimeRaw = g('openingPerformanceTime');
-    const openingTime =
-      openingTimeRaw != null ? String(openingTimeRaw).trim() : null;
+    const openingDate = this.parseOpeningDateOnly(g('openingPerformanceDate'));
+    const openingTime = this.parseOpeningTimeOnly(g('openingPerformanceTime'));
 
     return {
       engagementId,
@@ -240,6 +275,159 @@ export class EngagementService {
   async list(): Promise<EngagementListRow[]> {
     const raw = await this.buildEngagementQuery().getRawMany();
     return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
+  }
+
+  /**
+   * Earliest performance date as `yyyy-MM-dd` string (avoids driver `Date` objects
+   * serializing to long GMT strings in the API).
+   */
+  private openingPerformanceDateSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(10), op.PerformanceDate, 23)
+          FROM dbo.[Performance] op
+          WHERE op.EngagementID = e.EngagementID
+          ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
+        )`;
+  }
+
+  /** Earliest performance time as `HH:mm:ss` string (see {@link openingPerformanceDateSubquery}). */
+  private openingPerformanceTimeSubquery(): string {
+    return `(
+          SELECT TOP 1 CONVERT(varchar(8), op.PerformanceTime, 108)
+          FROM dbo.[Performance] op
+          WHERE op.EngagementID = e.EngagementID
+          ORDER BY op.PerformanceDate ASC, op.PerformanceTime ASC
+        )`;
+  }
+
+  private applyEngagementListFilters(
+    qb: SelectQueryBuilder<Engagement>,
+    f: EngagementListFilters,
+  ): void {
+    const q = (f.q ?? '').trim();
+    if (q) {
+      const like = `%${q}%`;
+      qb.andWhere(
+        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) OR LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like))`,
+        { like },
+      );
+    }
+
+    const st = (f.status ?? '').trim();
+    if (st && st !== 'All') {
+      if (st === 'Unknown') {
+        qb.andWhere(
+          `(e.engagementStatus IS NULL OR LTRIM(RTRIM(e.engagementStatus)) NOT IN ('Private', 'Public'))`,
+        );
+      } else if (st === 'Private' || st === 'Public') {
+        qb.andWhere('LTRIM(RTRIM(e.engagementStatus)) = :stExact', { stExact: st });
+      }
+    }
+
+    const an = (f.attractionName ?? '').trim();
+    if (an) {
+      qb.andWhere('a.attractionName = :an', { an });
+    }
+
+    const dma = (f.dmaMarketName ?? '').trim();
+    if (dma) {
+      qb.andWhere('dma.marketName = :dma', { dma });
+    }
+
+    const vl = (f.venueLabel ?? '').trim();
+    if (vl) {
+      qb.andWhere('(vc.companyName = :vl OR v.venueName = :vl)', { vl });
+    }
+
+    const openingSub = this.openingPerformanceDateSubquery();
+    if (f.timing === 'upcoming') {
+      qb.andWhere(
+        `(${openingSub} IS NULL OR CAST(${openingSub} AS DATE) >= CAST(GETDATE() AS DATE))`,
+      );
+    } else if (f.timing === 'past') {
+      qb.andWhere(
+        `(${openingSub} IS NOT NULL AND CAST(${openingSub} AS DATE) < CAST(GETDATE() AS DATE))`,
+      );
+    }
+  }
+
+  async listPaginated(
+    offset: number,
+    limit: number,
+    filters: EngagementListFilters = {},
+  ): Promise<{ data: EngagementListRow[]; total: number }> {
+    const safeLimit = Math.min(100, Math.max(1, limit));
+    const off = Math.max(0, offset);
+
+    const qb = this.buildEngagementQuery();
+    this.applyEngagementListFilters(qb, filters);
+    const total = await qb.clone().getCount();
+    const raw = await qb.skip(off).take(safeLimit).getRawMany();
+    return {
+      data: (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r)),
+      total,
+    };
+  }
+
+  /** Distinct filter values for engagements list UI (not tied to current page). */
+  async filterOptions(): Promise<{
+    attractionNames: string[];
+    dmaMarketNames: string[];
+    venueLabels: string[];
+  }> {
+    const attractionNames = (
+      await this.engagementRepo
+        .createQueryBuilder('e')
+        .innerJoin(Tour, 't', 't.tourId = e.tourId')
+        .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+        .select('a.attractionName', 'name')
+        .where('a.attractionName IS NOT NULL')
+        .distinct(true)
+        .orderBy('a.attractionName', 'ASC')
+        .getRawMany<{ name: string }>()
+    ).map((r) => String(r.name ?? ''));
+
+    const dmaMarketNames = (
+      await this.engagementRepo
+        .createQueryBuilder('e')
+        .innerJoin(Tour, 't', 't.tourId = e.tourId')
+        .leftJoin(
+          EngagementVenue,
+          'ev',
+          'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+          { prim: true },
+        )
+        .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+        .leftJoin(Dma, 'dma', 'dma.dmaid = vc.dmaid')
+        .select('dma.marketName', 'name')
+        .where('dma.marketName IS NOT NULL')
+        .distinct(true)
+        .orderBy('dma.marketName', 'ASC')
+        .getRawMany<{ name: string }>()
+    ).map((r) => String(r.name ?? ''));
+
+    const venueRows = await this.engagementRepo
+      .createQueryBuilder('e')
+      .innerJoin(Tour, 't', 't.tourId = e.tourId')
+      .leftJoin(
+        EngagementVenue,
+        'ev',
+        'ev.engagementId = e.engagementId AND ev.isPrimary = :prim',
+        { prim: true },
+      )
+      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
+      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+      .select(['vc.companyName AS cn', 'v.venueName AS vn'])
+      .getRawMany<{ cn: string | null; vn: string | null }>();
+
+    const venueSet = new Set<string>();
+    for (const r of venueRows) {
+      const label = (r.cn?.trim() || r.vn?.trim() || '').trim();
+      if (label) venueSet.add(label);
+    }
+    const venueLabels = [...venueSet].sort((a, b) => a.localeCompare(b));
+
+    return { attractionNames, dmaMarketNames, venueLabels };
   }
 
   async getOne(id: number): Promise<EngagementListRow> {
@@ -374,18 +562,68 @@ export class EngagementService {
     }
   }
 
-  async remove(id: number): Promise<void> {
-    if (!this.emsCreated.canDeleteEngagement(id)) {
-      throw new ForbiddenException({
-        message:
-          'Only engagements created through this application can be deleted. Legacy engagements are read-only.',
-      });
+  /**
+   * Deletion is allowed for any engagement unless:
+   * - the earliest (opening) show date is **before today** (server date), or
+   * - **TicketingSales** rows exist for any of its performances (revenue / ticket data).
+   */
+  private async assertEngagementDeletableForDelete(engagementId: number): Promise<void> {
+    await this.assertEngagementExists(engagementId);
+
+    const minRow = await this.performanceRepo
+      .createQueryBuilder('p')
+      .select('MIN(CAST(p.performanceDate AS date))', 'minD')
+      .where('p.engagementId = :eid', { eid: engagementId })
+      .getRawOne<{ minD: Date | string | null }>();
+    const raw = minRow?.minD;
+    if (raw != null) {
+      const ymd =
+        raw instanceof Date
+          ? `${raw.getFullYear()}-${String(raw.getMonth() + 1).padStart(2, '0')}-${String(raw.getDate()).padStart(2, '0')}`
+          : String(raw).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+        const t = new Date();
+        const todayStr = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+        if (ymd < todayStr) {
+          throw new BadRequestException({
+            message:
+              'The first show for this engagement is in the past. Remove or archive it instead of deleting.',
+          });
+        }
+      }
     }
 
-    // Verify existence first
-    await this.assertEngagementExists(id);
+    const salesCount = await this.ticketingSalesRepo
+      .createQueryBuilder('ts')
+      .innerJoin(Performance, 'p', 'p.performanceId = ts.performanceId')
+      .where('p.engagementId = :eid', { eid: engagementId })
+      .getCount();
+    if (salesCount > 0) {
+      throw new BadRequestException({
+        message:
+          'This engagement has ticket sales or revenue on file for one or more performances. Resolve or reassign that data in Daily Sales / ticketing before deleting.',
+      });
+    }
+  }
+
+  async remove(id: number): Promise<void> {
+    await this.assertEngagementDeletableForDelete(id);
 
     await this.dataSource.transaction(async (manager) => {
+      const pids = (
+        await manager.find(Performance, {
+          where: { engagementId: id },
+          select: { performanceId: true },
+        })
+      ).map((p) => p.performanceId);
+      if (pids.length > 0) {
+        await manager
+          .createQueryBuilder()
+          .delete()
+          .from(TicketingSales)
+          .where('performanceId IN (:...pids)', { pids })
+          .execute();
+      }
       await manager.delete(Performance, { engagementId: id });
       await manager.delete(EngagementVenue, { engagementId: id });
       await manager.delete(Engagement, { engagementId: id });

@@ -1,11 +1,10 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PROJECT_STAGE_VALUES } from './create-project.dto';
 
 export class UpdateProjectDto {
   @IsOptional()
   @IsString()
-  @IsIn(PROJECT_STAGE_VALUES as unknown as string[])
+  @MaxLength(50)
   projectStage?: string;
 
   @IsOptional()

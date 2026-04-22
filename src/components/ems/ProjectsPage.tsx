@@ -44,12 +44,13 @@ import {
   deleteProject,
   deleteProjectVenue,
   fetchProject,
+  fetchProjectStageMeta,
   fetchProjects,
+  projectStageDisplayLabel,
   updatePerformanceOption,
   updateProject,
   updateProjectVenue,
   OPTION_STATUS_VALUES,
-  PROJECT_STAGE_VALUES,
   VENUE_STATUS_VALUES,
 } from '@/api/projectApi';
 import type {
@@ -78,23 +79,29 @@ import { AddTourForm } from './AddTourForm';
 
 const PAGE_SIZE = 15;
 
-const STAGE_FILTER_OPTIONS = [
-  { value: 'All', label: 'All' },
-  { value: 'Active', label: 'Active' },
-  { value: 'OffersSent', label: 'Offers Sent' },
-  { value: 'PartiallyBooked', label: 'Partially Booked' },
-  { value: 'FullyBooked', label: 'Fully Booked' },
-  { value: 'Dead', label: 'Inactive' },
-];
-
-const PROJECT_STAGE_LABEL: Record<string, string> = {
-  Active: 'Active', OffersSent: 'Offers Sent',
-  PartiallyBooked: 'Partially Booked', FullyBooked: 'Fully Booked', Dead: 'Dead',
+/** Extra display names for common DB literals (any other value still renders via `projectStageDisplayLabel`). */
+const CANONICAL_PROJECT_STAGE_LABEL: Record<string, string> = {
+  OffersSent: 'Offers Sent',
+  PartiallyBooked: 'Partially Booked',
+  FullyBooked: 'Fully Booked',
+  Dead: 'Inactive',
 };
 
-const PROJECT_STAGE_OPTIONS = PROJECT_STAGE_VALUES.map((v) => ({
-  value: v, label: PROJECT_STAGE_LABEL[v] ?? v,
-}));
+function projectStageSelectOptions(stages: string[]) {
+  return stages.map((value) => ({
+    value,
+    label: projectStageDisplayLabel(value, CANONICAL_PROJECT_STAGE_LABEL),
+  }));
+}
+
+/** TODO: remove when API/DB project-stage list is reliable — always show this value in dropdowns for now. */
+const TEMP_FRONTEND_PROJECT_STAGE = 'OffersSent';
+
+function mergeStagesWithTempOffersSent(stages: string[]): string[] {
+  const s = new Set(stages);
+  s.add(TEMP_FRONTEND_PROJECT_STAGE);
+  return [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
 const VENUE_STATUS_OPTIONS = VENUE_STATUS_VALUES.map((v) => ({ value: v, label: v }));
 const OPTION_STATUS_OPTIONS = OPTION_STATUS_VALUES.map((v) => ({ value: v, label: v }));
 
@@ -496,7 +503,9 @@ function ProjectDetailDrawer({
               </div>
               <div>
                 <span className="text-xs text-text-muted">Stage</span>
-                <div className="mt-0.5"><StatusBadge status={project.projectStage} /></div>
+                <div className="mt-0.5">
+                  <StatusBadge status={project.projectStage} />
+                </div>
               </div>
               <div>
                 <span className="text-xs text-text-muted">Created By</span>
@@ -619,6 +628,18 @@ function CreateProjectForm({
   });
   const classesQuery = useQuery({ queryKey: ['classes'], queryFn: fetchClasses, staleTime: 60_000 });
   const [step, setStep] = useState(1);
+  /** Only fetch when the Details step is shown — `step` must be declared before this `useQuery`. */
+  const projectStageMetaQuery = useQuery({
+    queryKey: ['project', 'meta', 'project-stages'],
+    queryFn: fetchProjectStageMeta,
+    staleTime: 60_000,
+    enabled: step >= 5,
+  });
+  const projectStages = projectStageMetaQuery.data?.projectStages ?? [];
+  const projectStageOptions = useMemo(
+    () => projectStageSelectOptions(mergeStagesWithTempOffersSent(projectStages)),
+    [projectStages],
+  );
 
   /** Load DMA list only on Markets / Details steps — fetching 50k+ rows on modal open freezes or crashes the tab. */
   const dmaMarketsQuery = useQuery({
@@ -640,11 +661,17 @@ function CreateProjectForm({
   const [dmaListFilter, setDmaListFilter] = useState('');
   const [dmaPickerValue, setDmaPickerValue] = useState('');
 
-  const [projectStage, setProjectStage] = useState<ProjectStage>('Active');
+  const [projectStage, setProjectStage] = useState<ProjectStage>('');
   const [createdBy, setCreatedBy] = useState('');
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (projectStage === '' && projectStages.length > 0) {
+      setProjectStage(projectStages[0]);
+    }
+  }, [projectStage, projectStages]);
 
   const attractions = attractionsQuery.data ?? [];
   const tours = toursQuery.data ?? [];
@@ -742,7 +769,13 @@ function CreateProjectForm({
   const canProceedStep1 = selectedAttractionId != null;
   const canProceedStep2 = selectedTourId != null;
   const canProceedStep4 = true;
-  const canSubmit = selectedTourId != null;
+  /** Only used on the final “Create Project” action (step 5). */
+  const canCreateProject =
+    selectedTourId != null &&
+    !projectStageMetaQuery.isPending &&
+    !projectStageMetaQuery.isError &&
+    projectStageOptions.length > 0 &&
+    Boolean(projectStage || projectStages[0]);
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
   const handleNext = () => setStep((s) => Math.min(WIZARD_LAST, s + 1));
@@ -760,6 +793,18 @@ function CreateProjectForm({
 
   const handleSubmit = async () => {
     if (!selectedTourId) return;
+    const stage = projectStage || projectStages[0] || '';
+    if (!stage) {
+      addToast(
+        projectStageMetaQuery.isError
+          ? friendlyApiError(projectStageMetaQuery.error, 'Could not load project stages from the server.')
+          : (projectStageMetaQuery.data?.source === 'empty'
+            ? 'No project stages are available. The database CHECK could not be read; set PROJECT_STAGE_ALLOWLIST on the API or fix permissions.'
+            : 'Select a project stage before creating the project.'),
+        'error',
+      );
+      return;
+    }
     setSaving(true);
     try {
       const desiredMgmt = tourManagementCompanyId ?? null;
@@ -771,7 +816,7 @@ function CreateProjectForm({
       }
       const res = await createProject({
         tourId: selectedTourId,
-        projectStage,
+        projectStage: stage,
         createdBy: createdBy.trim() ? createdBy.trim() : undefined,
         dmaIds: selectedDmaIds.length > 0 ? selectedDmaIds : undefined,
       });
@@ -1072,13 +1117,73 @@ function CreateProjectForm({
                 </div>
               </FormField>
             </div>
-            <div className="border-t border-border pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label="Project Stage" required>
-                <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
-              </FormField>
-              <FormField label="Created By (optional)">
-                <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
-              </FormField>
+            <div className="border-t border-border pt-3 space-y-3">
+              <p className="text-xs text-text-muted">
+                <span className="font-medium text-text-secondary">Project stage is required.</span> The list below is
+                the set of values your system allows. Choose the one that fits this project, then click Create Project.
+              </p>
+              {projectStageMetaQuery.isPending && (
+                <p className="text-xs text-text-secondary flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" />
+                  Loading allowed project stages from the server…
+                </p>
+              )}
+              {projectStageMetaQuery.isError && (
+                <div className="rounded-md border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-text-primary space-y-2">
+                  <p>Could not load project stages: {friendlyApiError(projectStageMetaQuery.error)}</p>
+                  <button
+                    type="button"
+                    className="text-sm font-medium text-ems-accent hover:underline"
+                    onClick={() => void projectStageMetaQuery.refetch()}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+              {projectStageMetaQuery.isSuccess && projectStageMetaQuery.data?.source === 'existing_rows' && (
+                <p className="text-xs text-ems-amber">
+                  The full rule from the database could not be read, so the list below is built from{' '}
+                  <span className="font-medium">stages that already exist on other projects</span>. For a complete,
+                  exact list, set <code className="text-[11px]">PROJECT_STAGE_ALLOWLIST</code> on the API to match your
+                  database.
+                </p>
+              )}
+              {projectStageMetaQuery.isSuccess &&
+                projectStageMetaQuery.data?.source === 'empty' &&
+                projectStageOptions.length === 0 && (
+                <p className="text-xs text-ems-amber">
+                  No stages are available to pick right now. An administrator needs to connect the app to the list of
+                  allowed stages (via the database or the API setting{' '}
+                  <code className="text-[11px]">PROJECT_STAGE_ALLOWLIST</code>
+                  ). Until then, you can’t complete this step.
+                </p>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField label="Project Stage" required>
+                  <Select2
+                    options={projectStageOptions}
+                    value={projectStage}
+                    onChange={(v) => setProjectStage(v as ProjectStage)}
+                    disabled={projectStageMetaQuery.isPending || projectStageOptions.length === 0}
+                    placeholder={
+                      projectStageMetaQuery.isPending
+                        ? 'Loading stages…'
+                        : projectStageOptions.length === 0
+                          ? 'No stages from API — see message above'
+                          : 'Select project stage'
+                    }
+                  />
+                </FormField>
+                <FormField label="Created By (optional)">
+                  <input
+                    className={inputCls}
+                    maxLength={200}
+                    value={createdBy}
+                    onChange={(e) => setCreatedBy(e.target.value)}
+                    placeholder="Your name or user ID"
+                  />
+                </FormField>
+              </div>
             </div>
           </div>
         </div>
@@ -1113,7 +1218,7 @@ function CreateProjectForm({
             <button
               type="button"
               onClick={() => void handleSubmit()}
-              disabled={saving || !canSubmit}
+              disabled={saving || !canCreateProject}
               className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Creating…</> : 'Create Project'}
@@ -1168,6 +1273,21 @@ function EditProjectForm({
   const [tourId, setTourId] = useState<number>(project.tourId);
   const [saving, setSaving] = useState(false);
 
+  const projectStageMetaQuery = useQuery({
+    queryKey: ['project', 'meta', 'project-stages'],
+    queryFn: fetchProjectStageMeta,
+    staleTime: 60_000,
+  });
+  const projectStages = projectStageMetaQuery.data?.projectStages ?? [];
+  const projectStageOptions = useMemo(() => {
+    const merged = new Set<string>([
+      ...mergeStagesWithTempOffersSent(projectStages),
+      project.projectStage,
+      projectStage,
+    ].filter(Boolean) as string[]);
+    return projectStageSelectOptions([...merged].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+  }, [projectStages, project.projectStage, projectStage]);
+
   const attractions = attractionsQuery.data ?? [];
   const tours = toursQuery.data ?? [];
 
@@ -1182,7 +1302,7 @@ function EditProjectForm({
   }, [tours, currentTour]);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
-  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending;
+  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending || projectStageMetaQuery.isPending;
 
   const handleSave = async () => {
     setSaving(true);
@@ -1242,7 +1362,12 @@ function EditProjectForm({
         <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">Edit Details</h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Project Stage" required>
-            <Select2 options={PROJECT_STAGE_OPTIONS} value={projectStage} onChange={(v) => setProjectStage(v as ProjectStage)} />
+            <Select2
+              options={projectStageOptions}
+              value={projectStage}
+              onChange={(v) => setProjectStage(v as ProjectStage)}
+              disabled={projectStageOptions.length === 0}
+            />
           </FormField>
           <FormField label="Created By (optional)">
             <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
@@ -1292,6 +1417,15 @@ export function ProjectsPage({ addToast }: Props) {
   const [pendingDelete, setPendingDelete] = useState<ApiProjectListRow | null>(null);
 
   const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: fetchProjects });
+  const projectStageMetaQuery = useQuery({
+    queryKey: ['project', 'meta', 'project-stages'],
+    queryFn: fetchProjectStageMeta,
+    staleTime: 60_000,
+  });
+  const stageFilterOptions = useMemo(() => {
+    const stages = mergeStagesWithTempOffersSent(projectStageMetaQuery.data?.projectStages ?? []);
+    return [{ value: 'All', label: 'All' }, ...projectStageSelectOptions(stages)];
+  }, [projectStageMetaQuery.data?.projectStages]);
 
   const refetch = useCallback(async () => {
     await qc.refetchQueries({ queryKey: ['projects'], exact: true });
@@ -1312,10 +1446,18 @@ export function ProjectsPage({ addToast }: Props) {
 
   const filtered = useMemo(() => {
     return rows.filter((p) => {
-      if (stageFilter !== 'All' && p.projectStage !== stageFilter) return false;
+      if (stageFilter !== 'All' && p.projectStage !== stageFilter) {
+        return false;
+      }
       if (!search.trim()) return true;
       const q = search.toLowerCase();
-      return [String(p.engagementProjectId), p.tourName ?? '', p.attractionName ?? '', p.projectStage ?? '', p.createdBy ?? '']
+      return [
+        String(p.engagementProjectId),
+        p.tourName ?? '',
+        p.attractionName ?? '',
+        p.projectStage,
+        p.createdBy ?? '',
+      ]
         .join(' ').toLowerCase().includes(q);
     });
   }, [rows, search, stageFilter]);
@@ -1398,7 +1540,13 @@ export function ProjectsPage({ addToast }: Props) {
           <SearchInput value={search} onChange={setSearch} placeholder="Search projects…" disabled={isLoading} />
         </div>
         <div className="w-full sm:w-72">
-          <Select2 options={STAGE_FILTER_OPTIONS} value={stageFilter} onChange={setStageFilter} disabled={isLoading} placeholder="Filter by stage" />
+          <Select2
+            options={stageFilterOptions}
+            value={stageFilter}
+            onChange={setStageFilter}
+            disabled={isLoading}
+            placeholder="Filter by stage"
+          />
         </div>
       </div>
 
@@ -1431,7 +1579,9 @@ export function ProjectsPage({ addToast }: Props) {
                     className="border-b border-border/50 hover:bg-hover cursor-pointer">
                     <td className="py-2.5 px-3 text-text-primary font-medium">{p.attractionName ?? '—'}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{p.tourName ?? <span className="text-text-muted italic">No tour name</span>}</td>
-                    <td className="py-2.5 px-3"><StatusBadge status={p.projectStage} /></td>
+                    <td className="py-2.5 px-3">
+                      <StatusBadge status={p.projectStage} />
+                    </td>
                     <td className="py-2.5 px-3 text-text-secondary">{p.createdBy ?? '—'}</td>
                     <td className="py-2.5 px-3 text-xs text-text-muted tabular-nums">
                       {p.createdDate ? new Date(p.createdDate).toLocaleDateString() : '—'}
