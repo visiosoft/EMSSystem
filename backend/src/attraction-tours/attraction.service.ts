@@ -1,13 +1,7 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Attraction } from '../entities/attraction.entity';
-import { Engagement } from '../entities/engagement.entity';
 import { Tour } from '../entities/tour.entity';
 import { CreateAttractionDto } from './dto/create-attraction.dto';
 import { UpdateAttractionDto } from './dto/update-attraction.dto';
@@ -27,8 +21,6 @@ export class AttractionService {
     private readonly attractionRepo: Repository<Attraction>,
     @InjectRepository(Tour)
     private readonly tourRepo: Repository<Tour>,
-    @InjectRepository(Engagement)
-    private readonly engagementRepo: Repository<Engagement>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
 
@@ -69,13 +61,18 @@ export class AttractionService {
   }
 
   async remove(id: number): Promise<void> {
-    if (!this.emsCreated.canDeleteAttraction(id)) {
-      throw new ForbiddenException({ message: 'Only attractions created in this app can be removed.' });
+    const existing = await this.attractionRepo.findOne({ where: { attractionId: id } });
+    if (!existing) {
+      throw new NotFoundException({ message: 'Attraction not found.' });
     }
     const tourCount = await this.tourRepo.count({ where: { attractionId: id } });
     if (tourCount > 0) {
-      throw new ConflictException({ message: 'Remove tours for this attraction before deleting it.' });
+      throw new ConflictException({
+        message:
+          'This attraction can’t be removed because it still has one or more tours. Remove those tours first (and close any engagements on them), then try again.',
+      });
     }
     await this.attractionRepo.delete({ attractionId: id });
+    this.emsCreated.removeAttraction(id);
   }
 }

@@ -317,16 +317,14 @@ function AttractionSidePanel({
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {attraction.appCreated && (
-            <button
-              type="button"
-              onClick={() => onDelete(attraction)}
-              title="Delete attraction"
-              className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onDelete(attraction)}
+            title="Delete attraction"
+            className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral-dim rounded-md transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={onClose}
@@ -340,8 +338,7 @@ function AttractionSidePanel({
       <div className="p-4 space-y-5">
         <p className="flex items-start gap-1.5 text-[11px] text-text-muted select-none leading-relaxed">
           <Pencil className="h-3 w-3 shrink-0 mt-0.5" />
-          Click the attraction name to edit it. Tours listed below are read-only; use the Tours tab and open a tour to
-          change genre, company, and other tour fields.
+          Click the attraction name to edit it.
         </p>
 
         <InlineField
@@ -784,9 +781,10 @@ export function AttractionToursPage({ addToast }: Props) {
 
   const deleteAttrMut = useMutation({
     mutationFn: deleteAttraction,
-    onSuccess: async () => {
+    onSuccess: async (_, attractionId) => {
       await refetchAll();
       setPendingDeleteAttraction(null);
+      setSelectedAttractionId((cur) => (cur === attractionId ? null : cur));
       addToast('Attraction removed.', 'warning');
     },
     onError: (e) => addToast(friendlyApiError(e, 'Could not delete attraction.'), 'error'),
@@ -906,11 +904,12 @@ export function AttractionToursPage({ addToast }: Props) {
               Remove this attraction?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              This will permanently delete{' '}
+              You’re about to remove{' '}
               <span className="font-medium text-text-primary">
                 {pendingDeleteAttraction?.attractionName ?? 'this attraction'}
-              </span>
-              . You can only remove attractions you added here, with no tours and no engagements linked.
+              </span>{' '}
+              from your list. If something blocks the removal, you’ll see a short explanation right after
+              you confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteAttrMut.isPending && (
