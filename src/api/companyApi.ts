@@ -86,6 +86,8 @@ export interface ApiEngagementRow {
   engagementStatus: string;
   tourName: string | null;
   attractionName: string | null;
+  /** Same format as the main Engagements list. */
+  displayTitle: string;
 }
 
 export interface ApiVenueTicketing {
@@ -314,6 +316,8 @@ export function fetchDmaByPostal(postalCode: string) {
 export interface ApiDmaMarket {
   dmaid: number;
   marketName: string;
+  /** From dbo.DMA.PostalCode — one row per postal in this schema. */
+  postalCode: string;
 }
 
 export function searchDmaMarkets(query?: string, limit = 50) {

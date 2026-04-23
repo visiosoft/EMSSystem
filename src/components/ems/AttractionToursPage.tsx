@@ -506,10 +506,21 @@ function TourDrawer({
     setDirty(true);
   };
 
-  const attractionOptions = attractions.map((a) => ({
-    value: String(a.attractionId),
-    label: a.attractionName,
-  }));
+  const attractionOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const a of attractions) {
+      byId.set(String(a.attractionId), a.attractionName);
+    }
+    const id = String(tour.attractionId);
+    if (tour.attractionName) {
+      byId.set(id, tour.attractionName);
+    } else if (!byId.has(id)) {
+      byId.set(id, id);
+    }
+    return [...byId.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+  }, [attractions, tour.attractionId, tour.attractionName]);
   const classOptions = classes.map((c) => ({
     value: String(c.classId),
     label: c.className,
@@ -798,6 +809,15 @@ export function AttractionToursPage({ addToast }: Props) {
     placeholderData: (prev) => prev,
     enabled: pageTab === 'Tours',
   });
+  /** On the Tours tab, paginated `attractions` is not loaded — fetch a wide pick list for drawer + tour modals. */
+  const needToursTabAttractionPicklist =
+    pageTab === 'Tours' && (selectedTourId != null || showAddTour || editTour != null);
+  const tourDrawerAttractionsQuery = useQuery({
+    queryKey: ['attractions', 'tour-drawer-picker', 0, 8000],
+    queryFn: async () => (await fetchAttractions(0, 8000, undefined)).data,
+    staleTime: 60_000,
+    enabled: needToursTabAttractionPicklist,
+  });
   /** Classes + venue types only — avoids loading thousands of companies on every visit. */
   const lightLookupsQuery = useQuery({
     queryKey: ['attraction-tours-lookups', 'light'],
@@ -810,6 +830,10 @@ export function AttractionToursPage({ addToast }: Props) {
   const attractionsPage = attractionsQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiAttractionListRow> | undefined;
   const toursPage = toursQuery.data as ApiPaginatedResponse<import('@/api/attractionToursApi').ApiTourListRow> | undefined;
   const attractions = attractionsPage?.data ?? [];
+  const attractionsForPicker =
+    pageTab === 'Tours' && needToursTabAttractionPicklist
+      ? (tourDrawerAttractionsQuery.data ?? [])
+      : attractions;
   const tours = toursPage?.data ?? [];
   const attractionsTotal = attractionsPage?.total ?? 0;
   const toursTotal = toursPage?.total ?? 0;
@@ -1289,7 +1313,7 @@ export function AttractionToursPage({ addToast }: Props) {
       {selectedTour && (
         <TourDrawer
           tour={selectedTour}
-          attractions={attractions}
+          attractions={attractionsForPicker}
           classes={classes}
           venueTypes={venueTypes}
           companies={companies}
@@ -1322,10 +1346,10 @@ export function AttractionToursPage({ addToast }: Props) {
           />
         </Modal>
       )}
-      {showAddTour && classes.length > 0 && attractions.length > 0 && (
+      {showAddTour && classes.length > 0 && (pageTab === 'Attractions' ? attractions.length > 0 : tourDrawerAttractionsQuery.isSuccess) && attractionsForPicker.length > 0 && (
         <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={600} allowContentOverflow>
           <AddTourForm
-            attractions={attractions}
+            attractions={attractionsForPicker}
             classes={classes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
@@ -1333,10 +1357,10 @@ export function AttractionToursPage({ addToast }: Props) {
           />
         </Modal>
       )}
-      {editTour && (
+      {editTour && (pageTab === 'Attractions' || tourDrawerAttractionsQuery.isSuccess) && (
         <Modal title="Edit Tour" onClose={() => setEditTour(null)} width={960} allowContentOverflow>
           <TourFormDb
-            attractions={attractions}
+            attractions={attractionsForPicker}
             classes={classes}
             companies={companies}
             managementCompanyOptions={managementCompanyOptions}

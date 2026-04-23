@@ -8,6 +8,7 @@ import {
   Modal,
   FormField,
   ActionMenu,
+  StatusBadge,
 } from './Primitives';
 import { Select2, toOptions } from './Select2';
 import type { Company, Contact } from '@/data/constants';
@@ -562,12 +563,17 @@ function EngagementsTab({ companyId }: { companyId: string }) {
     <ul className="space-y-2 text-sm">
       {rows.map((r) => (
         <li key={r.engagementId} className="border border-border rounded-md p-3">
-          <div className="font-medium text-text-primary">
-            #{r.engagementId}{r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' ? ` — ${r.engagementStatus}` : ''}
+          <div
+            className="font-medium text-text-primary"
+            title={r.displayTitle}
+          >
+            {r.displayTitle}
           </div>
-          <div className="text-text-secondary">
-            {r.attractionName ?? '—'}
-            {r.tourName ? ` · ${r.tourName}` : ''}
+          <div className="text-xs text-text-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="font-mono">#{r.engagementId}</span>
+            {r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' && (
+              <StatusBadge status={r.engagementStatus} />
+            )}
           </div>
         </li>
       ))}
