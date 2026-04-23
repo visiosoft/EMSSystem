@@ -21,6 +21,7 @@ import { CreateEngagementDto } from './dto/create-engagement.dto';
 import { CreatePerformanceDto } from './dto/create-performance.dto';
 import { UpdateEngagementDto } from './dto/update-engagement.dto';
 import { AddEngagementVenueDto } from './dto/add-engagement-venue.dto';
+import { buildEngagementDisplayTitle } from './engagement-display.util';
 import { normalizeEngagementStatus } from './engagement-status.util';
 
 export interface EngagementListRow {
@@ -128,15 +129,6 @@ export class EngagementService {
     if (!e)
       throw new NotFoundException({ message: `Engagement #${id} not found.` });
     return e;
-  }
-
-  private buildDisplayTitle(
-    attractionName: string | null,
-    tourName: string,
-    venueLabel: string,
-  ): string {
-    if (!attractionName) return `${tourName} @ ${venueLabel}`;
-    return `${attractionName} — ${tourName} @ ${venueLabel}`;
   }
 
   /**
@@ -265,7 +257,11 @@ export class EngagementService {
         g('stateProvince') != null ? String(g('stateProvince')) : null,
       dmaMarketName:
         g('dmaMarketName') != null ? String(g('dmaMarketName')) : null,
-      displayTitle: this.buildDisplayTitle(attractionName, tourName, venueLabel),
+      displayTitle: buildEngagementDisplayTitle(
+        attractionName,
+        tourName,
+        venueLabel,
+      ),
       appCreated: this.emsCreated.canDeleteEngagement(engagementId),
     };
   }

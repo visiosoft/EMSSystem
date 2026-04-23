@@ -38,10 +38,11 @@ function DmaMarketsTableSkeleton() {
         </div>
       </div>
       <div className="overflow-x-auto overflow-y-clip">
-        <table className="w-full text-sm min-w-[360px]">
+        <table className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
               <th className="text-left py-2.5 px-3">Market name</th>
+              <th className="text-left py-2.5 px-3">Postal code</th>
               <th className="text-left py-2.5 px-3">Status</th>
             </tr>
           </thead>
@@ -50,6 +51,9 @@ function DmaMarketsTableSkeleton() {
               <tr key={i} className="border-b border-border/40">
                 <td className="py-3 px-3">
                   <Skeleton className="h-4 w-48 max-w-[16rem] bg-muted/80" />
+                </td>
+                <td className="py-3 px-3">
+                  <Skeleton className="h-4 w-20 bg-muted/80" />
                 </td>
                 <td className="py-3 px-3">
                   <Skeleton className="h-6 w-16 rounded-full bg-muted/80" />
@@ -216,17 +220,18 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
           ) : (
             <>
               <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-                <table className="w-full text-sm min-w-[360px]">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
                       <th className="text-left py-2.5 px-3">Market name</th>
+                      <th className="text-left py-2.5 px-3">Postal code</th>
                       <th className="text-left py-2.5 px-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {dmaRows.length === 0 && !dmaQuery.isError && (
                       <tr>
-                        <td colSpan={2} className="py-12 px-3 text-center text-sm text-text-muted">
+                        <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
                           {dmaSearchDebounced
                             ? 'No DMA rows match your search.'
                             : 'No DMA markets returned from the database.'}
@@ -236,6 +241,9 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
                     {dmaRows.map((d) => (
                       <tr key={d.dmaid} className="border-b border-border/50 hover:bg-hover/60">
                         <td className="py-2.5 px-3 text-text-primary font-medium">{d.marketName}</td>
+                        <td className="py-2.5 px-3 text-text-secondary font-mono tabular-nums">
+                          {d.postalCode || '—'}
+                        </td>
                         <td className="py-2.5 px-3">
                           <StatusBadge status="Active" />
                         </td>

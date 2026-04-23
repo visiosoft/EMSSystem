@@ -22,6 +22,7 @@ import { EngagementProjectVenue } from '../entities/engagement-project-venue.ent
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
+import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
 import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -66,6 +67,8 @@ export interface CompanyEngagementRow {
   engagementStatus: string;
   tourName: string | null;
   attractionName: string | null;
+  /** Same format as the main Engagements list (`attraction — tour @ venue`). */
+  displayTitle: string;
 }
 
 @Injectable()
@@ -868,12 +871,16 @@ export class CompanyService {
       .innerJoin(Engagement, 'e', 'e.engagementId = ev.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
+      .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .where('ev.venueCompanyId = :cid', { cid: companyId })
       .select([
         'e.engagementId AS engagementId',
         'e.engagementStatus AS engagementStatus',
         't.tourName AS tourName',
         'a.attractionName AS attractionName',
+        'vc.companyName AS venueCompanyName',
+        'v.venueName AS venueName',
       ])
       .orderBy('e.engagementId', 'DESC')
       .getRawMany();
@@ -882,12 +889,23 @@ export class CompanyService {
       const g = (k: string) =>
         (r as Record<string, unknown>)[k] ??
         (r as Record<string, unknown>)[k.toLowerCase()];
+      const tourName = g('tourName') != null ? String(g('tourName')) : null;
+      const attractionName =
+        g('attractionName') != null ? String(g('attractionName')) : null;
+      const venueCompanyName =
+        g('venueCompanyName') != null ? String(g('venueCompanyName')) : null;
+      const venueName = g('venueName') != null ? String(g('venueName')) : null;
+      const venueLabel = venueCompanyName ?? venueName ?? 'TBD';
       return {
         engagementId: Number(g('engagementId')),
         engagementStatus: normalizeEngagementStatus(String(g('engagementStatus'))),
-        tourName: g('tourName') != null ? String(g('tourName')) : null,
-        attractionName:
-          g('attractionName') != null ? String(g('attractionName')) : null,
+        tourName,
+        attractionName,
+        displayTitle: buildEngagementDisplayTitle(
+          attractionName,
+          tourName ?? '',
+          venueLabel,
+        ),
       };
     });
   }
