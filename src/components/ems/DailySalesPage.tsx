@@ -1,20 +1,12 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Save, ChevronLeft, History, Receipt } from 'lucide-react';
+import { Loader2, Save, ChevronLeft } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { SearchInput } from './Primitives';
 import { Select2 } from './Select2';
 import {
   fetchDailySalesByPerformance,
   fetchDailySales,
-  fetchPerformanceReportingTransactions,
   updateDailySales,
   type ApiPerformanceSalesRow,
   type ApiDailySalesRow,
@@ -151,154 +143,16 @@ function TableSkeleton({
   );
 }
 
-// ─── Reporting window transactions (row click modal) ───────────────────────
-
-function ReportingTransactionsModal({
-  open,
-  onOpenChange,
-  performanceId,
-  yesterdayDate,
-  todayDate,
-  attractionName,
-  tourName,
-  onViewEngagementHistory,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  performanceId: number;
-  yesterdayDate: string;
-  todayDate: string;
-  attractionName: string | null;
-  tourName: string | null;
-  onViewEngagementHistory: () => void;
-}) {
-  const salesDates = useMemo(
-    () => [yesterdayDate, todayDate].filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
-    [yesterdayDate, todayDate],
-  );
-
-  const txQuery = useQuery({
-    queryKey: ['reporting-tx', performanceId, ...salesDates],
-    queryFn: () => fetchPerformanceReportingTransactions(performanceId, salesDates),
-    enabled: open && performanceId > 0 && salesDates.length > 0,
-    staleTime: 20_000,
-  });
-
-  const rows = useMemo(() => {
-    return salesDates.map((d) => {
-      const t = (txQuery.data ?? []).find((x) => x.salesDate === d);
-      return {
-        salesDate: d,
-        label: fmtDateHeader(d),
-        ticketsSold: t?.ticketsSold ?? null,
-        revenue: t?.revenue ?? null,
-        hasDbRow: t != null,
-      };
-    });
-  }, [salesDates, txQuery.data]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="w-[min(100vw-1.5rem,36rem)] sm:max-w-2xl max-h-[min(90vh,40rem)] flex flex-col p-0 gap-0 border-border bg-card shadow-lg overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border bg-ems-accent/5 shrink-0 text-left">
-          <div className="flex items-start gap-2">
-            <div className="mt-0.5 rounded-md bg-ems-accent/15 p-1.5 text-ems-accent">
-              <Receipt className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-text-primary text-base pr-6">
-                Sales for reporting window
-              </DialogTitle>
-              <DialogDescription className="text-text-muted text-xs mt-1 line-clamp-2">
-                {attractionName ?? 'Performance'}
-                {tourName ? ` · ${tourName}` : ''}
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 pb-2">
-          {txQuery.isPending ? (
-            <div className="flex items-center gap-2 text-text-muted text-sm py-8 justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-ems-accent" /> Loading…
-            </div>
-          ) : txQuery.isError ? (
-            <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim m-2">
-              {friendlyApiError(txQuery.error)}
-            </div>
-          ) : (
-            <div className="border border-border rounded-lg overflow-hidden bg-surface/30">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-elevated text-left text-xs text-text-muted border-b border-border">
-                    <th className="py-2.5 px-3 font-medium">Reporting date</th>
-                    <th className="py-2.5 px-3 text-right font-medium">Tickets</th>
-                    <th className="py-2.5 px-3 text-right font-medium">Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.salesDate} className="border-b border-border/50 last:border-0 hover:bg-hover/20">
-                      <td className="py-2.5 px-3 text-text-primary">
-                        {r.label}
-                        {!r.hasDbRow && (
-                          <span className="ml-1.5 text-[10px] text-text-muted uppercase tracking-wide">no entry</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-right tabular-nums text-text-secondary">
-                        {r.ticketsSold != null ? r.ticketsSold.toLocaleString() : '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-right tabular-nums text-ems-green font-medium">
-                        {fmtCurrency(r.revenue)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        <div className="px-5 py-3 border-t border-border bg-elevated/50 flex flex-col sm:flex-row gap-2 sm:justify-between sm:items-center shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              onOpenChange(false);
-              onViewEngagementHistory();
-            }}
-            className="inline-flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md border border-border bg-card text-text-primary hover:bg-hover transition-colors w-full sm:w-auto"
-          >
-            <History className="h-3.5 w-3.5" />
-            Full engagement sales history
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="text-xs font-medium px-3 py-2 rounded-md text-text-secondary hover:text-text-primary w-full sm:w-auto"
-          >
-            Close
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ─── Editable Performance Row ─────────────────────────────────────────────────
 
 function PerformanceRow({
   row,
   onEngagementClick,
-  onOpenRowDetails,
   onSaved,
   addToast,
 }: {
   row: ApiPerformanceSalesRow;
   onEngagementClick: (engagementId: number) => void;
-  onOpenRowDetails: () => void;
   onSaved: () => void;
   addToast: Props['addToast'];
 }) {
@@ -346,7 +200,7 @@ function PerformanceRow({
           revenue: yestRevenue.trim() === '' ? null : Number(yestRevenue),
         }),
       ]);
-      addToast('Sales data saved.', 'success');
+      addToast('Saved.', 'success');
       onSaved();
     } catch (err) {
       addToast(friendlyApiError(err, 'Could not save.'), 'error');
@@ -359,17 +213,11 @@ function PerformanceRow({
     'placeholder:text-text-muted text-text-primary transition-colors';
 
   return (
-    <tr
-      className="border-b border-border/50 hover:bg-hover/30 group cursor-pointer"
-      onClick={onOpenRowDetails}
-    >
+    <tr className="border-b border-border/50 hover:bg-hover/30 group">
       {/* Attraction — click → engagement history */}
       <td
         className="py-2 px-3 cursor-pointer"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEngagementClick(row.engagementId);
-        }}
+        onClick={() => onEngagementClick(row.engagementId)}
       >
         <div className="text-text-primary font-medium text-sm leading-tight hover:text-ems-accent transition-colors">
           {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
@@ -455,12 +303,6 @@ function EngagementSalesHistory({
 
   const rows = historyQuery.data ?? [];
 
-  const totalTickets = useMemo(() => rows.reduce((s, r) => s + (r.ticketsSold ?? 0), 0), [rows]);
-  const totalRevenue = useMemo(() => rows.reduce((s, r) => s + (r.revenue ?? 0), 0), [rows]);
-
-  const $fmt = (n: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-
   return (
     <div className="space-y-4">
       {/* Back button */}
@@ -484,17 +326,7 @@ function EngagementSalesHistory({
             'Sales history'
           )}
         </h2>
-        <p className="text-xs text-text-muted mt-1">All recorded daily sales entries for this engagement</p>
       </div>
-
-      {/* Summary */}
-      {rows.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <SummaryCard label="Total Tickets Sold" value={totalTickets.toLocaleString()} sub={`${rows.length} sales records`} />
-          <SummaryCard label="Total Revenue" value={$fmt(totalRevenue)} />
-          <SummaryCard label="Avg per Record" value={rows.length ? $fmt(totalRevenue / rows.length) : '—'} sub="revenue per entry" />
-        </div>
-      )}
 
       {/* History table */}
       {historyQuery.isPending ? (
@@ -517,7 +349,7 @@ function EngagementSalesHistory({
                 <th className="text-left py-2.5 px-3">Sales Date</th>
                 <th className="text-left py-2.5 px-3">Performance Date</th>
                 <th className="text-left py-2.5 px-3">Venue</th>
-                <th className="text-right py-2.5 px-3">Tickets Sold</th>
+                <th className="text-right py-2.5 px-3">Tickets</th>
                 <th className="text-right py-2.5 px-3">Revenue</th>
               </tr>
             </thead>
@@ -548,14 +380,6 @@ function EngagementSalesHistory({
                   </tr>
                 ))}
             </tbody>
-            {/* Totals row */}
-            <tfoot>
-              <tr className="border-t-2 border-border bg-surface">
-                <td colSpan={3} className="py-2.5 px-3 text-xs font-semibold text-text-secondary">Total</td>
-                <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-text-primary">{totalTickets.toLocaleString()}</td>
-                <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-ems-green">{$fmt(totalRevenue)}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
       )}
@@ -577,15 +401,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     engagementId: number;
     attractionName: string | null;
     tourName: string | null;
-  } | null>(null);
-
-  const [txModal, setTxModal] = useState<{
-    performanceId: number;
-    engagementId: number;
-    attractionName: string | null;
-    tourName: string | null;
-    yesterdayDate: string;
-    todayDate: string;
   } | null>(null);
 
   useEffect(() => {
@@ -627,7 +442,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const asOfIsLocalToday = asOfDate === todayLocalYmd();
   const labelCurShort = asOfIsLocalToday ? 'today' : 'selected day';
   const labelPriorShort = asOfIsLocalToday ? 'yesterday' : 'prior day';
-
   const attractionOptions = useMemo(() => {
     const names = pageData?.attractionNames ?? [];
     return [
@@ -761,9 +575,9 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                   <th className="py-2 px-3" rowSpan={2} />
                 </tr>
                 <tr className="text-xs border-b border-border bg-surface">
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-elevated border-l border-border">Tickets Sold</th>
+                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-elevated border-l border-border">Tickets</th>
                   <th className="text-right py-2 px-2 text-text-muted font-medium bg-elevated border-r border-border">Revenue</th>
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-ems-accent/5 border-l border-border">Tickets Sold</th>
+                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-ems-accent/5 border-l border-border">Tickets</th>
                   <th className="text-right py-2 px-2 text-text-muted font-medium bg-ems-accent/5">Revenue</th>
                 </tr>
               </thead>
@@ -784,16 +598,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                       attractionName: r.attractionName,
                       tourName: r.tourName,
                     })}
-                    onOpenRowDetails={() =>
-                      setTxModal({
-                        performanceId: r.performanceId,
-                        engagementId: r.engagementId,
-                        attractionName: r.attractionName,
-                        tourName: r.tourName,
-                        yesterdayDate: r.yesterdayDate,
-                        todayDate: r.todayDate,
-                      })
-                    }
                     onSaved={refetch}
                     addToast={addToast}
                   />
@@ -821,25 +625,6 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         </>
       )}
 
-      {txModal && (
-        <ReportingTransactionsModal
-          open
-          onOpenChange={(o) => { if (!o) setTxModal(null); }}
-          performanceId={txModal.performanceId}
-          yesterdayDate={txModal.yesterdayDate}
-          todayDate={txModal.todayDate}
-          attractionName={txModal.attractionName}
-          tourName={txModal.tourName}
-          onViewEngagementHistory={() => {
-            setSelectedEngagement({
-              engagementId: txModal.engagementId,
-              attractionName: txModal.attractionName,
-              tourName: txModal.tourName,
-            });
-            setTxModal(null);
-          }}
-        />
-      )}
     </div>
   );
 }

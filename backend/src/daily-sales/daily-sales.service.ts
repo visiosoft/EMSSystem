@@ -202,16 +202,18 @@ export class DailySalesService {
     const search = (searchRaw ?? '').trim() || undefined;
 
     const yesterdayDate = ymdAddDays(asOf, -1);
-    const attractionNames = await this.getDistinctAttractionNames(asOf);
 
     const baseQb = this.createByPerformanceBaseQb(
       asOf,
       { search, attractionName: attractionName?.trim() || undefined },
     );
-    const total = await baseQb.getCount();
 
-    const [agg, rawItems] = await Promise.all([
-      this.sumSalesForByPerformanceQuery(baseQb, asOf),
+    // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
+    // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
+    const [attractionNames, total, agg, rawItems] = await Promise.all([
+      this.getDistinctAttractionNames(asOf),
+      baseQb.clone().getCount(),
+      this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
       baseQb
         .clone()
         .select([
@@ -332,11 +334,7 @@ export class DailySalesService {
           N' ',
           addr.stateProvince,
           N' ',
-          CONVERT(varchar(10), p.performanceDate, 120),
-          N' ',
-          CAST(p.engagementId AS varchar(20)),
-          N' ',
-          CAST(p.performanceId AS varchar(20))
+          CONVERT(varchar(10), p.performanceDate, 120)
         ))) > 0`,
         { searchT: s },
       );
@@ -379,47 +377,6 @@ export class DailySalesService {
       .filter((s) => s.length > 0);
   }
 
-  /**
-   * All TicketingSales rows for a performance whose SalesDate is one of the given
-   * calendar days (inclusive). Ordered by salesDate ascending.
-   * (Schema: at most one row per performance per day — composite PK.)
-   */
-  async findReportingTransactions(
-    performanceId: number,
-    salesDates: string[],
-  ): Promise<{
-    salesDate: string;
-    ticketsSold: number | null;
-    revenue: number | null;
-  }[]> {
-    if (salesDates.length === 0) {
-      return [];
-    }
-    const valid = salesDates
-      .map((s) => s.trim())
-      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
-    if (valid.length === 0) {
-      return [];
-    }
-    const raw = await this.salesRepo
-      .createQueryBuilder('ts')
-      .select([
-        'CONVERT(varchar(10), ts.salesDate, 120)           AS salesDate',
-        'ts.performanceSalesQuantity                       AS ticketsSold',
-        'ts.performanceSalesRevenue                        AS revenue',
-      ])
-      .where('ts.performanceId = :pid', { pid: performanceId })
-      .andWhere('CONVERT(varchar(10), ts.salesDate, 120) IN (:...d)', { d: valid })
-      .orderBy('ts.salesDate', 'ASC')
-      .getRawMany<Record<string, unknown>>();
-
-    return raw.map((r) => ({
-      salesDate: String(r['salesDate'] ?? ''),
-      ticketsSold: r['ticketsSold'] != null ? Number(r['ticketsSold']) : null,
-      revenue: r['revenue'] != null ? Number(r['revenue']) : null,
-    }));
-  }
-
   /** YYYY-MM-DD or fetch from server via GETDATE() for consistency with SQL. */
   private async resolveAsOfDateString(input?: string): Promise<string> {
     if (input && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
@@ -436,8 +393,9 @@ export class DailySalesService {
 
   // ─── PATCH — upsert sales for a specific performance + date ──────────────
   /**
-   * Creates or updates dbo.TicketingSales for the given composite key.
-   * If the row doesn't exist yet (e.g. no entry made for today), it is created.
+   * Creates or updates the single dbo.TicketingSales row for (PerformanceID, SalesDate).
+   * Business: one record per day per show = the **running (cumulative) total** to that point
+   * for that performance; the stored value is the latest total, not a delta to stack.
    */
   async updateSales(
     performanceId: number,

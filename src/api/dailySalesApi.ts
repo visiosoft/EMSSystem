@@ -84,27 +84,7 @@ export function fetchDailySalesByPerformance(
   return apiFetch<ApiPerformanceSalesPage>(`/daily-sales/by-performance${qs}`);
 }
 
-export interface ApiReportingTransactionRow {
-  salesDate: string;
-  ticketsSold: number | null;
-  revenue: number | null;
-}
-
-/** Sales rows for a performance on specific reporting dates (SalesDate in DB). */
-export function fetchPerformanceReportingTransactions(
-  performanceId: number,
-  salesDates: string[],
-) {
-  if (salesDates.length === 0) {
-    return Promise.resolve([] as ApiReportingTransactionRow[]);
-  }
-  const dates = salesDates.map((d) => encodeURIComponent(d)).join(',');
-  return apiFetch<ApiReportingTransactionRow[]>(
-    `/daily-sales/performance/${performanceId}/transactions?dates=${dates}`,
-  );
-}
-
-// ─── Update (upsert) ──────────────────────────────────────────────────────────
+// ─── Update (upsert) — one running-total row per (performance, sales date) ──
 
 export interface UpdateDailySalesPayload {
   ticketsSold?: number | null;

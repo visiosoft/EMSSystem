@@ -52,27 +52,6 @@ export class DailySalesController {
   }
 
   /**
-   * GET /api/daily-sales/performance/:performanceId/transactions?dates=YYYY-MM-DD,YYYY-MM-DD
-   * All TicketingSales rows for the performance on those sales dates.
-   */
-  @Get('performance/:performanceId/transactions')
-  findReportingTransactions(
-    @Param('performanceId') performanceId: string,
-    @Query('dates') dates?: string,
-  ) {
-    const list = dates
-      ? dates
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : [];
-    return this.dailySalesService.findReportingTransactions(
-      Number(performanceId),
-      list,
-    );
-  }
-
-  /**
    * GET /api/daily-sales
    * Legacy flat list — optional: ?engagementId=472
    */
