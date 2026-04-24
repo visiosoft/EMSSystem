@@ -766,6 +766,23 @@ export class CompanyService {
 
     try {
       await this.dataSource.transaction(async (manager) => {
+        // Attractions can reference this company as "attraction management" (nullable FK).
+        // There may be no tours/engagements/projects, but this link still blocks dbo.Company
+        // delete unless cleared first.
+        await manager.update(
+          Attraction,
+          { attractionManagementLinkId: companyId },
+          { attractionManagementLinkId: null },
+        );
+        // Legacy/CRM cross-refs: dbo.CompanyXref(CompanyID) -> Company(CompanyID).
+        // Not the same as dbo.Engagement; rows here still block Company DELETE.
+        const cid = Number(companyId);
+        if (!Number.isInteger(cid) || cid <= 0) {
+          throw new BadRequestException('Invalid company id for delete.');
+        }
+        await manager.query(
+          `DELETE FROM [dbo].[CompanyXref] WHERE [CompanyID] = ${cid}`,
+        );
         // Venue-type companies get a dbo.Venue row (1:1 on CompanyID). Remove it
         // before Company or SQL Server will block the delete with an FK error.
         await manager.delete(Venue, { companyId });
