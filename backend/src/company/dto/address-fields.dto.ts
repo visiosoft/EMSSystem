@@ -8,8 +8,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  CITY_FIELD_VALIDATION_MESSAGE,
   COUNTRY_NAME_REGEX,
   COUNTRY_NAME_VALIDATION_MESSAGE,
+  STATE_PROVINCE_FIELD_VALIDATION_MESSAGE,
 } from '../constants/country-name.regex';
 
 export class AddressFieldsDto {
@@ -26,11 +28,13 @@ export class AddressFieldsDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @Matches(COUNTRY_NAME_REGEX, { message: CITY_FIELD_VALIDATION_MESSAGE })
   city: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @Matches(COUNTRY_NAME_REGEX, { message: STATE_PROVINCE_FIELD_VALIDATION_MESSAGE })
   stateProvince: string;
 
   @IsString()

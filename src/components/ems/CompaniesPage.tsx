@@ -15,7 +15,9 @@ import { useAddressAutofill } from '@/hooks/useAddressAutofill';
 import { clearFormFieldError, clearFormFieldErrors } from '@/lib/clearFormFieldError';
 import {
   COUNTRY_NAME_FORMAT_USER_MESSAGE,
+  isValidAddressNameText,
   isValidCountryName,
+  sanitizeCityStateInput,
   sanitizeCountryInput,
 } from '@/lib/countryField';
 import { useCompanyPlaceSearch } from '@/hooks/useCompanyPlaceSearch';
@@ -55,6 +57,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   type PhoneCountrySelection,
+  formatE164ForDisplay,
   parsePhoneFieldValue,
   tryE164FromDisplay,
   PHONE_INVALID_MESSAGE,
@@ -362,10 +365,16 @@ function InlineEditableOverview({
       clampToMaxLen(placeAddressField(details.physical.street), COMPANY_FORM.addressLine1),
     );
     setPhysCity(
-      clampToMaxLen(placeAddressField(details.physical.city), COMPANY_FORM.city),
+      sanitizeCityStateInput(
+        placeAddressField(details.physical.city),
+        COMPANY_FORM.city,
+      ),
     );
     setPhysState(
-      clampToMaxLen(placeAddressField(details.physical.state), COMPANY_FORM.stateProvince),
+      sanitizeCityStateInput(
+        placeAddressField(details.physical.state),
+        COMPANY_FORM.stateProvince,
+      ),
     );
     setPhysPostal(
       clampToMaxLen(placeAddressField(details.physical.postalCode), COMPANY_FORM.postalCode),
@@ -375,10 +384,16 @@ function InlineEditableOverview({
       clampToMaxLen(placeAddressField(details.mailing.street), COMPANY_FORM.addressLine1),
     );
     setMailCity(
-      clampToMaxLen(placeAddressField(details.mailing.city), COMPANY_FORM.city),
+      sanitizeCityStateInput(
+        placeAddressField(details.mailing.city),
+        COMPANY_FORM.city,
+      ),
     );
     setMailState(
-      clampToMaxLen(placeAddressField(details.mailing.state), COMPANY_FORM.stateProvince),
+      sanitizeCityStateInput(
+        placeAddressField(details.mailing.state),
+        COMPANY_FORM.stateProvince,
+      ),
     );
     setMailPostal(
       clampToMaxLen(placeAddressField(details.mailing.postalCode), COMPANY_FORM.postalCode),
@@ -440,8 +455,14 @@ function InlineEditableOverview({
     else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
     if (!physCity.trim()) e.push('Physical city is required.');
     else if (physCity.trim().length > M.city) e.push(`Physical city must be ${M.city} characters or fewer.`);
+    else if (!isValidAddressNameText(physCity, M.city)) {
+      e.push(`Physical city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
+    }
     if (!physState.trim()) e.push('Physical state or province is required.');
     else if (physState.trim().length > M.stateProvince) e.push(`Physical state or province must be ${M.stateProvince} characters or fewer.`);
+    else if (!isValidAddressNameText(physState, M.stateProvince)) {
+      e.push(`Physical state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
+    }
     if (!physPostal.trim()) e.push('Physical postal code is required.');
     else if (physPostal.trim().length > M.postalCode) e.push(`Physical postal code must be ${M.postalCode} characters or fewer.`);
     if (!physCountry.trim()) e.push('Physical country is required.');
@@ -472,8 +493,14 @@ function InlineEditableOverview({
       else if (mailStreet.trim().length > M.addressLine1) e.push(`Mailing street must be ${M.addressLine1} characters or fewer.`);
       if (!mailCity.trim()) e.push('Mailing city is required when a separate mailing address is used.');
       else if (mailCity.trim().length > M.city) e.push(`Mailing city must be ${M.city} characters or fewer.`);
+      else if (!isValidAddressNameText(mailCity, M.city)) {
+        e.push(`Mailing city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
+      }
       if (!mailState.trim()) e.push('Mailing state or province is required when a separate mailing address is used.');
       else if (mailState.trim().length > M.stateProvince) e.push(`Mailing state or province must be ${M.stateProvince} characters or fewer.`);
+      else if (!isValidAddressNameText(mailState, M.stateProvince)) {
+        e.push(`Mailing state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
+      }
       if (!mailPostal.trim()) e.push('Mailing postal code is required when a separate mailing address is used.');
       else if (mailPostal.trim().length > M.postalCode) e.push(`Mailing postal code must be ${M.postalCode} characters or fewer.`);
       if (!mailCountry.trim()) e.push('Mailing country is required when a separate mailing address is used.');
@@ -711,7 +738,9 @@ function InlineEditableOverview({
             <InlineEditField
               label="City"
               value={physCity}
-              onChange={mark(setPhysCity)}
+              onChange={mark((v) =>
+                setPhysCity(sanitizeCityStateInput(v, COMPANY_FORM.city)),
+              )}
               placeholder="Not set"
               required
               maxLength={COMPANY_FORM.city}
@@ -719,7 +748,11 @@ function InlineEditableOverview({
             <InlineEditField
               label="State / Province"
               value={physState}
-              onChange={mark(setPhysState)}
+              onChange={mark((v) =>
+                setPhysState(
+                  sanitizeCityStateInput(v, COMPANY_FORM.stateProvince),
+                ),
+              )}
               placeholder="Not set"
               required
               maxLength={COMPANY_FORM.stateProvince}
@@ -768,7 +801,9 @@ function InlineEditableOverview({
             <InlineEditField
               label="City"
               value={mailCity}
-              onChange={mark(setMailCity)}
+              onChange={mark((v) =>
+                setMailCity(sanitizeCityStateInput(v, COMPANY_FORM.city)),
+              )}
               placeholder="Same as physical"
               required={separateMailing}
               maxLength={COMPANY_FORM.city}
@@ -776,7 +811,11 @@ function InlineEditableOverview({
             <InlineEditField
               label="State / Province"
               value={mailState}
-              onChange={mark(setMailState)}
+              onChange={mark((v) =>
+                setMailState(
+                  sanitizeCityStateInput(v, COMPANY_FORM.stateProvince),
+                ),
+              )}
               placeholder="Same as physical"
               required={separateMailing}
               maxLength={COMPANY_FORM.stateProvince}
@@ -932,8 +971,9 @@ function ContactFormDb({
     firstName: string;
     lastName: string;
     email: string;
-    cellPhone?: string;
-    workPhone?: string;
+    /** Omitted on create when empty; `null` on edit clears the stored value. */
+    cellPhone?: string | null;
+    workPhone?: string | null;
     roleId: number;
     departmentId: number;
   }) => void | Promise<void>;
@@ -972,9 +1012,14 @@ function ContactFormDb({
     setFirstName(initial?.firstName || '');
     setLastName(initial?.lastName || '');
     setEmail(initial?.email || '');
-    const w = parsePhoneFieldValue(initial?.workPhone, DEFAULT_PHONE_COUNTRY, {
-      noCountryWhenEmpty: true,
-    });
+    const workRaw = initial?.workPhone ?? initial?.phone;
+    const w = parsePhoneFieldValue(
+      workRaw || undefined,
+      DEFAULT_PHONE_COUNTRY,
+      {
+        noCountryWhenEmpty: true,
+      },
+    );
     setWorkPhoneCountry(w.country);
     setWorkPhoneDisplay(w.display);
     const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
@@ -1151,14 +1196,25 @@ function ContactFormDb({
             setWorkPhoneError(wErr);
             setCellPhoneError(cErr);
             if (wErr || cErr) return;
+            const isEditing = initial?.contactAssignmentId != null;
             setSaving(true);
             try {
+              const hasWork = workPhoneDisplay.trim().length > 0;
+              const hasCell = cellPhoneDisplay.trim().length > 0;
               await onSave({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
-                workPhone: wE || undefined,
-                cellPhone: cE || undefined,
+                workPhone: hasWork
+                  ? wE!
+                  : isEditing
+                    ? null
+                    : undefined,
+                cellPhone: hasCell
+                  ? cE!
+                  : isEditing
+                    ? null
+                    : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
               });
@@ -1330,10 +1386,14 @@ function CompanyFormDb({
         setPhysicalStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
       }
       if (patch.city !== undefined) {
-        setPhysicalCity(clampToMaxLen(patch.city, COMPANY_FORM.city));
+        setPhysicalCity(
+          sanitizeCityStateInput(patch.city, COMPANY_FORM.city),
+        );
       }
       if (patch.state !== undefined) {
-        setPhysicalState(clampToMaxLen(patch.state, COMPANY_FORM.stateProvince));
+        setPhysicalState(
+          sanitizeCityStateInput(patch.state, COMPANY_FORM.stateProvince),
+        );
       }
       if (patch.postalCode !== undefined) {
         setPhysicalPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
@@ -1360,10 +1420,14 @@ function CompanyFormDb({
         setMailingStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
       }
       if (patch.city !== undefined) {
-        setMailingCity(clampToMaxLen(patch.city, COMPANY_FORM.city));
+        setMailingCity(
+          sanitizeCityStateInput(patch.city, COMPANY_FORM.city),
+        );
       }
       if (patch.state !== undefined) {
-        setMailingState(clampToMaxLen(patch.state, COMPANY_FORM.stateProvince));
+        setMailingState(
+          sanitizeCityStateInput(patch.state, COMPANY_FORM.stateProvince),
+        );
       }
       if (patch.postalCode !== undefined) {
         setMailingPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
@@ -1465,10 +1529,14 @@ function CompanyFormDb({
     if (!physicalCity.trim()) next.physicalCity = 'Physical city is required.';
     else if (physicalCity.trim().length > M.city) {
       next.physicalCity = `Physical city must be ${M.city} characters or fewer.`;
+    } else if (!isValidAddressNameText(physicalCity, M.city)) {
+      next.physicalCity = `Physical city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
     }
     if (!physicalState.trim()) next.physicalState = 'Physical state or province is required.';
     else if (physicalState.trim().length > M.stateProvince) {
       next.physicalState = `Physical state or province must be ${M.stateProvince} characters or fewer.`;
+    } else if (!isValidAddressNameText(physicalState, M.stateProvince)) {
+      next.physicalState = `Physical state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
     }
     if (!physicalPostalCode.trim()) next.physicalPostal = 'Physical postal code is required.';
     else if (physicalPostalCode.trim().length > M.postalCode) {
@@ -1499,10 +1567,14 @@ function CompanyFormDb({
       if (!mailingCity.trim()) next.mailingCity = 'Mailing city is required.';
       else if (mailingCity.trim().length > M.city) {
         next.mailingCity = `Mailing city must be ${M.city} characters or fewer.`;
+      } else if (!isValidAddressNameText(mailingCity, M.city)) {
+        next.mailingCity = `Mailing city: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
       }
       if (!mailingState.trim()) next.mailingState = 'Mailing state or province is required.';
       else if (mailingState.trim().length > M.stateProvince) {
         next.mailingState = `Mailing state or province must be ${M.stateProvince} characters or fewer.`;
+      } else if (!isValidAddressNameText(mailingState, M.stateProvince)) {
+        next.mailingState = `Mailing state or province: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
       }
       if (!mailingPostalCode.trim()) next.mailingPostal = 'Mailing postal code is required.';
       else if (mailingPostalCode.trim().length > M.postalCode) {
@@ -1664,10 +1736,14 @@ function CompanyFormDb({
                 value={physicalCity}
                 onChange={(e) => {
                   setPhysicalCity(
-                    clampToMaxLen(e.target.value, COMPANY_FORM.city),
+                    sanitizeCityStateInput(
+                      e.target.value,
+                      COMPANY_FORM.city,
+                    ),
                   );
                   clearError('physicalCity');
                 }}
+                autoComplete="address-level2"
               />
             </FormField>
             <FormField label="State / Province" required error={fieldErrors.physicalState}>
@@ -1677,10 +1753,14 @@ function CompanyFormDb({
                 value={physicalState}
                 onChange={(e) => {
                   setPhysicalState(
-                    clampToMaxLen(e.target.value, COMPANY_FORM.stateProvince),
+                    sanitizeCityStateInput(
+                      e.target.value,
+                      COMPANY_FORM.stateProvince,
+                    ),
                   );
                   clearError('physicalState');
                 }}
+                autoComplete="address-level1"
               />
             </FormField>
           </div>
@@ -1788,10 +1868,14 @@ function CompanyFormDb({
                     value={mailingCity}
                     onChange={(e) => {
                       setMailingCity(
-                        clampToMaxLen(e.target.value, COMPANY_FORM.city),
+                        sanitizeCityStateInput(
+                          e.target.value,
+                          COMPANY_FORM.city,
+                        ),
                       );
                       clearError('mailingCity');
                     }}
+                    autoComplete="address-level2"
                   />
                 </FormField>
                 <FormField label="State / Province" required error={fieldErrors.mailingState}>
@@ -1801,10 +1885,14 @@ function CompanyFormDb({
                     value={mailingState}
                     onChange={(e) => {
                       setMailingState(
-                        clampToMaxLen(e.target.value, COMPANY_FORM.stateProvince),
+                        sanitizeCityStateInput(
+                          e.target.value,
+                          COMPANY_FORM.stateProvince,
+                        ),
                       );
                       clearError('mailingState');
                     }}
+                    autoComplete="address-level1"
                   />
                 </FormField>
               </div>
@@ -2696,7 +2784,7 @@ export function CompaniesPage({ addToast }: Props) {
                           {ct.workEmail || ct.email}
                         </td>
                         <td className="py-2 text-text-secondary text-xs">
-                          {ct.workPhone || ct.phone}
+                          {formatE164ForDisplay(ct.workPhone || ct.phone) || '—'}
                         </td>
                         <td className="py-2 text-right">
                           <ActionMenu

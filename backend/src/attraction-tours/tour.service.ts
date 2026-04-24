@@ -62,25 +62,23 @@ export class TourService {
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
 
-  /** Uniqueness per attraction (case-insensitive), consistent with list/search. */
-  private async assertUniqueTourNameForAttraction(
+  /** Tour names are globally unique (case-insensitive), across all attractions. */
+  private async assertUniqueTourName(
     tourName: string,
-    attractionId: number,
     excludeTourId?: number,
   ): Promise<void> {
     const t = tourName.trim();
     if (!t) return;
     const qb = this.tourRepo
       .createQueryBuilder('t')
-      .where('t.attractionId = :attractionId', { attractionId })
-      .andWhere('LOWER(t.tourName) = LOWER(:tourName)', { tourName: t });
+      .where('LOWER(t.tourName) = LOWER(:tourName)', { tourName: t });
     if (excludeTourId != null) {
       qb.andWhere('t.tourId != :excludeTourId', { excludeTourId });
     }
     const found = await qb.getOne();
     if (found) {
       throw new ConflictException(
-        'A tour with this name already exists for this attraction. Choose a different name.',
+        'A tour with this name already exists. Choose a different name.',
       );
     }
   }
@@ -197,10 +195,7 @@ export class TourService {
     if (!tourName) {
       throw new BadRequestException('Tour name is required.');
     }
-    await this.assertUniqueTourNameForAttraction(
-      tourName,
-      dto.attractionId,
-    );
+    await this.assertUniqueTourName(tourName);
 
     const row = this.tourRepo.create({
       tourName,
@@ -287,11 +282,7 @@ export class TourService {
       throw new BadRequestException('Tour name is required.');
     }
     existing.tourName = finalName;
-    await this.assertUniqueTourNameForAttraction(
-      finalName,
-      existing.attractionId,
-      id,
-    );
+    await this.assertUniqueTourName(finalName, id);
     try {
       await this.tourRepo.save(existing);
     } catch (e: unknown) {
