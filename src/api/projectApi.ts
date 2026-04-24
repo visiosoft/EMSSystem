@@ -13,21 +13,25 @@
  */
 
 import { apiFetch } from './config';
+import type { ApiPaginatedResponse } from './companyApi';
 
 // ---------------------------------------------------------------------------
 // Lookup types
 // ---------------------------------------------------------------------------
 
-/**
- * `ProjectStage` is whatever the database allows on `dbo.EngagementProject.ProjectStage`
- * (from the column CHECK, or from `PROJECT_STAGE_ALLOWLIST` on the server). Load the list
- * with `fetchProjectStageMeta()`.
- */
-export type ProjectStage = string;
+/** Client-defined allowed values for `dbo.EngagementProject.ProjectStage`. */
+export const PROJECT_STAGE_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
+export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
 
 export interface ProjectStageMeta {
   projectStages: string[];
-  source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+  source: 'application' | 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+}
+
+/** Allowed `dbo.EngagementProjectVenue.VenueStatus` from CHECK / env / existing rows. */
+export interface VenueStatusMeta {
+  venueStatuses: string[];
+  source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
 }
 
 /** Human-readable label for a stage (works for any string from the DB). */
@@ -148,10 +152,15 @@ export interface ApiProjectListRow {
   engagementProjectId: number;
   /** FK → Tour.TourID — NOT NULL */
   tourId: number;
+  /** From Tour → Attraction (for filters / UI) */
+  attractionId?: number | null;
   tourName: string | null;
   attractionName: string | null;
-  /** EngagementProject.ProjectStage — NOT NULL */
-  projectStage: ProjectStage;
+  /** From Tour.TourManagementCompanyID → Company (tour is configured in Attraction–Tours) */
+  tourManagementCompanyId?: number | null;
+  tourManagementCompanyName?: string | null;
+  /** EngagementProject.ProjectStage — NOT NULL (may be legacy values not in `PROJECT_STAGE_VALUES`) */
+  projectStage: string;
   /** ISO datetime */
   createdDate: string;
   /** nullable in DB */
@@ -210,12 +219,34 @@ export interface UpdateProjectPayload {
 // API functions
 // ---------------------------------------------------------------------------
 
+/** Fixed list: `Confirmed`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
 }
 
-export function fetchProjects() {
-  return apiFetch<ApiProjectListRow[]>('/projects');
+export function fetchVenueStatusMeta() {
+  return apiFetch<VenueStatusMeta>('/projects/meta/venue-statuses');
+}
+
+export type ProjectListQueryOpts = { q?: string; projectStage?: string };
+
+/** React Query key for paginated `GET /projects`. */
+export function projectsApiQueryKey(
+  offset: number,
+  limit: number,
+  q = '',
+  projectStage = 'All',
+) {
+  return ['projects', 'api', offset, limit, q, projectStage] as const;
+}
+
+export function fetchProjects(offset = 0, limit = 25, opts?: ProjectListQueryOpts) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  const trimmed = opts?.q?.trim();
+  if (trimmed) params.set('q', trimmed);
+  const st = opts?.projectStage?.trim();
+  if (st && st !== 'All') params.set('projectStage', st);
+  return apiFetch<ApiPaginatedResponse<ApiProjectListRow>>(`/projects?${params}`);
 }
 
 export function fetchProject(id: number) {

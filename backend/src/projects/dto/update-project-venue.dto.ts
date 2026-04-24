@@ -1,10 +1,9 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import { VENUE_STATUS_VALUES } from './create-project.dto';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateProjectVenueDto {
   @IsOptional()
   @IsString()
-  @IsIn(VENUE_STATUS_VALUES as unknown as string[])
+  @MaxLength(50)
   venueStatus?: string;
 
   // Frontend-only

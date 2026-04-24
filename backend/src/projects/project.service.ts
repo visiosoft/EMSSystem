@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, QueryFailedError, Repository } from 'typeorm';
+import { Brackets, DataSource, QueryFailedError, Repository } from 'typeorm';
 import { EngagementProject } from '../entities/engagement-project.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementProjectPerformanceOption } from '../entities/engagement-project-performance-option.entity';
@@ -20,17 +20,18 @@ import { AddProjectVenueDto } from './dto/add-project-venue.dto';
 import { UpdateProjectVenueDto } from './dto/update-project-venue.dto';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { UpdatePerformanceOptionDto } from './dto/update-performance-option.dto';
-import { parseStringLiteralsFromCheckDefinition } from './project-stage-check.util';
+import { isAllowedProjectStage, PROJECT_STAGE_VALUES } from './project-stage.constants';
+import { parseStringLiteralsFromCheckDefinition } from './venue-status-check.util';
 
 @Injectable()
 export class ProjectService {
   private readonly logger = new Logger(ProjectService.name);
-  private static readonly PROJECT_STAGE_LIST_TTL_MS = 60_000;
-  private projectStageListCache: {
+  private static readonly VENUE_STATUS_LIST_TTL_MS = 60_000;
+  private venueStatusListCache: {
     at: number;
     result: {
       values: string[];
-      source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+      source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
     };
   } | null = null;
 
@@ -70,125 +71,140 @@ export class ProjectService {
     return t;
   }
 
-  private parseProjectStageEnvFallback(): string[] {
-    const raw = process.env.PROJECT_STAGE_ALLOWLIST?.trim();
+  /**
+   * Project stages are fixed in this application: Confirmed, Pending, Inactive
+   * (client requirement; DTOs also validate with @IsIn).
+   */
+  async getProjectStageMeta(): Promise<{
+    projectStages: string[];
+    source: 'application';
+  }> {
+    return { projectStages: [...PROJECT_STAGE_VALUES], source: 'application' };
+  }
+
+  private parseVenueStatusEnvAllowlist(): string[] {
+    const raw = process.env.VENUE_STATUS_ALLOWLIST?.trim();
     if (!raw) return [];
     return raw.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
-  private async loadProjectStageValuesFromDatabase(): Promise<string[] | null> {
+  private async loadVenueStatusFromCheck(): Promise<string[] | null> {
     const rows: { definition: string }[] = await this.dataSource.query(
       `
       SELECT cc.definition AS [definition]
       FROM sys.check_constraints AS cc
       INNER JOIN sys.objects AS t ON cc.parent_object_id = t.object_id
-      WHERE t.object_id = OBJECT_ID('dbo.EngagementProject', 'U')
+      WHERE t.object_id = OBJECT_ID('dbo.EngagementProjectVenue', 'U')
         AND cc.is_disabled = 0
-        AND cc.definition LIKE N'%ProjectStage%'
+        AND cc.definition LIKE N'%VenueStatus%'
     `,
     );
     if (!rows?.length) return null;
     const collected = new Set<string>();
     for (const r of rows) {
       for (const v of parseStringLiteralsFromCheckDefinition(r.definition)) {
-        collected.add(v);
+        if (v.length) collected.add(v);
       }
     }
     if (collected.size === 0) return null;
     return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
-  /**
-   * Values that already exist in the table are guaranteed to satisfy the CHECK
-   * (as long as the CHECK has not changed since the rows were inserted).
-   */
-  private async loadProjectStagesFromExistingRows(): Promise<string[] | null> {
+  private async loadVenueStatusFromExistingRows(): Promise<string[] | null> {
     const rows: Record<string, string>[] = await this.dataSource.query(
       `
-      SELECT DISTINCT LTRIM(RTRIM(CAST([ProjectStage] AS NVARCHAR(200)))) AS [stage]
-      FROM [dbo].[EngagementProject]
-      WHERE [ProjectStage] IS NOT NULL
-        AND LEN(LTRIM(RTRIM(CAST([ProjectStage] AS NVARCHAR(200))))) > 0
+      SELECT DISTINCT LTRIM(RTRIM(CAST([VenueStatus] AS NVARCHAR(200)))) AS [s]
+      FROM [dbo].[EngagementProjectVenue]
+      WHERE [VenueStatus] IS NOT NULL
+        AND LEN(LTRIM(RTRIM(CAST([VenueStatus] AS NVARCHAR(200))))) > 0
     `,
     );
     if (!rows?.length) return null;
     const collected = new Set<string>();
     for (const r of rows) {
-      const val = r['stage'] ?? r['Stage'];
-      if (val != null) collected.add(String(val).trim());
+      const v = r['s'] ?? r['S'];
+      if (v != null) collected.add(String(v).trim());
     }
     if (collected.size === 0) return null;
     return [...collected].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
-  private async resolveProjectStageAllowlist(): Promise<{
+  private async resolveVenueStatusAllowlist(): Promise<{
     values: string[];
-    source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
   }> {
-    const fromEnv = this.parseProjectStageEnvFallback();
+    const fromEnv = this.parseVenueStatusEnvAllowlist();
     if (fromEnv.length > 0) {
       return { values: fromEnv, source: 'environment' };
     }
     try {
-      const fromCheck = await this.loadProjectStageValuesFromDatabase();
+      const fromCheck = await this.loadVenueStatusFromCheck();
       if (fromCheck && fromCheck.length > 0) {
         return { values: fromCheck, source: 'check_constraint' };
       }
     } catch (e) {
       this.logger.warn(
-        `Could not read CHECK definition for dbo.EngagementProject.ProjectStage: ${e instanceof Error ? e.message : String(e)}`,
+        `Could not read CHECK for dbo.EngagementProjectVenue.VenueStatus: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
       );
     }
     try {
-      const fromRows = await this.loadProjectStagesFromExistingRows();
+      const fromRows = await this.loadVenueStatusFromExistingRows();
       if (fromRows && fromRows.length > 0) {
         this.logger.log(
-          `Project stage list taken from existing dbo.EngagementProject rows (${fromRows.length} distinct value(s)).`,
+          `Venue status list taken from existing dbo.EngagementProjectVenue rows (${fromRows.length} distinct value(s)).`,
         );
         return { values: fromRows, source: 'existing_rows' };
       }
     } catch (e) {
       this.logger.warn(
-        `Could not read distinct ProjectStage from dbo.EngagementProject: ${e instanceof Error ? e.message : String(e)}`,
+        `Could not read distinct VenueStatus: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     this.logger.warn(
-      'No project stages: set PROJECT_STAGE_ALLOWLIST on the API to the exact values allowed by the database CHECK, or add at least one project row the DB will accept so we can read distinct ProjectStage values.',
+      'No venue status allowlist: set VENUE_STATUS_ALLOWLIST on the API, or ensure the CHECK for VenueStatus can be read, or have at least one project venue row.',
     );
     return { values: [], source: 'empty' };
   }
 
   /**
-   * Allowed `ProjectStage` values: parsed from the SQL Server CHECK on the column, or
-   * from env `PROJECT_STAGE_ALLOWLIST` (comma-separated) if the CHECK cannot be read.
+   * Allowed `VenueStatus` values for dbo.EngagementProjectVenue — from the SQL Server CHECK
+   * on the column, or from env `VENUE_STATUS_ALLOWLIST` (comma-separated), or from existing rows.
    */
-  async getProjectStageMeta(): Promise<{
-    projectStages: string[];
-    source: 'check_constraint' | 'environment' | 'existing_rows' | 'empty';
+  async getVenueStatusMeta(): Promise<{
+    venueStatuses: string[];
+    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
   }> {
     const now = Date.now();
-    if (this.projectStageListCache && now - this.projectStageListCache.at < ProjectService.PROJECT_STAGE_LIST_TTL_MS) {
-      const r = this.projectStageListCache.result;
-      return { projectStages: r.values, source: r.source };
+    if (
+      this.venueStatusListCache &&
+      now - this.venueStatusListCache.at < ProjectService.VENUE_STATUS_LIST_TTL_MS
+    ) {
+      const r = this.venueStatusListCache.result;
+      return { venueStatuses: r.values, source: r.source };
     }
-    const r = await this.resolveProjectStageAllowlist();
-    this.projectStageListCache = { at: now, result: r };
-    return { projectStages: r.values, source: r.source };
+    const r = await this.resolveVenueStatusAllowlist();
+    this.venueStatusListCache = { at: now, result: r };
+    return { venueStatuses: r.values, source: r.source };
   }
 
-  /**
-   * When the allowlist is empty (CHECK not readable, no env, no existing rows), we do **not** block
-   * the request here — SQL Server enforces the CHECK and returns the real driver error in `detail`
-   * on failure. When we do have an allowlist, we match the previous app validation.
-   */
-  private async assertValidProjectStage(stage: string): Promise<void> {
-    const { projectStages } = await this.getProjectStageMeta();
-    if (projectStages.length === 0) {
+  private assertValidProjectStage(stage: string): void {
+    if (!isAllowedProjectStage(stage)) {
+      throw new BadRequestException({
+        message: `Invalid project stage "${stage}". Allowed values: ${PROJECT_STAGE_VALUES.join(', ')}.`,
+      });
+    }
+  }
+
+  private async assertValidVenueStatus(status: string): Promise<void> {
+    const { venueStatuses } = await this.getVenueStatusMeta();
+    if (venueStatuses.length === 0) {
       return;
     }
-    if (!projectStages.includes(stage)) {
+    if (!venueStatuses.includes(status)) {
       throw new BadRequestException({
-        message: `Invalid project stage "${stage}". Allowed values: ${projectStages.join(', ')}.`,
+        message: `Invalid venue status "${status}". Allowed values: ${venueStatuses.join(', ')}.`,
       });
     }
   }
@@ -240,13 +256,51 @@ export class ProjectService {
     return option;
   }
 
+  /** Map SQL errors from project venue / option writes to HTTP exceptions (avoids generic 500). */
+  private mapProjectVenueQueryFailed(
+    op: 'add' | 'mutate',
+    projectId: number,
+    e: QueryFailedError,
+    venueStatus?: string,
+  ): never {
+    const d = String((e as QueryFailedError).driverError ?? (e as QueryFailedError).message);
+    this.logger.error(`Project venue ${op} failed (projectId=${projectId}): ${d}`);
+
+    const driver = e.driverError as { number?: number; message?: string } | undefined;
+    const n = driver?.number;
+    if (n === 2627 || n === 2601 || /duplicate key|UNIQUE KEY constraint/i.test(d)) {
+      throw new ConflictException({
+        message: 'This venue is already added to this project.',
+        detail: d,
+      });
+    }
+    if (n === 547 || /FOREIGN KEY/i.test(d)) {
+      throw new BadRequestException({
+        message:
+          'This venue can’t be linked. Check that the company is a valid venue in the system and the project still exists.',
+        detail: d,
+      });
+    }
+    if (venueStatus && (/CHECK constraint|VenueStatus/i.test(d) || /VenueStatus/i.test(d))) {
+      throw new BadRequestException({
+        message: `This venue status isn’t accepted by the database: ${venueStatus}.`,
+        detail: d,
+      });
+    }
+    throw new BadRequestException({
+      message: 'Could not add the venue. The database rejected the change — check the server log for details.',
+      detail: d,
+    });
+  }
+
   // ─── Build response shape ─────────────────────────────────────────────────
 
   private async buildProjectResponse(project: EngagementProject) {
-    const tour = await this.tourRepo.findOne({ where: { tourId: project.tourId } });
-    const attraction = tour
-      ? await this.attractionRepo.findOne({ where: { attractionId: tour.attractionId } })
-      : null;
+    const tour = await this.tourRepo.findOne({
+      where: { tourId: project.tourId },
+      relations: { attraction: true, tourManagementCompany: true },
+    });
+    const attraction = tour?.attraction ?? null;
 
     const dbVenues = await this.projectVenueRepo.find({
       where: { engagementProjectId: project.engagementProjectId },
@@ -290,16 +344,19 @@ export class ProjectService {
     return {
       engagementProjectId: project.engagementProjectId,
       tourId: project.tourId,
+      attractionId: tour?.attractionId ?? null,
       tourName: tour?.tourName ?? null,
       attractionName: attraction?.attractionName ?? null,
+      tourManagementCompanyId: tour?.tourManagementCompanyId ?? null,
+      tourManagementCompanyName: tour?.tourManagementCompany?.companyName ?? null,
       projectStage: project.projectStage,
       createdDate: project.createdDate,
       createdBy: project.createdBy,
-      // Frontend-only fields returned as null
+      // Optional markets from create payload are not persisted until a project–DMA table exists
       name: null,
       bookerId: null,
       agentContactId: null,
-      dmaIds: [],
+      dmaIds: [] as number[],
       targetOnSale: null,
       notes: null,
       venues: venuesWithDetails,
@@ -310,11 +367,12 @@ export class ProjectService {
 
   async create(dto: CreateProjectDto): Promise<{ engagementProjectId: number }> {
     await this.assertTourExists(dto.tourId);
-    await this.assertValidProjectStage(dto.projectStage);
+    this.assertValidProjectStage(dto.projectStage);
 
     // Validate all venues before writing anything
     for (const v of dto.venues ?? []) {
       await this.assertVenueCompany(v.venueCompanyId);
+      await this.assertValidVenueStatus(v.venueStatus);
     }
 
     try {
@@ -333,7 +391,7 @@ export class ProjectService {
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
           });
-          await manager.save(EngagementProjectVenue, pv);
+          await manager.save(pv);
 
           for (const opt of v.performanceOptions ?? []) {
             const o = manager.create(EngagementProjectPerformanceOption, {
@@ -342,7 +400,7 @@ export class ProjectService {
               proposedTime: this.normalizeTime(opt.proposedTime),
               optionStatus: opt.optionStatus,
             });
-            await manager.save(EngagementProjectPerformanceOption, o);
+            await manager.save(o);
           }
         }
 
@@ -356,7 +414,7 @@ export class ProjectService {
           /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
         throw new BadRequestException({
           message: isStageCheck
-            ? 'This project stage isn’t accepted for this project. Choose a different stage, or ask your administrator to update the allowed stages for your system.'
+            ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
             : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
           detail: d,
         });
@@ -368,7 +426,7 @@ export class ProjectService {
   async update(id: number, dto: UpdateProjectDto): Promise<void> {
     const project = await this.assertProjectExists(id);
     if (dto.projectStage !== undefined) {
-      await this.assertValidProjectStage(dto.projectStage);
+      this.assertValidProjectStage(dto.projectStage);
       project.projectStage = dto.projectStage;
     }
     if (dto.createdBy !== undefined) project.createdBy = dto.createdBy?.trim() ?? null;
@@ -416,31 +474,81 @@ export class ProjectService {
     }
   }
 
-  async list() {
-    const projects = await this.projectRepo.find({ order: { engagementProjectId: 'DESC' } });
-    return await Promise.all(
-      projects.map(async (p) => {
-        const tour = await this.tourRepo.findOne({ where: { tourId: p.tourId } });
-        const attraction = tour
-          ? await this.attractionRepo.findOne({ where: { attractionId: tour.attractionId } })
-          : null;
-        return {
-          engagementProjectId: p.engagementProjectId,
-          tourId: p.tourId,
-          tourName: tour?.tourName ?? null,
-          attractionName: attraction?.attractionName ?? null,
-          projectStage: p.projectStage,
-          createdDate: p.createdDate,
-          createdBy: p.createdBy,
-          name: null,
-          bookerId: null,
-          agentContactId: null,
-          dmaIds: [],
-          targetOnSale: null,
-          notes: null,
-        };
-      }),
-    );
+  async listPaginated(
+    offset: number,
+    limit: number,
+    search?: string,
+    projectStageFilter?: string,
+  ): Promise<{
+    data: Array<{
+      engagementProjectId: number;
+      tourId: number;
+      tourName: string | null;
+      attractionName: string | null;
+      projectStage: string;
+      createdDate: Date;
+      createdBy: string | null;
+      name: null;
+      bookerId: null;
+      agentContactId: null;
+      dmaIds: number[];
+      targetOnSale: null;
+      notes: null;
+    }>;
+    total: number;
+  }> {
+    const qb = this.projectRepo
+      .createQueryBuilder('ep')
+      .innerJoinAndSelect('ep.tour', 't')
+      .leftJoinAndSelect('t.attraction', 'a')
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
+      .orderBy('ep.engagementProjectId', 'DESC');
+
+    const stage = (projectStageFilter ?? '').trim();
+    if (stage && stage !== 'All') {
+      qb.andWhere('ep.projectStage = :projectStage', { projectStage: stage });
+    }
+
+    const q = (search ?? '').trim();
+    if (q) {
+      const like = `%${q}%`;
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where('CAST(ep.engagementProjectId AS VARCHAR(20)) LIKE :like', { like })
+            .orWhere("LOWER(ISNULL(t.tourName, '')) LIKE LOWER(:like)", { like })
+            .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", { like })
+            .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", { like })
+            .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", { like })
+            .orWhere("LOWER(ISNULL(tm.companyName, '')) LIKE LOWER(:like)", { like })
+            .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', { like });
+        }),
+      );
+    }
+
+    const total = await qb.getCount();
+    const rows = await qb.skip(offset).take(limit).getMany();
+
+    return {
+      data: rows.map((p) => ({
+        engagementProjectId: p.engagementProjectId,
+        tourId: p.tourId,
+        attractionId: p.tour?.attractionId ?? null,
+        tourName: p.tour?.tourName ?? null,
+        attractionName: p.tour?.attraction?.attractionName ?? null,
+        tourManagementCompanyId: p.tour?.tourManagementCompanyId ?? null,
+        tourManagementCompanyName: p.tour?.tourManagementCompany?.companyName ?? null,
+        projectStage: p.projectStage,
+        createdDate: p.createdDate,
+        createdBy: p.createdBy,
+        name: null,
+        bookerId: null,
+        agentContactId: null,
+        dmaIds: [] as number[],
+        targetOnSale: null,
+        notes: null,
+      })),
+      total,
+    };
   }
 
   async getOne(id: number) {
@@ -456,27 +564,47 @@ export class ProjectService {
   ): Promise<{ engagementProjectVenueId: number }> {
     await this.assertProjectExists(projectId);
     await this.assertVenueCompany(dto.venueCompanyId);
+    await this.assertValidVenueStatus(dto.venueStatus);
 
-    return await this.dataSource.transaction(async (manager) => {
-      const pv = manager.create(EngagementProjectVenue, {
-        engagementProjectId: projectId,
-        venueCompanyId: dto.venueCompanyId,
-        venueStatus: dto.venueStatus,
-      });
-      const saved = await manager.save(EngagementProjectVenue, pv);
-
-      for (const opt of dto.performanceOptions ?? []) {
-        const o = manager.create(EngagementProjectPerformanceOption, {
-          engagementProjectId: projectId,
-          proposedDate: opt.proposedDate,
-          proposedTime: this.normalizeTime(opt.proposedTime),
-          optionStatus: opt.optionStatus,
-        });
-        await manager.save(EngagementProjectPerformanceOption, o);
-      }
-
-      return { engagementProjectVenueId: saved.engagementProjectVenueId };
+    const existing = await this.projectVenueRepo.findOne({
+      where: { engagementProjectId: projectId, venueCompanyId: dto.venueCompanyId },
     });
+    if (existing) {
+      throw new ConflictException({
+        message: 'This venue is already added to this project.',
+      });
+    }
+
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const pv = manager.create(EngagementProjectVenue, {
+          engagementProjectId: projectId,
+          venueCompanyId: dto.venueCompanyId,
+          venueStatus: dto.venueStatus,
+        });
+        const saved = await manager.save(pv);
+
+        for (const opt of dto.performanceOptions ?? []) {
+          const o = manager.create(EngagementProjectPerformanceOption, {
+            engagementProjectId: projectId,
+            proposedDate: opt.proposedDate,
+            proposedTime: this.normalizeTime(opt.proposedTime),
+            optionStatus: opt.optionStatus,
+          });
+          await manager.save(o);
+        }
+
+        return { engagementProjectVenueId: saved.engagementProjectVenueId };
+      });
+    } catch (e: unknown) {
+      if (e instanceof ConflictException || e instanceof BadRequestException || e instanceof NotFoundException) {
+        throw e;
+      }
+      if (e instanceof QueryFailedError) {
+        return this.mapProjectVenueQueryFailed('add', projectId, e, dto.venueStatus);
+      }
+      throw e;
+    }
   }
 
   async updateVenue(
@@ -485,7 +613,10 @@ export class ProjectService {
     dto: UpdateProjectVenueDto,
   ): Promise<void> {
     const pv = await this.assertVenueInProject(projectId, venueId);
-    if (dto.venueStatus !== undefined) pv.venueStatus = dto.venueStatus;
+    if (dto.venueStatus !== undefined) {
+      await this.assertValidVenueStatus(dto.venueStatus);
+      pv.venueStatus = dto.venueStatus;
+    }
     await this.projectVenueRepo.save(pv);
   }
 

@@ -1,8 +1,8 @@
 /**
  * ProjectsPage – Fully dynamic, API-driven.
- * Pattern matches CompaniesPage exactly:
+ * Pattern matches CompaniesPage:
  *   - useQuery / useMutation from @tanstack/react-query
- *   - DataTable with search, stage filter, pagination
+ *   - Server-paginated list (search + stage on API), 25 per page
  *   - Auto-reload after every CRUD (invalidateQueries)
  *   - Disabled buttons / spinners while loading
  *   - Success/error toasts
@@ -11,9 +11,9 @@
  *   - Modals for create / edit
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Check, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,7 +26,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  ActionMenu,
   Drawer,
   FormField,
   Modal,
@@ -36,6 +35,7 @@ import {
 } from './Primitives';
 import { Select2 } from './Select2';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { getPageParams, getPageRange, getTotalPages, PAGE_SIZE } from '@/lib/serverPagination';
 import {
   createPerformanceOption,
   createProject,
@@ -44,8 +44,10 @@ import {
   deleteProject,
   deleteProjectVenue,
   fetchProject,
-  fetchProjectStageMeta,
+  projectsApiQueryKey,
   fetchProjects,
+  fetchVenueStatusMeta,
+  PROJECT_STAGE_VALUES,
   projectStageDisplayLabel,
   updatePerformanceOption,
   updateProject,
@@ -55,12 +57,14 @@ import {
 } from '@/api/projectApi';
 import type {
   ApiPerformanceOption,
+  ApiProjectDetail,
   ApiProjectListRow,
   ApiProjectVenue,
   OptionStatus,
   ProjectStage,
   VenueStatus,
 } from '@/api/projectApi';
+import type { ApiPaginatedResponse } from '@/api/companyApi';
 import {
   createTour,
   fetchAttractions,
@@ -68,6 +72,7 @@ import {
   fetchTours,
   updateTour,
 } from '@/api/attractionToursApi';
+import type { ApiAttractionListRow, ApiTourListRow } from '@/api/attractionToursApi';
 import {
   companiesPickerQueryKey,
   fetchCompaniesPickerRows,
@@ -77,10 +82,377 @@ import { AddTourForm } from './AddTourForm';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 15;
+function projectDetailToListRow(p: ApiProjectDetail): ApiProjectListRow {
+  return {
+    engagementProjectId: p.engagementProjectId,
+    tourId: p.tourId,
+    attractionId: p.attractionId ?? null,
+    tourName: p.tourName,
+    attractionName: p.attractionName,
+    tourManagementCompanyId: p.tourManagementCompanyId ?? null,
+    tourManagementCompanyName: p.tourManagementCompanyName ?? null,
+    projectStage: p.projectStage,
+    createdDate: p.createdDate,
+    createdBy: p.createdBy,
+  };
+}
+
+const PROJECT_LOOKUP_LIMIT = 8000;
+
+// ─── Inline edit primitives (same pattern as CompaniesPage) ────────────────────
+
+function InlineEditField({
+  label,
+  value,
+  onChange,
+  placeholder = '—',
+  maxLength,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement>(null);
+
+  const start = () => {
+    setDraft(value);
+    setEditing(true);
+    setTimeout(() => ref.current?.focus(), 0);
+  };
+  const commit = () => {
+    if (draft !== value) onChange(draft);
+    setEditing(false);
+  };
+  const cancel = () => setEditing(false);
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-start gap-1.5">
+          <input
+            ref={ref}
+            value={draft}
+            maxLength={maxLength}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit();
+              if (e.key === 'Escape') cancel();
+            }}
+            className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
+          />
+          <div className="flex gap-0.5 mt-0.5 shrink-0">
+            <button type="button" onClick={commit} title="Save field" className="p-1 text-ems-accent hover:bg-elevated rounded transition-colors">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={cancel} title="Cancel" className="p-1 text-text-muted hover:bg-elevated rounded transition-colors">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={start}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') start();
+        }}
+        className="group flex items-start gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+        title="Click to edit"
+      >
+        <span className={`text-sm flex-1 ${value ? 'text-text-primary' : 'text-text-muted italic'}`}>{value || placeholder}</span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0 mt-0.5" />
+      </div>
+    </div>
+  );
+}
+
+function InlineSelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const [editing, setEditing] = useState(false);
+  const display = (options.find((o) => o.value === value)?.label ?? value) || '—';
+
+  if (editing) {
+    return (
+      <div>
+        <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1">
+            <Select2 options={options} value={value} onChange={(v) => { onChange(v); setEditing(false); }} />
+          </div>
+          <button type="button" onClick={() => setEditing(false)} className="p-1 text-text-muted hover:bg-elevated rounded">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-text-muted block mb-0.5">{label}</label>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') setEditing(true);
+        }}
+        className="group flex items-center gap-2 cursor-pointer py-0.5 px-1.5 -mx-1.5 rounded-md hover:bg-elevated transition-colors"
+        title="Click to edit"
+      >
+        <span className="text-sm text-text-primary flex-1">{display}</span>
+        <Pencil className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
+      </div>
+    </div>
+  );
+}
+
+function ProjectInlineOverview({
+  project,
+  tours,
+  attractions,
+  onUpdated,
+  onGoToVenues,
+  addToast,
+}: {
+  project: ApiProjectDetail;
+  tours: ApiTourListRow[];
+  attractions: ApiAttractionListRow[];
+  onUpdated: () => void | Promise<void>;
+  onGoToVenues: () => void;
+  addToast: Props['addToast'];
+}) {
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [attractionId, setAttractionId] = useState(0);
+  const [tourId, setTourId] = useState(project.tourId);
+  const [projectStage, setProjectStage] = useState(project.projectStage);
+  const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');
+
+  const mark = useCallback(<T,>(fn: (v: T) => void) => (v: T) => {
+    fn(v);
+    setDirty(true);
+  }, []);
+
+  useEffect(() => {
+    const tr = tours.find((t) => t.tourId === project.tourId);
+    setAttractionId(tr?.attractionId ?? project.attractionId ?? 0);
+    setTourId(project.tourId);
+    setProjectStage(project.projectStage);
+    setCreatedBy(project.createdBy ?? '');
+    setDirty(false);
+  }, [project.engagementProjectId, project.tourId, project.projectStage, project.createdBy, project.attractionId, project.tourName, tours]);
+
+  const attractionOptions = useMemo(
+    () =>
+      attractions
+        .slice()
+        .sort((a, b) => (a.attractionName ?? '').localeCompare(b.attractionName ?? '', undefined, { sensitivity: 'base' }))
+        .map((a) => ({ value: String(a.attractionId), label: a.attractionName })),
+    [attractions],
+  );
+
+  const toursForAttraction = useMemo(() => {
+    const list = tours
+      .filter((t) => t.attractionId === attractionId)
+      .sort((a, b) => a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' }));
+    return [
+      { value: '', label: 'Select a tour…' },
+      ...list.map((t) => ({ value: String(t.tourId), label: t.tourName })),
+    ];
+  }, [tours, attractionId]);
+
+  const tourBelongsToAttraction = useMemo(() => {
+    if (!tourId || !attractionId) return false;
+    const t = tours.find((x) => x.tourId === tourId);
+    return Boolean(t && t.attractionId === attractionId);
+  }, [tourId, attractionId, tours]);
+
+  const tourSelectValue = tourBelongsToAttraction ? String(tourId) : '';
+
+  const onAttractionChange = (v: string) => {
+    setAttractionId(Number(v));
+    setTourId(0);
+    setDirty(true);
+  };
+
+  const onTourChange = (v: string) => {
+    setTourId(v ? Number(v) : 0);
+    setDirty(true);
+  };
+
+  const selectedTour = tourBelongsToAttraction
+    ? tours.find((t) => t.tourId === tourId)
+    : undefined;
+  const tourMgmtLabel =
+    !tourId || !tourBelongsToAttraction
+      ? '—'
+      : (selectedTour?.tourManagementCompanyName?.trim()
+        || project.tourManagementCompanyName?.trim()
+        || '—');
+
+  const stageOptions = useMemo(() => editProjectStageSelectOptions(project.projectStage), [project.projectStage]);
+
+  const discard = () => {
+    const tr = tours.find((t) => t.tourId === project.tourId);
+    setAttractionId(tr?.attractionId ?? project.attractionId ?? 0);
+    setTourId(project.tourId);
+    setProjectStage(project.projectStage);
+    setCreatedBy(project.createdBy ?? '');
+    setDirty(false);
+  };
+
+  const handleSave = async () => {
+    if (!tourId || !tourBelongsToAttraction) {
+      addToast('Select a tour that belongs to the selected attraction before saving.', 'warning');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateProject(project.engagementProjectId, {
+        tourId,
+        projectStage: projectStage as ProjectStage,
+        createdBy: createdBy.trim() || null,
+      });
+      setDirty(false);
+      addToast('Project updated.', 'success');
+      await onUpdated();
+    } catch (e) {
+      addToast(friendlyApiError(e, 'Could not update project.'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <p className="flex items-center gap-1.5 text-[11px] text-text-muted mb-4 select-none">
+        <Pencil className="h-3 w-3 shrink-0" />
+        Click any field to edit it inline
+      </p>
+
+      <div className="text-sm space-y-6 pb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <InlineSelectField
+            label="Attraction"
+            value={String(attractionId || '')}
+            onChange={onAttractionChange}
+            options={attractionOptions}
+          />
+          <InlineSelectField
+            label="Tour"
+            value={tourSelectValue}
+            onChange={onTourChange}
+            options={toursForAttraction}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <div>
+            <span className="text-xs text-text-muted">Tour management company</span>
+            <div className="text-sm text-text-primary mt-0.5 font-medium">{tourMgmtLabel}</div>
+          </div>
+          <div>
+            <span className="text-xs text-text-muted">Markets (DMA)</span>
+            <div className="text-sm text-text-primary mt-0.5">—</div>
+            <p className="text-[11px] text-text-muted mt-1">
+              Market selections from project creation are not stored on the project in the database yet, so they cannot be edited here.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-5">
+          <InlineSelectField
+            label="Project stage"
+            value={projectStage}
+            onChange={mark(setProjectStage)}
+            options={stageOptions}
+          />
+          <InlineEditField
+            label="Created by (optional)"
+            value={createdBy}
+            onChange={mark(setCreatedBy)}
+            placeholder="—"
+            maxLength={200}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
+          <div>
+            <span className="text-xs text-text-muted">Created date</span>
+            <div className="text-sm text-text-primary mt-0.5">
+              {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
+            </div>
+          </div>
+          <div>
+            <span className="text-xs text-text-muted">Venue proposals</span>
+            <div className="text-sm text-text-primary mt-0.5 flex items-center gap-2">
+              <span className="font-mono tabular-nums">{project.venues.length}</span>
+              <button type="button" onClick={onGoToVenues} className="text-ems-accent text-xs hover:underline">
+                Open Venues tab
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {dirty && (
+        <div className="sticky bottom-0 -mx-4 px-4 py-3 mt-4 bg-card/95 backdrop-blur-sm border-t border-border flex items-center justify-between gap-3 z-10">
+          <span className="text-xs text-text-secondary flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-ems-accent inline-block animate-pulse" />
+            Unsaved changes
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={discard}
+              disabled={saving}
+              className="text-text-secondary text-xs px-3 py-1.5 hover:text-text-primary rounded-md hover:bg-elevated transition-colors disabled:opacity-50"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 bg-ems-accent hover:bg-ems-accent/80 text-background text-xs px-4 py-1.5 rounded-md font-medium disabled:opacity-60 transition-colors"
+            >
+              {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Extra display names for common DB literals (any other value still renders via `projectStageDisplayLabel`). */
 const CANONICAL_PROJECT_STAGE_LABEL: Record<string, string> = {
+  Confirmed: 'Confirmed',
+  Pending: 'Pending',
+  Inactive: 'Inactive',
   OffersSent: 'Offers Sent',
   PartiallyBooked: 'Partially Booked',
   FullyBooked: 'Fully Booked',
@@ -94,16 +466,39 @@ function projectStageSelectOptions(stages: string[]) {
   }));
 }
 
-/** TODO: remove when API/DB project-stage list is reliable — always show this value in dropdowns for now. */
-const TEMP_FRONTEND_PROJECT_STAGE = 'OffersSent';
+const CREATE_PROJECT_STAGE_OPTIONS = projectStageSelectOptions([...PROJECT_STAGE_VALUES]);
 
-function mergeStagesWithTempOffersSent(stages: string[]): string[] {
-  const s = new Set(stages);
-  s.add(TEMP_FRONTEND_PROJECT_STAGE);
-  return [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+/** Includes the current DB value when it is a legacy stage so the field can show until the user picks a new one. */
+function editProjectStageSelectOptions(currentFromDb: string | null | undefined) {
+  const s = new Set<string>([...PROJECT_STAGE_VALUES]);
+  const cur = (currentFromDb ?? '').trim();
+  if (cur) s.add(cur);
+  return projectStageSelectOptions(
+    [...s].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+  );
 }
-const VENUE_STATUS_OPTIONS = VENUE_STATUS_VALUES.map((v) => ({ value: v, label: v }));
 const OPTION_STATUS_OPTIONS = OPTION_STATUS_VALUES.map((v) => ({ value: v, label: v }));
+
+/** Allowed `VenueStatus` for EngagementProjectVenue: API (CHECK / env / rows), else legacy fallback. */
+function useResolvedVenueStatusStrings(currentValue?: string) {
+  const q = useQuery({
+    queryKey: ['projects', 'meta', 'venue-statuses'],
+    queryFn: fetchVenueStatusMeta,
+    staleTime: 60_000,
+  });
+  return useMemo(() => {
+    const fromApi = q.data?.venueStatuses;
+    const base: string[] =
+      fromApi && fromApi.length > 0
+        ? fromApi
+        : (VENUE_STATUS_VALUES as readonly string[]).slice();
+    const v = (currentValue ?? '').trim();
+    if (v && !base.includes(v)) {
+      return [...base, v].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+    return base;
+  }, [q.data, currentValue]);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +527,7 @@ function ProjectsTableSkeleton() {
         <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
-              {['Attraction', 'Tour', 'Stage', 'Created By', 'Created', ''].map((h, i) => (
+              {['Attraction', 'Tour', 'Tour mgmt', 'Stage', 'Created By', 'Created'].map((h, i) => (
                 <th key={i} className="text-left py-2.5 px-3">{h}</th>
               ))}
             </tr>
@@ -278,16 +673,25 @@ function VenueProposalRow({
   venue: ApiProjectVenue; projectId: number;
   onRefresh: () => void; addToast: Props['addToast'];
 }) {
+  const venueStatusStrings = useResolvedVenueStatusStrings(venue.venueStatus);
+  const venueStatusOptions = useMemo(
+    () => venueStatusStrings.map((v) => ({ value: v, label: v })),
+    [venueStatusStrings],
+  );
   const [showAddOpt, setShowAddOpt] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
-  const [venueStatus, setVenueStatus] = useState<VenueStatus>(venue.venueStatus);
+  const [venueStatus, setVenueStatus] = useState<string>(venue.venueStatus);
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    setVenueStatus(venue.venueStatus);
+  }, [venue.venueStatus]);
 
   const handleStatusSave = async () => {
     setStatusSaving(true);
     try {
-      await updateProjectVenue(projectId, venue.engagementProjectVenueId, { venueStatus });
+      await updateProjectVenue(projectId, venue.engagementProjectVenueId, { venueStatus: venueStatus as VenueStatus });
       addToast('Venue status updated.', 'success');
       setEditingStatus(false);
       onRefresh();
@@ -323,16 +727,38 @@ function VenueProposalRow({
             {editingStatus ? (
               <div className="flex items-center gap-1">
                 <div className="w-36">
-                  <Select2 options={VENUE_STATUS_OPTIONS} value={venueStatus} onChange={(v) => setVenueStatus(v as VenueStatus)} />
+                  <Select2
+                    options={venueStatusOptions}
+                    value={venueStatus}
+                    onChange={setVenueStatus}
+                    disabled={venueStatusOptions.length === 0}
+                    placeholder={venueStatusOptions.length ? 'Select…' : 'Loading…'}
+                  />
                 </div>
                 <button type="button" onClick={() => void handleStatusSave()} disabled={statusSaving}
                   className="inline-flex items-center gap-1 bg-ems-accent text-background text-xs px-2 py-1 rounded disabled:opacity-60">
                   {statusSaving && <Loader2 className="h-3 w-3 animate-spin" />}Save
                 </button>
-                <button type="button" onClick={() => setEditingStatus(false)} className="text-text-muted text-xs px-1 hover:text-text-primary">✕</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVenueStatus(venue.venueStatus);
+                    setEditingStatus(false);
+                  }}
+                  className="text-text-muted text-xs px-1 hover:text-text-primary"
+                >
+                  ✕
+                </button>
               </div>
             ) : (
-              <button type="button" onClick={() => setEditingStatus(true)} title="Click to change status">
+              <button
+                type="button"
+                onClick={() => {
+                  setVenueStatus(venue.venueStatus);
+                  setEditingStatus(true);
+                }}
+                title="Click to change status"
+              >
                 <StatusBadge status={venue.venueStatus} />
               </button>
             )}
@@ -381,9 +807,19 @@ function AddVenueForm({
     queryFn: fetchCompaniesPickerRows,
     staleTime: 60_000,
   });
+  const venueStatusStrings = useResolvedVenueStatusStrings();
+  const venueStatusOptions = useMemo(
+    () => venueStatusStrings.map((v) => ({ value: v, label: v })),
+    [venueStatusStrings],
+  );
   const [venueId, setVenueId] = useState('');
-  const [venueStatus, setVenueStatus] = useState<VenueStatus>('Proposed');
+  const [venueStatus, setVenueStatus] = useState<string>('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (venueStatus) return;
+    if (venueStatusStrings[0]) setVenueStatus(venueStatusStrings[0]);
+  }, [venueStatus, venueStatusStrings]);
 
   const venueOptions = useMemo(() => {
     return (companiesQuery.data ?? [])
@@ -394,9 +830,10 @@ function AddVenueForm({
 
   const handleSave = async () => {
     if (!venueId) { addToast('Select a venue.', 'warning'); return; }
+    if (!venueStatus) { addToast('Select a venue status.', 'warning'); return; }
     setSaving(true);
     try {
-      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus });
+      await createProjectVenue(projectId, { venueCompanyId: Number(venueId), venueStatus: venueStatus as VenueStatus });
       addToast('Venue proposal added.', 'success');
       onSaved();
     } catch (e) {
@@ -416,7 +853,13 @@ function AddVenueForm({
           />
         </FormField>
         <FormField label="Venue Status" required>
-          <Select2 options={VENUE_STATUS_OPTIONS} value={venueStatus} onChange={(v) => setVenueStatus(v as VenueStatus)} />
+          <Select2
+            options={venueStatusOptions}
+            value={venueStatus}
+            onChange={setVenueStatus}
+            disabled={venueStatusOptions.length === 0}
+            placeholder={venueStatusOptions.length ? 'Select status' : 'Loading…'}
+          />
         </FormField>
       </div>
       <div className="flex gap-2 justify-end pt-1 border-t border-border">
@@ -433,9 +876,15 @@ function AddVenueForm({
 // ─── Project Detail Drawer ────────────────────────────────────────────────────
 
 function ProjectDetailDrawer({
-  projectId, onClose, addToast,
+  projectId,
+  onClose,
+  onRequestDelete,
+  addToast,
 }: {
-  projectId: number; onClose: () => void; addToast: Props['addToast'];
+  projectId: number;
+  onClose: () => void;
+  onRequestDelete: (row: ApiProjectListRow) => void;
+  addToast: Props['addToast'];
 }) {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState('Overview');
@@ -444,6 +893,17 @@ function ProjectDetailDrawer({
   const detailQuery = useQuery({
     queryKey: ['projects', projectId],
     queryFn: () => fetchProject(projectId),
+  });
+
+  const attractionsQuery = useQuery({
+    queryKey: ['attractions', 'picker', 0, PROJECT_LOOKUP_LIMIT],
+    queryFn: async () => (await fetchAttractions(0, PROJECT_LOOKUP_LIMIT)).data,
+    staleTime: 60_000,
+  });
+  const toursQuery = useQuery({
+    queryKey: ['tours', 'picker', 0, PROJECT_LOOKUP_LIMIT],
+    queryFn: async () => (await fetchTours(0, PROJECT_LOOKUP_LIMIT)).data,
+    staleTime: 60_000,
   });
 
   const refresh = useCallback(async () => {
@@ -475,6 +935,16 @@ function ProjectDetailDrawer({
             </>
           )}
         </div>
+        {project && !detailQuery.isLoading && (
+          <button
+            type="button"
+            onClick={() => onRequestDelete(projectDetailToListRow(project))}
+            title="Delete this project"
+            className="p-1.5 text-text-muted hover:text-ems-coral hover:bg-ems-coral/10 rounded-md transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
         <button type="button" onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
       </div>
 
@@ -490,39 +960,25 @@ function ProjectDetailDrawer({
           <p className="text-sm text-ems-coral">{friendlyApiError(detailQuery.error)}</p>
         )}
 
-        {!detailQuery.isLoading && project && activeTab === 'Overview' && (
-          <div className="text-sm space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-4">
-              <div>
-                <span className="text-xs text-text-muted">Attraction</span>
-                <div className="text-text-primary mt-0.5">{project.attractionName ?? '—'}</div>
-              </div>
-              <div>
-                <span className="text-xs text-text-muted">Tour</span>
-                <div className="text-text-primary mt-0.5">{project.tourName ?? '—'}</div>
-              </div>
-              <div>
-                <span className="text-xs text-text-muted">Stage</span>
-                <div className="mt-0.5">
-                  <StatusBadge status={project.projectStage} />
-                </div>
-              </div>
-              <div>
-                <span className="text-xs text-text-muted">Created By</span>
-                <div className="text-text-primary mt-0.5">{project.createdBy ?? '—'}</div>
-              </div>
-              <div>
-                <span className="text-xs text-text-muted">Created Date</span>
-                <div className="text-text-primary mt-0.5">
-                  {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
-                </div>
-              </div>
-              <div>
-                <span className="text-xs text-text-muted">Venue Proposals</span>
-                <div className="text-text-primary mt-0.5">{venues.length}</div>
-              </div>
-            </div>
+        {!detailQuery.isLoading && project && activeTab === 'Overview' && (attractionsQuery.isPending || toursQuery.isPending) && (
+          <div className="flex items-center gap-2 text-sm text-text-muted py-8" role="status">
+            <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />
+            Loading fields…
           </div>
+        )}
+
+        {!detailQuery.isLoading && project && activeTab === 'Overview' && !attractionsQuery.isPending && !toursQuery.isPending && (
+          <ProjectInlineOverview
+            project={project}
+            tours={toursQuery.data ?? []}
+            attractions={attractionsQuery.data ?? []}
+            onUpdated={async () => {
+              await refresh();
+              await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
+            }}
+            onGoToVenues={() => setActiveTab('Venues')}
+            addToast={addToast}
+          />
         )}
 
         {!detailQuery.isLoading && project && activeTab === 'Venues' && (
@@ -628,18 +1084,6 @@ function CreateProjectForm({
   });
   const classesQuery = useQuery({ queryKey: ['classes'], queryFn: fetchClasses, staleTime: 60_000 });
   const [step, setStep] = useState(1);
-  /** Only fetch when the Details step is shown — `step` must be declared before this `useQuery`. */
-  const projectStageMetaQuery = useQuery({
-    queryKey: ['project', 'meta', 'project-stages'],
-    queryFn: fetchProjectStageMeta,
-    staleTime: 60_000,
-    enabled: step >= 5,
-  });
-  const projectStages = projectStageMetaQuery.data?.projectStages ?? [];
-  const projectStageOptions = useMemo(
-    () => projectStageSelectOptions(mergeStagesWithTempOffersSent(projectStages)),
-    [projectStages],
-  );
 
   /** Load DMA list only on Markets / Details steps — fetching 50k+ rows on modal open freezes or crashes the tab. */
   const dmaMarketsQuery = useQuery({
@@ -661,17 +1105,11 @@ function CreateProjectForm({
   const [dmaListFilter, setDmaListFilter] = useState('');
   const [dmaPickerValue, setDmaPickerValue] = useState('');
 
-  const [projectStage, setProjectStage] = useState<ProjectStage>('');
+  const [projectStage, setProjectStage] = useState<ProjectStage>('Pending');
   const [createdBy, setCreatedBy] = useState('');
 
   const [showAddTourModal, setShowAddTourModal] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (projectStage === '' && projectStages.length > 0) {
-      setProjectStage(projectStages[0]);
-    }
-  }, [projectStage, projectStages]);
 
   const attractions = attractionsQuery.data ?? [];
   const tours = toursQuery.data ?? [];
@@ -770,12 +1208,7 @@ function CreateProjectForm({
   const canProceedStep2 = selectedTourId != null;
   const canProceedStep4 = true;
   /** Only used on the final “Create Project” action (step 5). */
-  const canCreateProject =
-    selectedTourId != null &&
-    !projectStageMetaQuery.isPending &&
-    !projectStageMetaQuery.isError &&
-    projectStageOptions.length > 0 &&
-    Boolean(projectStage || projectStages[0]);
+  const canCreateProject = selectedTourId != null;
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
   const handleNext = () => setStep((s) => Math.min(WIZARD_LAST, s + 1));
@@ -793,16 +1226,9 @@ function CreateProjectForm({
 
   const handleSubmit = async () => {
     if (!selectedTourId) return;
-    const stage = projectStage || projectStages[0] || '';
+    const stage = projectStage;
     if (!stage) {
-      addToast(
-        projectStageMetaQuery.isError
-          ? friendlyApiError(projectStageMetaQuery.error, 'Could not load project stages from the server.')
-          : (projectStageMetaQuery.data?.source === 'empty'
-            ? 'No project stages are available. The database CHECK could not be read; set PROJECT_STAGE_ALLOWLIST on the API or fix permissions.'
-            : 'Select a project stage before creating the project.'),
-        'error',
-      );
+      addToast('Select a project stage before creating the project.', 'error');
       return;
     }
     setSaving(true);
@@ -1119,59 +1545,17 @@ function CreateProjectForm({
             </div>
             <div className="border-t border-border pt-3 space-y-3">
               <p className="text-xs text-text-muted">
-                <span className="font-medium text-text-secondary">Project stage is required.</span> The list below is
-                the set of values your system allows. Choose the one that fits this project, then click Create Project.
+                <span className="font-medium text-text-secondary">Project stage is required.</span> Choose{' '}
+                <span className="font-medium">Confirmed</span>, <span className="font-medium">Pending</span>, or{' '}
+                <span className="font-medium">Inactive</span>, then click Create Project.
               </p>
-              {projectStageMetaQuery.isPending && (
-                <p className="text-xs text-text-secondary flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-ems-accent shrink-0" />
-                  Loading allowed project stages from the server…
-                </p>
-              )}
-              {projectStageMetaQuery.isError && (
-                <div className="rounded-md border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-sm text-text-primary space-y-2">
-                  <p>Could not load project stages: {friendlyApiError(projectStageMetaQuery.error)}</p>
-                  <button
-                    type="button"
-                    className="text-sm font-medium text-ems-accent hover:underline"
-                    onClick={() => void projectStageMetaQuery.refetch()}
-                  >
-                    Retry
-                  </button>
-                </div>
-              )}
-              {projectStageMetaQuery.isSuccess && projectStageMetaQuery.data?.source === 'existing_rows' && (
-                <p className="text-xs text-ems-amber">
-                  The full rule from the database could not be read, so the list below is built from{' '}
-                  <span className="font-medium">stages that already exist on other projects</span>. For a complete,
-                  exact list, set <code className="text-[11px]">PROJECT_STAGE_ALLOWLIST</code> on the API to match your
-                  database.
-                </p>
-              )}
-              {projectStageMetaQuery.isSuccess &&
-                projectStageMetaQuery.data?.source === 'empty' &&
-                projectStageOptions.length === 0 && (
-                <p className="text-xs text-ems-amber">
-                  No stages are available to pick right now. An administrator needs to connect the app to the list of
-                  allowed stages (via the database or the API setting{' '}
-                  <code className="text-[11px]">PROJECT_STAGE_ALLOWLIST</code>
-                  ). Until then, you can’t complete this step.
-                </p>
-              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Project Stage" required>
                   <Select2
-                    options={projectStageOptions}
+                    options={CREATE_PROJECT_STAGE_OPTIONS}
                     value={projectStage}
                     onChange={(v) => setProjectStage(v as ProjectStage)}
-                    disabled={projectStageMetaQuery.isPending || projectStageOptions.length === 0}
-                    placeholder={
-                      projectStageMetaQuery.isPending
-                        ? 'Loading stages…'
-                        : projectStageOptions.length === 0
-                          ? 'No stages from API — see message above'
-                          : 'Select project stage'
-                    }
+                    placeholder="Select project stage"
                   />
                 </FormField>
                 <FormField label="Created By (optional)">
@@ -1249,192 +1633,50 @@ function CreateProjectForm({
   );
 }
 
-// ─── Edit Project Form ────────────────────────────────────────────────────────
-
-function EditProjectForm({
-  project, onSaved, onCancel, addToast,
-}: {
-  project: ApiProjectListRow; onSaved: () => void; onCancel: () => void; addToast: Props['addToast'];
-}) {
-  const projectEditLookupLimit = 8000;
-  const attractionsQuery = useQuery({
-    queryKey: ['attractions', 'picker', 0, projectEditLookupLimit],
-    queryFn: async () => (await fetchAttractions(0, projectEditLookupLimit)).data,
-    staleTime: 60_000,
-  });
-  const toursQuery = useQuery({
-    queryKey: ['tours', 'picker', 0, projectEditLookupLimit],
-    queryFn: async () => (await fetchTours(0, projectEditLookupLimit)).data,
-    staleTime: 60_000,
-  });
-
-  const [projectStage, setProjectStage] = useState<ProjectStage>(project.projectStage);
-  const [createdBy, setCreatedBy] = useState(project.createdBy ?? '');
-  const [tourId, setTourId] = useState<number>(project.tourId);
-  const [saving, setSaving] = useState(false);
-
-  const projectStageMetaQuery = useQuery({
-    queryKey: ['project', 'meta', 'project-stages'],
-    queryFn: fetchProjectStageMeta,
-    staleTime: 60_000,
-  });
-  const projectStages = projectStageMetaQuery.data?.projectStages ?? [];
-  const projectStageOptions = useMemo(() => {
-    const merged = new Set<string>([
-      ...mergeStagesWithTempOffersSent(projectStages),
-      project.projectStage,
-      projectStage,
-    ].filter(Boolean) as string[]);
-    return projectStageSelectOptions([...merged].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
-  }, [projectStages, project.projectStage, projectStage]);
-
-  const attractions = attractionsQuery.data ?? [];
-  const tours = toursQuery.data ?? [];
-
-  // Find current tour and attraction
-  const currentTour = tours.find(t => t.tourId === tourId);
-  const currentAttraction = currentTour ? attractions.find(a => a.attractionId === currentTour.attractionId) : null;
-
-  // Get tours for the same attraction
-  const toursForSameAttraction = useMemo(() => {
-    if (!currentTour) return [];
-    return tours.filter(t => t.attractionId === currentTour.attractionId && t.tourId !== currentTour.tourId);
-  }, [tours, currentTour]);
-
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
-  const lookupsLoading = attractionsQuery.isPending || toursQuery.isPending || projectStageMetaQuery.isPending;
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const payload: import('@/api/projectApi').UpdateProjectPayload = {
-        projectStage,
-        createdBy: createdBy.trim() || null,
-      };
-      // Only include tourId if it changed
-      if (tourId !== project.tourId) {
-        payload.tourId = tourId;
-      }
-      await updateProject(project.engagementProjectId, payload);
-      onSaved();
-    } catch (e) {
-      addToast(friendlyApiError(e, 'Could not update project.'), 'error');
-    } finally { setSaving(false); }
-  };
-
-  if (lookupsLoading) {
-    return (
-      <div className="flex items-center justify-center gap-2 text-text-muted text-sm py-8">
-        <Loader2 className="h-4 w-4 animate-spin text-ems-accent" />Loading data…
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      {/* Project Summary */}
-      <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
-        <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">Current Project</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <span className="text-[11px] text-text-muted">Attraction</span>
-            <div className="text-sm text-text-primary">{project.attractionName ?? '—'}</div>
-          </div>
-          <div>
-            <span className="text-[11px] text-text-muted">Current Tour</span>
-            <div className="text-sm text-text-primary">{project.tourName ?? '—'}</div>
-          </div>
-          <div>
-            <span className="text-[11px] text-text-muted">Project ID</span>
-            <div className="text-sm text-text-primary font-mono">#{project.engagementProjectId}</div>
-          </div>
-          <div>
-            <span className="text-[11px] text-text-muted">Created</span>
-            <div className="text-sm text-text-primary">
-              {project.createdDate ? new Date(project.createdDate).toLocaleDateString() : '—'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Editable Fields */}
-      <div className="space-y-4">
-        <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wide">Edit Details</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Project Stage" required>
-            <Select2
-              options={projectStageOptions}
-              value={projectStage}
-              onChange={(v) => setProjectStage(v as ProjectStage)}
-              disabled={projectStageOptions.length === 0}
-            />
-          </FormField>
-          <FormField label="Created By (optional)">
-            <input className={inputCls} maxLength={200} value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} placeholder="Your name or user ID" />
-          </FormField>
-        </div>
-
-        {toursForSameAttraction.length > 0 && (
-          <div className="pt-2">
-            <FormField label="Change Tour (optional)">
-              <Select2
-                options={[
-                  { value: String(currentTour?.tourId ?? ''), label: `Keep current: ${currentTour?.tourName ?? 'Unknown'}` },
-                  ...toursForSameAttraction.map(t => ({ value: String(t.tourId), label: t.tourName }))
-                ]}
-                value={String(tourId)}
-                onChange={(v) => setTourId(Number(v))}
-              />
-            </FormField>
-            <p className="text-xs text-text-muted mt-1">
-              Other tours for {currentAttraction?.attractionName} are available to switch to.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="flex gap-2 justify-end pt-4 border-t border-border">
-        <button type="button" onClick={onCancel} disabled={saving} className="text-text-secondary px-5 py-1.5 hover:text-text-primary text-sm disabled:opacity-50">Cancel</button>
-        <button type="button" onClick={() => void handleSave()} disabled={saving}
-          className="inline-flex items-center justify-center gap-2 min-w-[6.5rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60">
-          {saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving…</> : 'Save Changes'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main ProjectsPage ────────────────────────────────────────────────────────
 
 export function ProjectsPage({ addToast }: Props) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [stageFilter, setStageFilter] = useState('All');
   const [page, setPage] = useState(1);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editProject, setEditProject] = useState<ApiProjectListRow | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ApiProjectListRow | null>(null);
 
-  const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: fetchProjects });
-  const projectStageMetaQuery = useQuery({
-    queryKey: ['project', 'meta', 'project-stages'],
-    queryFn: fetchProjectStageMeta,
-    staleTime: 60_000,
-  });
-  const stageFilterOptions = useMemo(() => {
-    const stages = mergeStagesWithTempOffersSent(projectStageMetaQuery.data?.projectStages ?? []);
-    return [{ value: 'All', label: 'All' }, ...projectStageSelectOptions(stages)];
-  }, [projectStageMetaQuery.data?.projectStages]);
+  const { offset, limit } = getPageParams(page);
 
-  const refetch = useCallback(async () => {
-    await qc.refetchQueries({ queryKey: ['projects'], exact: true });
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  const projectsQuery = useQuery({
+    queryKey: projectsApiQueryKey(offset, limit, searchDebounced, stageFilter),
+    queryFn: async () => {
+      const res: ApiPaginatedResponse<ApiProjectListRow> = await fetchProjects(offset, limit, {
+        q: searchDebounced || undefined,
+        projectStage: stageFilter,
+      });
+      return { data: res.data, total: res.total };
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const stageFilterOptions = useMemo(
+    () => [{ value: 'All', label: 'All' }, ...projectStageSelectOptions([...PROJECT_STAGE_VALUES])],
+    [],
+  );
+
+  const refetchProjectList = useCallback(async () => {
+    await qc.invalidateQueries({ queryKey: ['projects', 'api'] });
   }, [qc]);
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteProject(id),
     onSuccess: async () => {
-      await refetch();
+      await refetchProjectList();
       if (selectedProjectId === pendingDelete?.engagementProjectId) setSelectedProjectId(null);
       addToast('Project deleted.', 'warning');
       setPendingDelete(null);
@@ -1442,36 +1684,20 @@ export function ProjectsPage({ addToast }: Props) {
     onError: (e) => addToast(friendlyApiError(e, 'Could not delete project.'), 'error'),
   });
 
-  const rows = projectsQuery.data ?? [];
+  const rows = projectsQuery.data?.data ?? [];
+  const serverTotal = projectsQuery.data?.total ?? 0;
 
-  const filtered = useMemo(() => {
-    return rows.filter((p) => {
-      if (stageFilter !== 'All' && p.projectStage !== stageFilter) {
-        return false;
-      }
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      return [
-        String(p.engagementProjectId),
-        p.tourName ?? '',
-        p.attractionName ?? '',
-        p.projectStage,
-        p.createdBy ?? '',
-      ]
-        .join(' ').toLowerCase().includes(q);
-    });
-  }, [rows, search, stageFilter]);
+  useEffect(() => { setPage(1); }, [searchDebounced, stageFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageCount = getTotalPages(serverTotal);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
   const pageClamped = Math.min(page, pageCount);
-  const pageRows = filtered.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE);
-  const rangeStart = filtered.length === 0 ? 0 : (pageClamped - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(pageClamped * PAGE_SIZE, filtered.length);
 
-  useEffect(() => { setPage(1); }, [search, stageFilter]);
-  useEffect(() => { if (page > pageCount) setPage(pageCount); }, [page, pageCount]);
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
-  const isLoading = projectsQuery.isPending;
+  const isLoading = projectsQuery.isPending || projectsQuery.isFetching;
   const isRefreshing = projectsQuery.isFetching && !projectsQuery.isPending;
 
   return (
@@ -1516,7 +1742,8 @@ export function ProjectsPage({ addToast }: Props) {
 
       {projectsQuery.isError && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
-          Could not load projects: {(projectsQuery.error as Error).message}
+          Could not load projects: {(projectsQuery.error as Error).message}. Is the API running at{' '}
+          <code className="text-xs">/api</code> (see Vite proxy)?
         </div>
       )}
 
@@ -1525,7 +1752,9 @@ export function ProjectsPage({ addToast }: Props) {
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-text-primary">Projects</h1>
           {isLoading ? <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden /> : (
-            <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">{filtered.length}</span>
+            <span className="text-xs bg-elevated px-2 py-0.5 rounded text-text-secondary tabular-nums">
+              {serverTotal.toLocaleString()}
+            </span>
           )}
         </div>
         <button type="button" onClick={() => setShowCreateModal(true)} disabled={isLoading}
@@ -1559,26 +1788,33 @@ export function ProjectsPage({ addToast }: Props) {
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Tour</th>
+                  <th className="text-left py-2.5 px-3">Tour mgmt</th>
                   <th className="text-left py-2.5 px-3">Stage</th>
                   <th className="text-left py-2.5 px-3">Created By</th>
                   <th className="text-left py-2.5 px-3">Created</th>
-                  <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && !projectsQuery.isError && (
+                {rows.length === 0 && !projectsQuery.isError && (
                   <tr>
                     <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
-                      {rows.length === 0 ? 'No projects in the database yet.' : 'No projects match your search or filters.'}
+                      {!searchDebounced && stageFilter === 'All'
+                        ? 'No projects returned from the database.'
+                        : 'No projects match your search or filters.'}
                     </td>
                   </tr>
                 )}
-                {pageRows.map((p) => (
-                  <tr key={p.engagementProjectId}
-                    onClick={() => setSelectedProjectId(p.engagementProjectId)}
-                    className="border-b border-border/50 hover:bg-hover cursor-pointer">
+                {rows.map((p) => (
+                  <tr
+                    key={p.engagementProjectId}
+                    onClick={() => {
+                      setSelectedProjectId(p.engagementProjectId);
+                    }}
+                    className="border-b border-border/50 hover:bg-hover cursor-pointer"
+                  >
                     <td className="py-2.5 px-3 text-text-primary font-medium">{p.attractionName ?? '—'}</td>
                     <td className="py-2.5 px-3 text-text-secondary">{p.tourName ?? <span className="text-text-muted italic">No tour name</span>}</td>
+                    <td className="py-2.5 px-3 text-text-secondary text-xs">{p.tourManagementCompanyName ?? '—'}</td>
                     <td className="py-2.5 px-3">
                       <StatusBadge status={p.projectStage} />
                     </td>
@@ -1586,32 +1822,42 @@ export function ProjectsPage({ addToast }: Props) {
                     <td className="py-2.5 px-3 text-xs text-text-muted tabular-nums">
                       {p.createdDate ? new Date(p.createdDate).toLocaleDateString() : '—'}
                     </td>
-                    <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                      <ActionMenu items={[
-                        { label: 'View Details', onClick: () => setSelectedProjectId(p.engagementProjectId) },
-                        { label: 'Edit', onClick: () => setEditProject(p) },
-                        { label: 'Delete', onClick: () => setPendingDelete(p), danger: true },
-                      ]} />
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {filtered.length > 0 && (
+          {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
-                Showing <span className="text-text-primary font-medium">{rangeStart}–{rangeEnd}</span>{' '}
-                of <span className="text-text-primary font-medium">{filtered.length}</span>
-                {filtered.length > PAGE_SIZE && <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>}
+                Showing{' '}
+                <span className="text-text-primary font-medium">
+                  {rangeStart}–{rangeEnd}
+                </span>{' '}
+                of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
+                <span className="text-text-muted">
+                  {' '}({PAGE_SIZE} per page)
+                </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
-                <button type="button" disabled={pageClamped <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium">Previous</button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={pageClamped <= 1 || isLoading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </button>
                 <span className="text-text-muted tabular-nums px-1">Page {pageClamped} / {pageCount}</span>
-                <button type="button" disabled={pageClamped >= pageCount} onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium">Next</button>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-md border border-border bg-elevated hover:bg-hover text-text-primary disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium"
+                  disabled={pageClamped >= pageCount || isLoading}
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                >
+                  Next
+                </button>
               </div>
             </div>
           )}
@@ -1620,7 +1866,15 @@ export function ProjectsPage({ addToast }: Props) {
 
       {/* Drawer */}
       {selectedProjectId !== null && (
-        <ProjectDetailDrawer projectId={selectedProjectId} onClose={() => setSelectedProjectId(null)} addToast={addToast} />
+        <ProjectDetailDrawer
+          projectId={selectedProjectId}
+          onClose={() => setSelectedProjectId(null)}
+          onRequestDelete={(row) => {
+            setSelectedProjectId(null);
+            setPendingDelete(row);
+          }}
+          addToast={addToast}
+        />
       )}
 
       {/* Create modal */}
@@ -1629,7 +1883,7 @@ export function ProjectsPage({ addToast }: Props) {
           <CreateProjectForm
             key="create-project"
             onSaved={async (id) => {
-              await refetch();
+              await refetchProjectList();
               setShowCreateModal(false);
               addToast('Project created successfully.', 'success');
               setSelectedProjectId(id);
@@ -1640,22 +1894,6 @@ export function ProjectsPage({ addToast }: Props) {
         </Modal>
       )}
 
-      {/* Edit modal */}
-      {editProject && (
-        <Modal title="Edit Project" onClose={() => setEditProject(null)} width={600} allowContentOverflow>
-          <EditProjectForm
-            key={editProject.engagementProjectId}
-            project={editProject}
-            onSaved={async () => {
-              await refetch();
-              setEditProject(null);
-              addToast('Project updated.', 'success');
-            }}
-            onCancel={() => setEditProject(null)}
-            addToast={addToast}
-          />
-        </Modal>
-      )}
     </div>
   );
 }

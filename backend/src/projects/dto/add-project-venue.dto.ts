@@ -1,25 +1,23 @@
 import {
   IsArray,
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  CreatePerformanceOptionDto,
-  VENUE_STATUS_VALUES,
-} from './create-project.dto';
+import { CreatePerformanceOptionDto } from './create-project.dto';
 
 export class AddProjectVenueDto {
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   venueCompanyId: number;
 
   @IsString()
-  @IsIn(VENUE_STATUS_VALUES as unknown as string[])
+  @MaxLength(50)
   venueStatus: string;
 
   @IsOptional()

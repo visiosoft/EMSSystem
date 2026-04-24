@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
@@ -9,6 +10,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { AddPerformanceOptionDto } from './dto/add-performance-option.dto';
 import { AddProjectVenueDto } from './dto/add-project-venue.dto';
@@ -29,11 +31,21 @@ export class ProjectController {
     return this.projectService.getProjectStageMeta();
   }
 
+  @Get('meta/venue-statuses')
+  venueStatusesMeta() {
+    return this.projectService.getVenueStatusMeta();
+  }
+
   // ─── Project CRUD ─────────────────────────────────────────────────────────
 
   @Get()
-  list() {
-    return this.projectService.list();
+  list(
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
+    @Query('q') q?: string,
+    @Query('projectStage') projectStage?: string,
+  ) {
+    return this.projectService.listPaginated(offset, limit, q, projectStage);
   }
 
   @Get(':id')

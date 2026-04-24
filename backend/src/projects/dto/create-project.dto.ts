@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PROJECT_STAGE_VALUES } from '../project-stage.constants';
 
 export const VENUE_STATUS_VALUES = [
   'Proposed',
@@ -47,7 +48,7 @@ export class CreateProjectVenueDto {
   venueCompanyId: number;
 
   @IsString()
-  @IsIn(VENUE_STATUS_VALUES as unknown as string[])
+  @MaxLength(50)
   venueStatus: string;
 
   @IsOptional()
@@ -72,7 +73,7 @@ export class CreateProjectDto {
   tourId: number;
 
   @IsString()
-  @MaxLength(50)
+  @IsIn([...PROJECT_STAGE_VALUES])
   projectStage: string;
 
   @IsOptional()
