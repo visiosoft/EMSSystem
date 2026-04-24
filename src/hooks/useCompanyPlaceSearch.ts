@@ -36,6 +36,8 @@ export function useCompanyPlaceSearch({ query, onPlaceResolved }: UseCompanyPlac
 
     const seq = ++requestSeqRef.current;
     setLoading(true);
+    // Avoid showing stale predictions while a new request is in flight.
+    setSuggestions([]);
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -87,6 +89,18 @@ export function useCompanyPlaceSearch({ query, onPlaceResolved }: UseCompanyPlac
     onNameFocus: () => setMenuOpen(true),
     onNameBlur: () => {
       blurTimerRef.current = window.setTimeout(() => setMenuOpen(false), 150);
+    },
+    /**
+     * Call from the name input onChange. After a place is picked we set the menu closed while the
+     * field often stays focused — a second search never sees focus, so the dropdown must reopen
+     * when the user types again.
+     */
+    onNameInput: () => {
+      if (blurTimerRef.current) {
+        window.clearTimeout(blurTimerRef.current);
+        blurTimerRef.current = null;
+      }
+      setMenuOpen(true);
     },
     selectPrediction,
     clearSuggestions: () => setSuggestions([]),

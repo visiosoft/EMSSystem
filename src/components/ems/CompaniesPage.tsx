@@ -588,6 +588,7 @@ function InlineEditableOverview({
                     setName(clampToMaxLen(e.target.value, COMPANY_FORM.companyName));
                     setDirty(true);
                     setInlineSaveErrors([]);
+                    companyPlace.onNameInput();
                   }}
                   onFocus={companyPlace.onNameFocus}
                   onBlur={companyPlace.onNameBlur}
@@ -599,10 +600,20 @@ function InlineEditableOverview({
                   <div
                     className="absolute z-20 left-0 right-0 mt-1 bg-surface border border-border rounded shadow-lg max-h-56 overflow-auto"
                     onMouseDown={(e) => e.preventDefault()}
+                    role="listbox"
+                    aria-label="Place suggestions"
                   >
-                    {companyPlace.loading && companyPlace.suggestions.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-text-muted flex items-center gap-2">
-                        <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                    {companyPlace.loading && (
+                      <div
+                        className="px-3 py-2.5 text-xs text-text-muted flex items-center gap-2"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Loader2
+                          className="h-3.5 w-3.5 shrink-0 animate-spin text-ems-accent"
+                          aria-hidden
+                        />
+                        Searching…
                       </div>
                     )}
                     {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
@@ -610,16 +621,20 @@ function InlineEditableOverview({
                         No matching places — try a different name.
                       </div>
                     )}
-                    {companyPlace.suggestions.map((s) => (
-                      <button
-                        key={s.placeId}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-elevated text-sm text-text-primary"
-                        onMouseDown={(e) => { e.preventDefault(); companyPlace.selectPrediction(s); }}
-                      >
-                        {s.description}
-                      </button>
-                    ))}
+                    {!companyPlace.loading &&
+                      companyPlace.suggestions.map((s) => (
+                        <button
+                          key={s.placeId}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-elevated text-sm text-text-primary"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            companyPlace.selectPrediction(s);
+                          }}
+                        >
+                          {s.description}
+                        </button>
+                      ))}
                   </div>
                 )}
               </div>
@@ -1568,6 +1583,7 @@ function CompanyFormDb({
                 clampToMaxLen(e.target.value, COMPANY_FORM.companyName),
               );
               clearError('companyName');
+              companyPlace.onNameInput();
             }}
             onFocus={companyPlace.onNameFocus}
             onBlur={companyPlace.onNameBlur}
@@ -1575,32 +1591,42 @@ function CompanyFormDb({
             autoComplete="off"
             spellCheck={false}
           />
-          {companyPlace.listVisible && (
-            <div
-              className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto"
-              onMouseDown={(e) => e.preventDefault()}
-            >
-              {companyPlace.loading && companyPlace.suggestions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-text-muted">Searching…</div>
-              )}
-              {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-text-muted">
-                  No matching places — try a different name.
-                </div>
-              )}
-              {companyPlace.suggestions.map((s) => (
-                <button
-                  key={s.placeId}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    companyPlace.selectPrediction(s);
-                  }}
-                >
-                  {s.description}
-                </button>
-              ))}
+            {companyPlace.listVisible && (
+              <div
+                className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto"
+                onMouseDown={(e) => e.preventDefault()}
+                role="listbox"
+                aria-label="Place suggestions"
+              >
+                {companyPlace.loading && (
+                  <div
+                    className="px-3 py-2.5 text-xs text-text-muted flex items-center gap-2"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                    Searching…
+                  </div>
+                )}
+                {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-text-muted">
+                    No matching places — try a different name.
+                  </div>
+                )}
+                {!companyPlace.loading &&
+                  companyPlace.suggestions.map((s) => (
+                    <button
+                      key={s.placeId}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        companyPlace.selectPrediction(s);
+                      }}
+                    >
+                      {s.description}
+                    </button>
+                  ))}
             </div>
           )}
         </div>
