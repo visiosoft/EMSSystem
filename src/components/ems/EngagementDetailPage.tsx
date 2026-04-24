@@ -59,6 +59,7 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { formatOpeningDateSafe, formatSqlTimeDisplay } from '@/lib/engagementDisplay';
+import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
 const PERFORMANCE_STATUS_OPTIONS = ENGAGEMENT_STATUS_ENUM.map((s) => ({
@@ -1695,7 +1696,7 @@ function ContactsTable({
                 </td>
                 <td className="py-2 px-3 text-ems-blue text-xs">{c.email}</td>
                 <td className="py-2 px-3 text-text-secondary text-xs">
-                  {c.cellPhone || c.workPhone || '—'}
+                  {formatE164ForDisplay(c.cellPhone || c.workPhone) || '—'}
                 </td>
               </tr>
             ))}

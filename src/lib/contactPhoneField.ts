@@ -13,7 +13,9 @@ export const PHONE_INVALID_MESSAGE =
 export type PhoneCountrySelection = CountryCode | '';
 
 /**
- * Parse stored value (E.164, or legacy national) into country + AsYouType display string.
+ * Parse stored value (E.164, or legacy national) into country + display string.
+ * For E.164 we use `formatNational()` so reopening edit preserves local prefixes
+ * (for example PK `0303...` instead of `303...`).
  * @param options.noCountryWhenEmpty — if true and `raw` is empty, return `country: ''` (no default).
  */
 export function parsePhoneFieldValue(
@@ -31,23 +33,26 @@ export function parsePhoneFieldValue(
   if (t.startsWith('+')) {
     try {
       const p = parsePhoneNumber(t);
-      const a = new AsYouType(p.country);
-      const nat = String(p.nationalNumber ?? '');
-      return { country: p.country, display: a.input(nat) };
+      return {
+        country: p.country ?? fallbackCountry,
+        display: p.formatNational(),
+      };
     } catch {
       return { country: fallbackCountry, display: t };
     }
   }
   try {
     const p = parsePhoneNumber(t, fallbackCountry);
-    const a = new AsYouType(p.country);
-    return {
-      country: p.country,
-      display: a.input(String(p.nationalNumber ?? '')),
-    };
+    if (p.isValid()) {
+      return {
+        country: p.country ?? fallbackCountry,
+        display: p.formatNational(),
+      };
+    }
   } catch {
-    return { country: fallbackCountry, display: t };
+    // keep original legacy text below
   }
+  return { country: fallbackCountry, display: t };
 }
 
 /**
@@ -71,7 +76,7 @@ export function tryE164FromDisplay(
   }
 }
 
-/** Format a stored E.164 value for list/detail UI (stable international spacing). */
+/** Format stored phone for list/detail UI. */
 export function formatE164ForDisplay(
   raw: string | null | undefined,
 ): string {
@@ -79,7 +84,7 @@ export function formatE164ForDisplay(
   if (!t) return '';
   try {
     if (t.startsWith('+')) {
-      return parsePhoneNumber(t).formatInternational();
+      return parsePhoneNumber(t).formatNational();
     }
   } catch {
     return t;

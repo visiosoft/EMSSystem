@@ -56,6 +56,7 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { clearFormFieldError } from '@/lib/clearFormFieldError';
 import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
 import { AddTourForm } from './AddTourForm';
@@ -872,7 +873,7 @@ function TourDrawer({
                     <div className="text-xs text-text-secondary">{c.roleName} • {c.departmentName}</div>
                     <div className="mt-2 text-xs text-text-secondary space-y-1">
                       <div>{c.email}</div>
-                      {c.workPhone && <div>{c.workPhone}</div>}
+                      {c.workPhone && <div>{formatE164ForDisplay(c.workPhone)}</div>}
                     </div>
                   </div>
                 ))}

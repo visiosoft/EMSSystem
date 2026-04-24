@@ -8,7 +8,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  IsNull,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { Address } from '../entities/address.entity';
 import { CompanyType } from '../entities/company-type.entity';
 import { Company } from '../entities/company.entity';
@@ -20,6 +26,8 @@ import { Dma } from '../entities/dma.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
+import { Department } from '../entities/department.entity';
+import { Role } from '../entities/role.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
@@ -116,7 +124,38 @@ export class CompanyService {
     private readonly tourRepo: Repository<Tour>,
     @InjectRepository(CompanyType)
     private readonly companyTypeRepo: Repository<CompanyType>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
   ) {}
+
+  private async ensureRole(roleId: number, em?: EntityManager): Promise<void> {
+    const repo = em ? em.getRepository(Role) : this.roleRepo;
+    const row = await repo.findOne({ where: { roleId } });
+    if (!row) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message: `Role #${roleId} does not exist.`,
+      });
+    }
+  }
+
+  private async ensureDepartment(
+    departmentId: number,
+    em?: EntityManager,
+  ): Promise<void> {
+    const repo = em ? em.getRepository(Department) : this.departmentRepo;
+    const row = await repo.findOne({ where: { departmentId } });
+    if (!row) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        error: 'Bad Request',
+        message: `Department #${departmentId} does not exist.`,
+      });
+    }
+  }
 
   normalizePostal(postalCode: string, country: string): string {
     const raw = postalCode.trim();
@@ -858,6 +897,9 @@ export class CompanyService {
     assertOptionalE164Phone(dto.cellPhone ?? null, 'cell phone');
 
     return this.dataSource.transaction(async (em) => {
+      await this.ensureRole(dto.roleId, em);
+      await this.ensureDepartment(dto.departmentId, em);
+
       const email = dto.email.trim();
       const existingInfo = await em
         .createQueryBuilder(ContactInfo, 'ci')
@@ -905,7 +947,22 @@ export class CompanyService {
         roleId: dto.roleId,
         departmentId: dto.departmentId,
       });
-      const savedAsg = await em.save(ContactAssignment, assignment);
+      let savedAsg: ContactAssignment;
+      try {
+        savedAsg = await em.save(ContactAssignment, assignment);
+      } catch (e: unknown) {
+        if (e instanceof QueryFailedError) {
+          const detail = String((e as QueryFailedError).driverError ?? e.message);
+          throw new BadRequestException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            error: 'Bad Request',
+            message:
+              'Could not save this contact assignment. Check role and department, then try again.',
+            detail,
+          });
+        }
+        throw e;
+      }
 
       const row = await this.getContactRow(savedAsg.contactAssignmentId, em);
       if (!row) {
@@ -929,42 +986,186 @@ export class CompanyService {
     contactAssignmentId: number,
     dto: UpdateCompanyContactDto,
   ): Promise<CompanyContactRow> {
-    const asg = await this.assignmentRepo.findOne({
-      where: { contactAssignmentId },
-      relations: { contact: { contactInfo: true } },
+    return this.dataSource.transaction(async (em) => {
+      const asgRepo = em.getRepository(ContactAssignment);
+      const infoRepo = em.getRepository(ContactInfo);
+      const contactRepo = em.getRepository(Contact);
+
+      const asg = await asgRepo.findOne({
+        where: { contactAssignmentId },
+        relations: { contact: { contactInfo: true } },
+      });
+      if (!asg) {
+        throw new NotFoundException(
+          `Contact assignment ${contactAssignmentId} not found`,
+        );
+      }
+
+      if (dto.workPhone !== undefined) {
+        assertOptionalE164Phone(dto.workPhone, 'work phone');
+      }
+      if (dto.cellPhone !== undefined) {
+        assertOptionalE164Phone(dto.cellPhone, 'cell phone');
+      }
+      if (dto.roleId !== undefined) {
+        await this.ensureRole(dto.roleId, em);
+      }
+      if (dto.departmentId !== undefined) {
+        await this.ensureDepartment(dto.departmentId, em);
+      }
+
+      const oldContactId = asg.contactId;
+      const oldContactInfoId = asg.contact.contactInfoId;
+      const currentInfo = asg.contact.contactInfo;
+      let targetInfo = currentInfo;
+
+      const currentEmail = currentInfo.email.trim().toLowerCase();
+      const nextEmail = dto.email?.trim();
+      const emailChanged =
+        nextEmail !== undefined && nextEmail.toLowerCase() !== currentEmail;
+
+      if (emailChanged && nextEmail) {
+        const existingInfo = await infoRepo
+          .createQueryBuilder('ci')
+          .where('LOWER(ci.email) = LOWER(:email)', { email: nextEmail })
+          .getOne();
+
+        if (existingInfo) {
+          let existingContact = await contactRepo.findOne({
+            where: { contactInfoId: existingInfo.contactInfoId },
+          });
+          if (!existingContact) {
+            existingContact = await contactRepo.save(
+              contactRepo.create({ contactInfoId: existingInfo.contactInfoId }),
+            );
+          }
+          const duplicateAssignment = await asgRepo.findOne({
+            where: {
+              companyId: asg.companyId,
+              contactId: existingContact.contactId,
+            },
+          });
+          if (
+            duplicateAssignment &&
+            duplicateAssignment.contactAssignmentId !== asg.contactAssignmentId
+          ) {
+            throw new ConflictException({
+              statusCode: HttpStatus.CONFLICT,
+              error: 'Conflict',
+              message: 'This contact is already linked to this company.',
+              detail:
+                'A contact assignment already exists for this company/contact pair.',
+            });
+          }
+          // Email changed to an existing person: switch this company assignment to that person.
+          targetInfo = existingInfo;
+          asg.contactId = existingContact.contactId;
+          asg.contact = existingContact;
+        } else {
+          // Email changed to a new person: create a new contact identity and switch assignment.
+          const createdInfo = infoRepo.create({
+            firstName:
+              dto.firstName !== undefined
+                ? dto.firstName.trim()
+                : currentInfo.firstName,
+            lastName:
+              dto.lastName !== undefined ? dto.lastName.trim() : currentInfo.lastName,
+            email: nextEmail,
+            cellPhone:
+              dto.cellPhone !== undefined
+                ? dto.cellPhone?.trim() || null
+                : currentInfo.cellPhone,
+            workPhone:
+              dto.workPhone !== undefined
+                ? dto.workPhone?.trim() || null
+                : currentInfo.workPhone,
+          });
+          let savedInfo: ContactInfo;
+          try {
+            savedInfo = await infoRepo.save(createdInfo);
+          } catch (e: unknown) {
+            if (e instanceof QueryFailedError) {
+              const detail = String((e as QueryFailedError).driverError ?? e.message);
+              throw new BadRequestException({
+                statusCode: HttpStatus.BAD_REQUEST,
+                error: 'Bad Request',
+                message:
+                  'Could not create a contact for this email. Check the entered values and try again.',
+                detail,
+              });
+            }
+            throw e;
+          }
+          const savedContact = await contactRepo.save(
+            contactRepo.create({ contactInfoId: savedInfo.contactInfoId }),
+          );
+          targetInfo = savedInfo;
+          asg.contactId = savedContact.contactId;
+          asg.contact = savedContact;
+        }
+      } else {
+        if (dto.firstName !== undefined) targetInfo.firstName = dto.firstName.trim();
+        if (dto.lastName !== undefined) targetInfo.lastName = dto.lastName.trim();
+        if (dto.email !== undefined) targetInfo.email = dto.email.trim();
+        if (dto.cellPhone !== undefined) {
+          targetInfo.cellPhone = dto.cellPhone?.trim() || null;
+        }
+        if (dto.workPhone !== undefined) {
+          targetInfo.workPhone = dto.workPhone?.trim() || null;
+        }
+
+        try {
+          await infoRepo.save(targetInfo);
+        } catch (e: unknown) {
+          if (e instanceof QueryFailedError) {
+            const detail = String((e as QueryFailedError).driverError ?? e.message);
+            throw new BadRequestException({
+              statusCode: HttpStatus.BAD_REQUEST,
+              error: 'Bad Request',
+              message:
+                'Could not update contact information. Check the entered values and try again.',
+              detail,
+            });
+          }
+          throw e;
+        }
+      }
+
+      if (dto.roleId !== undefined) asg.roleId = dto.roleId;
+      if (dto.departmentId !== undefined) asg.departmentId = dto.departmentId;
+      try {
+        await asgRepo.save(asg);
+      } catch (e: unknown) {
+        if (e instanceof QueryFailedError) {
+          const detail = String((e as QueryFailedError).driverError ?? e.message);
+          throw new BadRequestException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            error: 'Bad Request',
+            message:
+              'Could not update this contact assignment. Check role and department, then try again.',
+            detail,
+          });
+        }
+        throw e;
+      }
+
+      if (asg.contactId !== oldContactId) {
+        const remaining = await asgRepo.count({ where: { contactId: oldContactId } });
+        if (remaining === 0) {
+          await contactRepo.delete({ contactId: oldContactId });
+          const stillUsed = await contactRepo.count({
+            where: { contactInfoId: oldContactInfoId },
+          });
+          if (stillUsed === 0) {
+            await infoRepo.delete({ contactInfoId: oldContactInfoId });
+          }
+        }
+      }
+
+      const row = await this.getContactRow(contactAssignmentId, em);
+      if (!row) throw new NotFoundException('Contact row missing after update');
+      return row;
     });
-    if (!asg) {
-      throw new NotFoundException(
-        `Contact assignment ${contactAssignmentId} not found`,
-      );
-    }
-
-    if (dto.workPhone !== undefined) {
-      assertOptionalE164Phone(dto.workPhone, 'work phone');
-    }
-    if (dto.cellPhone !== undefined) {
-      assertOptionalE164Phone(dto.cellPhone, 'cell phone');
-    }
-
-    const info = asg.contact.contactInfo;
-    if (dto.firstName !== undefined) info.firstName = dto.firstName.trim();
-    if (dto.lastName !== undefined) info.lastName = dto.lastName.trim();
-    if (dto.email !== undefined) info.email = dto.email.trim();
-    if (dto.cellPhone !== undefined) {
-      info.cellPhone = dto.cellPhone?.trim() || null;
-    }
-    if (dto.workPhone !== undefined) {
-      info.workPhone = dto.workPhone?.trim() || null;
-    }
-    await this.contactInfoRepo.save(info);
-
-    if (dto.roleId !== undefined) asg.roleId = dto.roleId;
-    if (dto.departmentId !== undefined) asg.departmentId = dto.departmentId;
-    await this.assignmentRepo.save(asg);
-
-    const row = await this.getContactRow(contactAssignmentId);
-    if (!row) throw new NotFoundException('Contact row missing after update');
-    return row;
   }
 
   async removeContact(contactAssignmentId: number): Promise<void> {
