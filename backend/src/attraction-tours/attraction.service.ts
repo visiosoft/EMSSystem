@@ -110,7 +110,7 @@ export class AttractionService {
   }
 
 
-  async create(dto: CreateAttractionDto): Promise<{ attractionId: number }> {
+  async create(dto: CreateAttractionDto): Promise<AttractionListRow> {
     const attractionName = dto.attractionName.trim();
     if (!attractionName) {
       throw new BadRequestException('Attraction name is required.');
@@ -123,10 +123,10 @@ export class AttractionService {
     });
     const saved = await this.attractionRepo.save(row);
     this.emsCreated.recordAttraction(saved.attractionId);
-    return { attractionId: saved.attractionId };
+    return this.buildListRow(saved.attractionId);
   }
 
-  async update(id: number, dto: UpdateAttractionDto): Promise<void> {
+  async update(id: number, dto: UpdateAttractionDto): Promise<AttractionListRow> {
     const existing = await this.attractionRepo.findOne({ where: { attractionId: id } });
     if (!existing) throw new NotFoundException({ message: 'Attraction not found.' });
     if (dto.attractionName !== undefined) {
@@ -138,6 +138,22 @@ export class AttractionService {
       existing.attractionName = attractionName;
     }
     await this.attractionRepo.save(existing);
+    return this.buildListRow(id);
+  }
+
+  /** Same shape as GET /attractions rows, so the client can patch its cache in-place. */
+  private async buildListRow(attractionId: number): Promise<AttractionListRow> {
+    const a = await this.attractionRepo.findOne({ where: { attractionId } });
+    if (!a) {
+      throw new NotFoundException({ message: 'Attraction not found.' });
+    }
+    const activeTourCount = await this.tourRepo.count({ where: { attractionId } });
+    return {
+      attractionId: a.attractionId,
+      attractionName: a.attractionName,
+      activeTourCount,
+      appCreated: this.emsCreated.canDeleteAttraction(a.attractionId),
+    };
   }
 
   async remove(id: number): Promise<void> {

@@ -54,7 +54,7 @@ export function AddTourForm({
       {lockAttractionId != null ? (
         <FormField label="Attraction" required>
           <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-            {lockedAttraction?.attractionName ?? `Attraction #${lockAttractionId}`}
+            {lockedAttraction?.attractionName ?? 'Attraction'}
           </div>
         </FormField>
       ) : (

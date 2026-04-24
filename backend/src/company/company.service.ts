@@ -55,7 +55,7 @@ export interface CompanyListRow {
   companyTypeName: string;
   physicalCity: string;
   physicalStateProvince: string;
-  dmaId: number;
+  dmaId: number | null;
   dmaMarketName: string;
 }
 
@@ -132,6 +132,15 @@ export class CompanyService {
     postalCode: string,
     country: string,
   ): Promise<number | null> {
+    const raw = postalCode.trim();
+    if (!raw) return null;
+    /** Same as GET /lookups/dma-by-postal (trim-only exact) before normalized match. */
+    const direct = await this.dmaRepo
+      .createQueryBuilder('d')
+      .where('d.postalCode = :pc', { pc: raw })
+      .orderBy('d.dmaid', 'ASC')
+      .getOne();
+    if (direct) return direct.dmaid;
     const normalized = this.normalizePostal(postalCode, country);
     const row = await this.dmaRepo
       .createQueryBuilder('d')
@@ -322,13 +331,13 @@ export class CompanyService {
       physicalCity: c.physicalAddress.city,
       physicalStateProvince: c.physicalAddress.stateProvince,
       dmaId: c.dmaid,
-      dmaMarketName: c.dma.marketName,
+      dmaMarketName: c.dma?.marketName ?? '',
       physicalAddress: c.physicalAddress,
       mailingAddress: c.mailingAddress,
     };
   }
 
-  async create(dto: CreateCompanyDto): Promise<Company> {
+  async create(dto: CreateCompanyDto): Promise<CompanyDetail> {
     const dmaId =
       dto.dmaId ??
       (await this.resolveDmaId(dto.physical.postalCode, dto.physical.country));
@@ -349,7 +358,7 @@ export class CompanyService {
       companyTypeId: dto.companyTypeId,
     });
 
-    return this.dataSource.transaction(async (em) => {
+    const saved = await this.dataSource.transaction(async (em) => {
       const savedPhysical = await this.getOrCreateAddress(em, dto.physical);
 
       let mailingId = savedPhysical.addressId;
@@ -368,10 +377,16 @@ export class CompanyService {
         mailingAddressId: mailingId,
         dmaid: dmaId,
       });
-      const saved = await em.save(Company, company);
-      await this.ensureVenueRowForNewVenueCompany(em, saved);
-      return saved;
+      const row = await em.save(Company, company);
+      await this.ensureVenueRowForNewVenueCompany(em, row);
+      return row;
     });
+
+    /**
+     * Return the full detail row (same shape as GET /companies items) so the
+     * frontend can patch its cache in-place without a follow-up fetch.
+     */
+    return this.findOne(saved.companyId);
   }
 
   /** Default dbo.Venue row when registering a company whose type is Venue (1:1 with Company). */
@@ -588,13 +603,17 @@ export class CompanyService {
     }
   }
 
-  async update(companyId: number, dto: UpdateCompanyDto): Promise<Company> {
+  async update(companyId: number, dto: UpdateCompanyDto): Promise<CompanyDetail> {
     const existing = await this.companyRepo.findOne({
       where: { companyId },
       relations: { physicalAddress: true, mailingAddress: true },
     });
     if (!existing)
       throw new NotFoundException(`Company ${companyId} not found`);
+
+    /** If unchanged, name+type duplicate check is skipped (saves with only address/DMA edits). */
+    const companyNameBefore = existing.companyName.trim();
+    const companyTypeIdBefore = existing.companyTypeId;
 
     const oldPhysicalId = existing.physicalAddressId;
     const oldMailingId = existing.mailingAddressId;
@@ -636,27 +655,58 @@ export class CompanyService {
       existing.companyTypeId = dto.companyTypeId;
     }
 
-    let dmaId = existing.dmaid;
-    if (dto.dmaId !== undefined) {
-      dmaId = dto.dmaId;
+    /** Do not clear DMA: ignore null/0 from client; keep existing when re-resolution fails. */
+    let nextDmaId: number | null = existing.dmaid ?? null;
+    if (typeof dto.dmaId === 'number' && Number.isInteger(dto.dmaId) && dto.dmaId > 0) {
+      nextDmaId = dto.dmaId;
     } else if (dto.physical) {
       const resolved = await this.resolveDmaId(
         dto.physical.postalCode,
         dto.physical.country,
       );
-      if (resolved != null) dmaId = resolved;
+      if (resolved != null) {
+        nextDmaId = resolved;
+      }
     }
-    existing.dmaid = dmaId;
+    existing.dmaid = nextDmaId;
     existing.physicalAddressId = physicalAddressId;
     existing.mailingAddressId = mailingAddressId;
 
-    await this.assertNoDuplicateCompany(this.dataSource.manager, {
-      companyName: existing.companyName,
-      companyTypeId: existing.companyTypeId,
-      excludeCompanyId: companyId,
-    });
+    const nameAfter = existing.companyName.trim();
+    const typeAfter = existing.companyTypeId;
+    const nameOrTypeChanged =
+      nameAfter !== companyNameBefore || typeAfter !== companyTypeIdBefore;
+    if (nameOrTypeChanged) {
+      await this.assertNoDuplicateCompany(this.dataSource.manager, {
+        companyName: existing.companyName,
+        companyTypeId: existing.companyTypeId,
+        excludeCompanyId: companyId,
+      });
+    }
 
-    return this.companyRepo.save(existing);
+    // TypeORM can persist the loaded ManyToOne relations and overwrite PhysicalAddressID /
+    // MailingAddressID with the stale in-memory join rows. Point relations at the rows that
+    // match the IDs we just computed (otherwise DB and GET /companies stay on old e.g. street 880).
+    if (physicalAddressId !== oldPhysicalId) {
+      const pa = await this.addressRepo.findOneBy({ addressId: physicalAddressId });
+      if (pa) existing.physicalAddress = pa;
+    }
+    if (mailingAddressId !== oldMailingId) {
+      if (mailingAddressId === physicalAddressId) {
+        existing.mailingAddress = existing.physicalAddress;
+      } else {
+        const ma = await this.addressRepo.findOneBy({ addressId: mailingAddressId });
+        if (ma) existing.mailingAddress = ma;
+      }
+    }
+
+    await this.companyRepo.save(existing);
+
+    /**
+     * Always return the freshly-joined detail row so the frontend can patch
+     * its list cache in place (type name, DMA market name, nested addresses).
+     */
+    return this.findOne(companyId);
   }
 
   async remove(companyId: number): Promise<void> {

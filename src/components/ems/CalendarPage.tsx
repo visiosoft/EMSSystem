@@ -59,7 +59,7 @@ function formatTime12(hhmm: string): string {
 }
 
 function entryLabel(p: ApiPerformanceCalendarRow): string {
-  return p.attractionName ?? p.tourName ?? `Engagement #${p.engagementId}`;
+  return p.attractionName ?? p.tourName ?? 'Engagement';
 }
 
 function CalendarListTableSkeleton() {

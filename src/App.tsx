@@ -8,7 +8,30 @@ import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 
-const queryClient = new QueryClient();
+/**
+ * Global cache policy for the EMS app:
+ *  - `staleTime` (30 min): list queries (companies/tours/attractions/engagements)
+ *    do NOT refetch on mount, focus, or reconnect within this window.
+ *  - `gcTime` (60 min): keep unused queries around long enough to survive
+ *    route switches without re-fetching.
+ *  - `refetchOn*` flags are all off — mutations surgically patch the cache,
+ *    so we don't want the network to silently bust what we just wrote.
+ */
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30 * 60 * 1000,
+      gcTime: 60 * 60 * 1000,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 const App = () => (
   <ThemeProvider

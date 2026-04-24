@@ -717,7 +717,7 @@ function VenueProposalRow({
         <div className="flex items-start justify-between gap-2">
           <div>
             <span className="text-text-primary font-medium text-sm">
-              {venue.venueCompanyName ?? venue.venueName ?? `Venue #${venue.venueCompanyId}`}
+              {venue.venueCompanyName ?? venue.venueName ?? 'Unknown venue'}
             </span>
             {venue.venueName && venue.venueName !== venue.venueCompanyName && (
               <div className="text-xs text-text-secondary">{venue.venueName}</div>
@@ -923,13 +923,12 @@ function ProjectDetailDrawer({
           ) : (
             <>
               <h2 className="text-base font-semibold text-text-primary">
-                Project #{project?.engagementProjectId}
+                {[project?.attractionName, project?.tourName].filter(Boolean).join(' — ') || 'Project'}
               </h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-text-secondary">
-                  {project?.attractionName ?? '—'}
-                  {project?.tourName ? ` — ${project.tourName}` : ''}
-                </span>
+              <div className="flex items-center flex-wrap gap-2 mt-0.5">
+                {project?.tourManagementCompanyName && (
+                  <span className="text-xs text-text-secondary">{project.tourManagementCompanyName}</span>
+                )}
                 {project?.projectStage && <StatusBadge status={project.projectStage} />}
               </div>
             </>
@@ -1170,7 +1169,7 @@ function CreateProjectForm({
   const dmaLabelById = useMemo(() => {
     const m = new Map<number, string>();
     dmaRows.forEach((r) => {
-      m.set(r.dmaid, `${r.marketName} (#${r.dmaid})`);
+      m.set(r.dmaid, r.marketName ?? 'Market');
     });
     return m;
   }, [dmaRows]);
@@ -1187,11 +1186,12 @@ function CreateProjectForm({
     const cap = 500;
     return pool.slice(0, cap).map((r) => ({
       value: String(r.dmaid),
-      label: `${r.marketName} (#${r.dmaid})`,
+      label: r.marketName ?? 'Market',
     }));
   }, [dmaRows, dmaListFilter]);
 
-  const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+  const inputCls =
+    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
   const lookupsLoading =
     attractionsQuery.isPending ||
     toursQuery.isPending ||
@@ -1286,12 +1286,13 @@ function CreateProjectForm({
             Search and pick one attraction. You&apos;ll choose a tour on the next step.
           </p>
           <input
-            type="search"
+            type="text"
             className={inputCls}
             placeholder="Search attractions by name…"
             value={attractionSearch}
             onChange={(e) => setAttractionSearch(e.target.value)}
             autoComplete="off"
+            spellCheck={false}
           />
           <div className="max-h-[400px] overflow-y-auto space-y-1.5 pr-1 border border-border rounded-lg p-2 bg-elevated/40">
             {filteredAttractions.length === 0 && (
@@ -1343,12 +1344,13 @@ function CreateProjectForm({
             Search and pick a tour for this attraction.
           </p>
           <input
-            type="search"
+            type="text"
             className={inputCls}
             placeholder="Search tours by name…"
             value={tourSearch}
             onChange={(e) => setTourSearch(e.target.value)}
             autoComplete="off"
+            spellCheck={false}
           />
           <div className="max-h-[360px] overflow-y-auto space-y-1.5 pr-1 border border-border rounded-lg p-2 bg-elevated/40">
             {toursForSelectedAttraction.length === 0 && (
@@ -1500,7 +1502,7 @@ function CreateProjectForm({
                     key={dmaid}
                     className="inline-flex items-center gap-1 px-2 py-1 bg-ems-accent/10 text-text-primary text-xs rounded-md border border-ems-accent/30 max-w-full"
                   >
-                    <span className="truncate">{dmaLabelById.get(dmaid) ?? `DMA #${dmaid}`}</span>
+                    <span className="truncate">{dmaLabelById.get(dmaid) ?? 'Market'}</span>
                     <button type="button" onClick={() => removeMarket(dmaid)} className="text-text-muted hover:text-ems-coral shrink-0">
                       ×
                     </button>
@@ -1714,14 +1716,19 @@ export function ProjectsPage({ addToast }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-text-primary font-semibold text-lg">Delete this project?</AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary text-sm leading-relaxed">
-              You're about to permanently delete{' '}
-              <span className="font-medium text-text-primary">
-                Project #{pendingDelete?.engagementProjectId}
-              </span>
-              {(pendingDelete?.attractionName || pendingDelete?.tourName) && (
-                <> ({pendingDelete.attractionName}{pendingDelete.tourName ? ` — ${pendingDelete.tourName}` : ''})</>
-              )}.
-              All venue proposals and date options will be removed.
+              You&apos;re about to permanently delete this project
+              {pendingDelete?.attractionName || pendingDelete?.tourName ? (
+                <>
+                  {' '}
+                  (
+                  <span className="font-medium text-text-primary">
+                    {pendingDelete.attractionName}
+                    {pendingDelete.tourName ? ` — ${pendingDelete.tourName}` : ''}
+                  </span>
+                  )
+                </>
+              ) : null}
+              . All venue proposals and date options will be removed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteMut.isPending && (

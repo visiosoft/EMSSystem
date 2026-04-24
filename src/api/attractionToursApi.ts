@@ -79,14 +79,14 @@ export function fetchAttractions(offset = 0, limit = 25, q?: string) {
 }
 
 export function createAttraction(body: CreateAttractionPayload) {
-  return apiFetch<{ attractionId: number }>('/attractions', {
+  return apiFetch<ApiAttractionListRow>('/attractions', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export function updateAttraction(id: number, body: UpdateAttractionPayload) {
-  return apiFetch<void>(`/attractions/${id}`, {
+  return apiFetch<ApiAttractionListRow>(`/attractions/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
@@ -112,14 +112,14 @@ export function fetchTours(offset = 0, limit = 25, q?: string) {
 }
 
 export function createTour(body: CreateTourPayload) {
-  return apiFetch<{ tourId: number }>('/tours', {
+  return apiFetch<ApiTourListRow>('/tours', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export function updateTour(id: number, body: UpdateTourPayload) {
-  return apiFetch<void>(`/tours/${id}`, {
+  return apiFetch<ApiTourListRow>(`/tours/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

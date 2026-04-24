@@ -38,8 +38,8 @@ export class Company {
   @JoinColumn({ name: 'MailingAddressID' })
   mailingAddress: Address;
 
-  @Column({ name: 'DMAID', type: 'int' })
-  dmaid: number;
+  @Column({ name: 'DMAID', type: 'int', nullable: true })
+  dmaid: number | null;
 
   @ManyToOne(() => Dma)
   @JoinColumn({ name: 'DMAID' })

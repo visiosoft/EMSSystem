@@ -871,7 +871,7 @@ export function EditEngagementModal({
 
   return (
     <Modal
-      title={`Edit Engagement #${row.engagementId}`}
+      title="Edit engagement"
       onClose={onClose}
       width={720}
       allowContentOverflow

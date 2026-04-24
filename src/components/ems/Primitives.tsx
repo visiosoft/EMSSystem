@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useCallback, useRef, createContext } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { getStatusColor, getInitials } from '@/data/constants';
@@ -69,13 +69,26 @@ function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }
   );
 }
 
+/**
+ * Ref to the scrollable body of the nearest `Modal` (when Select2/inputs are rendered inside
+ * a modal, dropdowns can use this to pin `position: fixed` panels). Null outside any Modal.
+ */
+export const EmsModalBodyScrollElementRef = createContext<React.RefObject<HTMLDivElement | null> | null>(null);
+
 export function Modal({
   title,
   children,
   onClose,
   width = 600,
-  /** Use for dialogs with portaled-style dropdowns: avoids max-h + overflow-y clipping and inner scrollbars */
-  allowContentOverflow = false,
+  /**
+   * Kept for backward compatibility. Scroll + layout are the same for all modals: the
+   * header is not sticky, and the body is the only scrollable region. That prevents
+   * (1) the title bar covering the top fields when the overlay scrolls and
+   * (2) the bottom actions overlapping the last fields when the dialog is tall.
+   * Large dropdowns (e.g. Select2) that need to escape a scroll parent should use
+   * fixed/portal positioning; do not reintroduce "whole-dialog overflow:visible" here.
+   */
+  allowContentOverflow: _allowContentOverflow = false,
 }: {
   title: string;
   children: React.ReactNode;
@@ -83,28 +96,53 @@ export function Modal({
   width?: number;
   allowContentOverflow?: boolean;
 }) {
+  const titleId = useId();
+  const bodyScrollElementRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  const dialogScrollCls = allowContentOverflow
-    ? 'overflow-visible max-h-none'
-    : 'max-h-[90vh] overflow-y-auto';
-
   return (
-    <div className={`fixed inset-0 z-50 flex justify-center ${allowContentOverflow ? 'items-start pt-10 sm:pt-16 pb-10 overflow-y-auto' : 'items-center'}`}>
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 min-h-0">
       <div
-        className={`relative animate-fade-in bg-elevated border border-border rounded-lg shadow-xl box-border ${dialogScrollCls}`}
-        style={{ width: `min(${width}px, 95vw)` }}
+        className="absolute inset-0 bg-black/60"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative z-[1] flex w-full min-h-0 max-h-[min(90dvh,calc(100svh-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-elevated shadow-xl box-border animate-fade-in"
+        style={{ maxWidth: `min(${width}px, 100%)`, width: `min(${width}px, 100%)` }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-elevated z-10">
-          <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
-          <button onClick={onClose} className="text-text-muted hover:text-text-secondary text-lg">✕</button>
+        <div
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-elevated px-4 py-3 sm:px-5"
+        >
+          <h2 id={titleId} className="text-lg font-semibold text-text-primary truncate pr-2">
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 text-text-muted hover:text-text-secondary text-lg"
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
-        <div className="p-4">{children}</div>
+        <EmsModalBodyScrollElementRef.Provider value={bodyScrollElementRef}>
+          <div
+            ref={bodyScrollElementRef}
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 sm:px-5"
+          >
+            {children}
+          </div>
+        </EmsModalBodyScrollElementRef.Provider>
       </div>
     </div>
   );
@@ -166,8 +204,11 @@ export function SearchInput({
 }) {
   const showClear = value.length > 0 && !disabled;
   return (
-    <div className="relative">
-      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm" aria-hidden>
+    <div className="relative min-w-0 cursor-text">
+      <span
+        className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-text-muted text-sm"
+        aria-hidden
+      >
         ⌕
       </span>
       <input
@@ -176,8 +217,10 @@ export function SearchInput({
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
+        autoComplete="off"
+        spellCheck={false}
         aria-busy={disabled}
-        className={`w-full bg-elevated border border-border rounded-md py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30 disabled:opacity-50 disabled:cursor-not-allowed pl-8 ${showClear ? 'pr-9' : 'pr-3'}`}
+        className={`w-full min-w-0 cursor-text bg-elevated border border-border rounded-md py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/30 disabled:opacity-50 disabled:cursor-not-allowed pl-8 ${showClear ? 'pr-9' : 'pr-3'}`}
       />
       {showClear && (
         <button
@@ -187,7 +230,7 @@ export function SearchInput({
             e.preventDefault();
             onChange('');
           }}
-          className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-text-muted hover:bg-hover hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
+          className="absolute right-1.5 top-1/2 z-[1] flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-text-muted hover:bg-hover hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/40"
         >
           <X className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
         </button>

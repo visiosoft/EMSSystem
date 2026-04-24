@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  upsertInList,
+  removeFromList,
+  patchEachInList,
+  removeQueriesByPrefix,
+} from '@/api/cacheHelpers';
 import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 import {
   TabBar,
@@ -73,7 +79,7 @@ function buildTourManagementSelectOptions(
   if (idStr && !opts.some((o) => o.value === idStr)) {
     const fromTour = currentCompanyName?.trim();
     const fromList = allCompanies.find((c) => String(c.companyId) === idStr)?.companyName;
-    const label = fromTour || fromList || `Company #${idStr}`;
+    const label = fromTour || fromList || 'Other company';
     opts.push({ value: idStr, label });
   }
   opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
@@ -343,7 +349,8 @@ function AttractionSidePanel({
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   onClose: () => void;
   onDelete: (a: ApiAttractionListRow) => void;
-  onSaved: (p: { attractionName: string }) => void;
+  /** Receives the fresh list row returned by PATCH /attractions/:id so the parent can patch its cache. */
+  onSaved: (row: ApiAttractionListRow) => void;
 }) {
   const [name, setName] = useState(attraction.attractionName);
   const [dirty, setDirty] = useState(false);
@@ -369,12 +376,12 @@ function AttractionSidePanel({
     setNameError(undefined);
     setSaving(true);
     try {
-      await updateAttraction(attraction.attractionId, {
+      const updated = await updateAttraction(attraction.attractionId, {
         attractionName: name.trim(),
       });
       setDirty(false);
       addToast('Attraction updated.', 'success');
-      onSaved({ attractionName: name.trim() });
+      onSaved(updated);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update.'), 'error');
     } finally {
@@ -504,7 +511,8 @@ function TourDrawer({
   addToast: (msg: string, type: 'success'|'error'|'warning'|'info') => void;
   onClose: () => void;
   onDelete: (t: ApiTourListRow) => void;
-  onSaved: (p: { tourId: number; tourName: string }) => void;
+  /** Receives the fresh list row returned by PATCH /tours/:id plus the previous attraction id (for activeTourCount bookkeeping). */
+  onSaved: (row: ApiTourListRow, prevAttractionId: number) => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
 }) {
@@ -637,7 +645,7 @@ function TourDrawer({
     setTourFieldErrors({});
     setSaving(true);
     try {
-      await updateTour(tour.tourId, {
+      const updated = await updateTour(tour.tourId, {
         tourName: tourName.trim(),
         attractionId: Number(attractionId),
         classId: Number(classId),
@@ -657,7 +665,7 @@ function TourDrawer({
       });
       setDirty(false);
       addToast('Tour updated.', 'success');
-      onSaved({ tourId: tour.tourId, tourName: tourName.trim() });
+      onSaved(updated, tour.attractionId);
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update tour.'), 'error');
     } finally {
@@ -879,10 +887,27 @@ function TourDrawer({
 
 const ATTRACTIONS_TOURS_LIST_LIMIT = 8000;
 
+/**
+ * Drop server-search caches. They're keyed by the query string, so after any
+ * mutation they may contain stale rows — rather than trying to patch every
+ * variant we just remove them and let the next search repopulate on demand.
+ */
 function clearAttractionToursServerSearchCaches(qc: QueryClient) {
-  void qc.removeQueries({ queryKey: attractionsServerSearchKeyPrefix });
-  void qc.removeQueries({ queryKey: toursServerSearchKeyPrefix });
+  removeQueriesByPrefix(qc, attractionsServerSearchKeyPrefix);
+  removeQueriesByPrefix(qc, toursServerSearchKeyPrefix);
 }
+
+/**
+ * Sort comparators used when splicing into the cached lists so the surgical
+ * update keeps the same order the list was originally rendered in.
+ */
+const compareAttractions = (a: ApiAttractionListRow, b: ApiAttractionListRow) =>
+  a.attractionName.localeCompare(b.attractionName, undefined, {
+    sensitivity: 'base',
+  });
+
+const compareTours = (a: ApiTourListRow, b: ApiTourListRow) =>
+  a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' });
 
 export function AttractionToursPage({ addToast }: Props) {
   const qc = useQueryClient();
@@ -1054,37 +1079,69 @@ export function AttractionToursPage({ addToast }: Props) {
     return filteredTours;
   }, [needServerTourSearch, serverToursSearchQuery.data, filteredTours]);
 
-  const createAttrMut = useMutation({
-    mutationFn: createAttraction,
-    onSuccess: async (res, body) => {
-      const { attractionId } = res;
-      const hint = await fetchAttractions(0, 100, body.attractionName);
-      const row: ApiAttractionListRow = hint.data.find(
-        (a) => a.attractionId === attractionId,
-      ) ?? {
-        attractionId,
-        attractionName: body.attractionName,
-        activeTourCount: 0,
-        appCreated: true,
-      };
-      qc.setQueryData(
+  /**
+   * Surgical cache helpers — product requirement is a 30-minute staleTime on
+   * the main lists, with every create/update/delete reflected in the cache
+   * IMMEDIATELY without a full refetch. Since the backend now returns full
+   * `ApiAttractionListRow` / `ApiTourListRow` objects, we can splice them in
+   * place with `setQueryData` and leave the staleness window untouched.
+   */
+  const upsertAttractionInCache = useCallback(
+    (row: ApiAttractionListRow) => {
+      upsertInList<ApiAttractionListRow>(
+        qc,
         attractionsListQueryKey,
-        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
-          if (!old) {
-            return { data: [row], total: 1 };
-          }
-          if (old.data.some((a) => a.attractionId === row.attractionId)) {
-            return old;
-          }
-          const data = [...old.data, row].sort((a, b) =>
-            a.attractionName.localeCompare(b.attractionName, undefined, {
-              sensitivity: 'base',
-            }),
-          );
-          return { data, total: old.data.length < ATTRACTIONS_TOURS_LIST_LIMIT ? old.total + 1 : old.total };
-        },
+        row,
+        (a) => a.attractionId === row.attractionId,
+        compareAttractions,
+      );
+      // If the attraction was renamed, propagate the new name into every tour row that references it.
+      patchEachInList<ApiTourListRow>(qc, toursListQueryKey, (t) =>
+        t.attractionId === row.attractionId && t.attractionName !== row.attractionName
+          ? { ...t, attractionName: row.attractionName }
+          : t,
       );
       clearAttractionToursServerSearchCaches(qc);
+    },
+    [qc],
+  );
+
+  const bumpAttractionTourCount = useCallback(
+    (attractionId: number, delta: number) => {
+      patchEachInList<ApiAttractionListRow>(qc, attractionsListQueryKey, (a) =>
+        a.attractionId === attractionId
+          ? { ...a, activeTourCount: Math.max(0, a.activeTourCount + delta) }
+          : a,
+      );
+    },
+    [qc],
+  );
+
+  const upsertTourInCache = useCallback(
+    (row: ApiTourListRow, prevAttractionId: number | null) => {
+      upsertInList<ApiTourListRow>(
+        qc,
+        toursListQueryKey,
+        row,
+        (t) => t.tourId === row.tourId,
+        compareTours,
+      );
+      // Keep attraction.activeTourCount in sync when the linked attraction changes.
+      if (prevAttractionId == null) {
+        bumpAttractionTourCount(row.attractionId, +1);
+      } else if (prevAttractionId !== row.attractionId) {
+        bumpAttractionTourCount(prevAttractionId, -1);
+        bumpAttractionTourCount(row.attractionId, +1);
+      }
+      clearAttractionToursServerSearchCaches(qc);
+    },
+    [qc, bumpAttractionTourCount],
+  );
+
+  const createAttrMut = useMutation({
+    mutationFn: createAttraction,
+    onSuccess: (row) => {
+      upsertAttractionInCache(row);
       setShowAddAttraction(false);
       addToast('Attraction created.', 'success');
     },
@@ -1094,22 +1151,8 @@ export function AttractionToursPage({ addToast }: Props) {
   const updateAttrMut = useMutation({
     mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateAttraction>[1] }) =>
       updateAttraction(id, body),
-    onSuccess: async (_, { id, body }) => {
-      qc.setQueryData(
-        attractionsListQueryKey,
-        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
-          if (!old) return old;
-          return {
-            ...old,
-            data: old.data.map((a) =>
-              a.attractionId === id
-                ? { ...a, ...body, attractionName: body.attractionName?.trim() ?? a.attractionName }
-                : a,
-            ),
-          };
-        },
-      );
-      clearAttractionToursServerSearchCaches(qc);
+    onSuccess: (row) => {
+      upsertAttractionInCache(row);
       setEditAttraction(null);
       addToast('Attraction updated.', 'success');
     },
@@ -1118,24 +1161,17 @@ export function AttractionToursPage({ addToast }: Props) {
 
   const deleteAttrMut = useMutation({
     mutationFn: deleteAttraction,
-    onSuccess: async (_, attractionId) => {
-      qc.setQueryData(
+    onSuccess: (_, attractionId) => {
+      removeFromList<ApiAttractionListRow>(
+        qc,
         attractionsListQueryKey,
-        (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) =>
-          !old
-            ? old
-            : {
-                ...old,
-                data: old.data.filter((a) => a.attractionId !== attractionId),
-                total: Math.max(0, old.total - 1),
-              },
+        (a) => a.attractionId === attractionId,
       );
-      qc.setQueryData(
+      // Backend cascade: deleting an attraction deletes its tours. Mirror that in the cache.
+      removeFromList<ApiTourListRow>(
+        qc,
         toursListQueryKey,
-        (old: ApiPaginatedResponse<ApiTourListRow> | undefined) =>
-          !old
-            ? old
-            : { ...old, data: old.data.filter((t) => t.attractionId !== attractionId) },
+        (t) => t.attractionId === attractionId,
       );
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteAttraction(null);
@@ -1147,15 +1183,8 @@ export function AttractionToursPage({ addToast }: Props) {
 
   const createTourMut = useMutation({
     mutationFn: createTour,
-    onSuccess: async () => {
-      /* A search+patch for the new name often omitted the row, so the list never
-       * got the new tour. Refetch the full list (await) so the attraction’s tour
-       * sub-list — `tours.filter.attractionId` — updates before the modal closes. */
-      clearAttractionToursServerSearchCaches(qc);
-      await Promise.all([
-        qc.refetchQueries({ queryKey: toursListQueryKey }),
-        qc.refetchQueries({ queryKey: attractionsListQueryKey }),
-      ]);
+    onSuccess: (row) => {
+      upsertTourInCache(row, null);
       setShowAddTour(false);
       addToast('Tour created.', 'success');
     },
@@ -1163,12 +1192,17 @@ export function AttractionToursPage({ addToast }: Props) {
   });
 
   const updateTourMut = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateTour>[1] }) => updateTour(id, body),
-    onSuccess: async () => {
-      /* Optimistic list patches used fetch+search with a small page; the updated tour
-       * was often missing, leaving wrong/missing rows so attraction-side tour lists read empty. */
-      clearAttractionToursServerSearchCaches(qc);
-      await qc.invalidateQueries({ queryKey: toursListQueryKey });
+    mutationFn: ({
+      id,
+      body,
+      prevAttractionId,
+    }: {
+      id: number;
+      body: Parameters<typeof updateTour>[1];
+      prevAttractionId: number;
+    }) => updateTour(id, body).then((row) => ({ row, prevAttractionId })),
+    onSuccess: ({ row, prevAttractionId }) => {
+      upsertTourInCache(row, prevAttractionId);
       setEditTour(null);
       addToast('Tour updated.', 'success');
     },
@@ -1177,18 +1211,19 @@ export function AttractionToursPage({ addToast }: Props) {
 
   const deleteTourMut = useMutation({
     mutationFn: deleteTour,
-    onSuccess: async (_, tourId) => {
-      let attractionId: number | null = null;
-      qc.setQueryData(
+    onSuccess: (_, tourId) => {
+      /**
+       * Capture the attraction id BEFORE removing the row so we can decrement
+       * that attraction's activeTourCount. Any other row / search cache gets
+       * recalculated on demand.
+       */
+      let attractionIdOfRemoved: number | null = null;
+      qc.setQueryData<ApiPaginatedResponse<ApiTourListRow> | undefined>(
         toursListQueryKey,
-        (old: ApiPaginatedResponse<ApiTourListRow> | undefined) => {
-          if (!old) {
-            return old;
-          }
+        (old) => {
+          if (!old) return old;
           const t = old.data.find((x) => x.tourId === tourId);
-          if (t) {
-            attractionId = t.attractionId;
-          }
+          if (t) attractionIdOfRemoved = t.attractionId;
           return {
             ...old,
             data: old.data.filter((x) => x.tourId !== tourId),
@@ -1196,23 +1231,8 @@ export function AttractionToursPage({ addToast }: Props) {
           };
         },
       );
-      if (attractionId != null) {
-        qc.setQueryData(
-          attractionsListQueryKey,
-          (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) => {
-            if (!old) {
-              return old;
-            }
-            return {
-              ...old,
-              data: old.data.map((a) =>
-                a.attractionId === attractionId
-                  ? { ...a, activeTourCount: Math.max(0, a.activeTourCount - 1) }
-                  : a,
-              ),
-            };
-          },
-        );
+      if (attractionIdOfRemoved != null) {
+        bumpAttractionTourCount(attractionIdOfRemoved, -1);
       }
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteTour(null);
@@ -1461,14 +1481,16 @@ export function AttractionToursPage({ addToast }: Props) {
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         {pageTab === 'Attractions' ? (
-          <div className="relative w-full sm:w-64" ref={attractionSearchRef}>
-            <div className="flex items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+          <div className="relative w-full min-w-0 sm:w-64" ref={attractionSearchRef}>
+            <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
               <input
                 type="text"
-                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-50"
+                className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 placeholder="Search attractions..."
                 value={attractionInput}
                 disabled={loading}
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => {
                   const v = e.target.value;
                   setAttractionInput(v);
@@ -1492,7 +1514,7 @@ export function AttractionToursPage({ addToast }: Props) {
                   setAttractionSearch(attractionInput.trim());
                   setShowAttractionSuggestions(false);
                 }}
-                className="px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
                 title="Search"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1522,14 +1544,16 @@ export function AttractionToursPage({ addToast }: Props) {
             )}
           </div>
         ) : (
-          <div className="relative w-full sm:w-64" ref={tourSearchRef}>
-            <div className="flex items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+          <div className="relative w-full min-w-0 sm:w-64" ref={tourSearchRef}>
+            <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
               <input
                 type="text"
-                className="flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:opacity-50"
+                className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 placeholder="Search tours..."
                 value={tourInput}
                 disabled={loading}
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => {
                   const v = e.target.value;
                   setTourInput(v);
@@ -1553,7 +1577,7 @@ export function AttractionToursPage({ addToast }: Props) {
                   setTourSearch(tourInput.trim());
                   setShowTourSuggestions(false);
                 }}
-                className="px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+                className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
                 title="Search"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1744,26 +1768,7 @@ export function AttractionToursPage({ addToast }: Props) {
           addToast={addToast}
           onClose={() => setSelectedAttractionId(null)}
           onDelete={(a) => setPendingDeleteAttraction(a)}
-          onSaved={({ attractionName }) => {
-            if (selectedAttractionId == null) {
-              return;
-            }
-            qc.setQueryData(
-              attractionsListQueryKey,
-              (old: ApiPaginatedResponse<ApiAttractionListRow> | undefined) =>
-                !old
-                  ? old
-                  : {
-                      ...old,
-                      data: old.data.map((a) =>
-                        a.attractionId === selectedAttractionId
-                          ? { ...a, attractionName }
-                          : a,
-                      ),
-                    },
-            );
-            clearAttractionToursServerSearchCaches(qc);
-          }}
+          onSaved={(row) => upsertAttractionInCache(row)}
         />
       )}
 
@@ -1778,10 +1783,7 @@ export function AttractionToursPage({ addToast }: Props) {
           addToast={addToast}
           onClose={() => setSelectedTourId(null)}
           onDelete={(t) => setPendingDeleteTour(t)}
-          onSaved={async () => {
-            clearAttractionToursServerSearchCaches(qc);
-            await qc.invalidateQueries({ queryKey: toursListQueryKey });
-          }}
+          onSaved={(row, prevAttractionId) => upsertTourInCache(row, prevAttractionId)}
           activeTab={tourDrawerTab}
           onTabChange={setTourDrawerTab}
         />
@@ -1828,7 +1830,13 @@ export function AttractionToursPage({ addToast }: Props) {
             initial={editTour}
             submitting={updateTourMut.isPending}
             onCancel={() => setEditTour(null)}
-            onSave={(body) => void updateTourMut.mutateAsync({ id: editTour.tourId, body })}
+            onSave={(body) =>
+              void updateTourMut.mutateAsync({
+                id: editTour.tourId,
+                body,
+                prevAttractionId: editTour.attractionId,
+              })
+            }
           />
         </Modal>
       )}

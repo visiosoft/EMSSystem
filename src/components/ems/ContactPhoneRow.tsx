@@ -1,15 +1,18 @@
-import React, { useId } from 'react';
-import { AsYouType, type CountryCode } from 'libphonenumber-js';
+import React, { useId, useMemo } from 'react';
 import { FormField } from './Primitives';
 import { Select2 } from './Select2';
 import {
   PHONE_COUNTRY_SELECT_OPTIONS,
   DEFAULT_PHONE_COUNTRY,
 } from '@/lib/contactPhoneOptions';
-import { parsePhoneFieldValue } from '@/lib/contactPhoneField';
+import {
+  type PhoneCountrySelection,
+  formatPhoneDisplayForCountryInput,
+  parsePhoneFieldValue,
+} from '@/lib/contactPhoneField';
 
 const inputCls =
-  'w-full min-w-0 flex-1 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent [font-variant-lining-nums:tabular-nums]';
+  'w-full min-w-0 flex-1 bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent [font-variant-lining-nums:tabular-nums] disabled:cursor-not-allowed disabled:opacity-50';
 
 const selectWrap = 'w-[min(20rem,100%)] sm:w-56 shrink-0';
 
@@ -19,9 +22,9 @@ type Props = {
   optional?: boolean;
   error?: string;
   id?: string;
-  country: CountryCode;
+  country: PhoneCountrySelection;
   display: string;
-  onCountry: (c: CountryCode) => void;
+  onCountry: (c: PhoneCountrySelection) => void;
   onDisplay: (display: string) => void;
 };
 
@@ -41,6 +44,13 @@ export function ContactPhoneRow({
 }: Props) {
   const uid = useId();
   const id = idProp ?? uid;
+  const countryOptions = useMemo(
+    () => [
+      { value: '', label: 'Select country…' },
+      ...PHONE_COUNTRY_SELECT_OPTIONS,
+    ],
+    [],
+  );
   return (
     <FormField
       label={label}
@@ -51,10 +61,10 @@ export function ContactPhoneRow({
       <div className="flex flex-col sm:flex-row gap-2 sm:items-start">
         <div className={selectWrap}>
           <Select2
-            options={PHONE_COUNTRY_SELECT_OPTIONS}
+            options={countryOptions}
             value={country}
             onChange={(v) => {
-              onCountry((v as CountryCode) || DEFAULT_PHONE_COUNTRY);
+              onCountry((v || '') as PhoneCountrySelection);
               onDisplay('');
             }}
             searchPlaceholder="Search by country or +code…"
@@ -69,15 +79,18 @@ export function ContactPhoneRow({
           autoComplete="tel-national"
           value={display}
           placeholder="Phone number"
+          disabled={!country}
+          title={!country ? 'Select a country first' : undefined}
           onChange={(e) => {
-            const a = new AsYouType(country);
-            onDisplay(a.input(e.target.value));
+            onDisplay(
+              formatPhoneDisplayForCountryInput(e.target.value, country),
+            );
           }}
           onPaste={(e) => {
             const t = e.clipboardData.getData('text').trim();
             if (t.startsWith('+')) {
               e.preventDefault();
-              const p = parsePhoneFieldValue(t, country);
+              const p = parsePhoneFieldValue(t, DEFAULT_PHONE_COUNTRY);
               onCountry(p.country);
               onDisplay(p.display);
             }

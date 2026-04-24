@@ -43,13 +43,10 @@ const Index = () => {
       'attraction-tours': ['Attraction-Tours'],
       calendar:           ['Calendar'],
       projects:           ['Projects'],
-      'project-detail':   ['Projects', `Project #${viewData.projectId ?? ''}`],
+      'project-detail':   ['Projects', 'Project detail'],
       engagements:        ['Engagements'],
       'daily-sales':      ['Daily Sales'],
-      'engagement-detail': [
-        'Engagements',
-        viewData.engagementId != null ? `#${viewData.engagementId}` : 'Detail',
-      ],
+      'engagement-detail': ['Engagements', 'Engagement detail'],
       settings:           ['Settings'],
     };
     return map[currentView] ?? ['Companies'];

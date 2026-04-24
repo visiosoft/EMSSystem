@@ -13,7 +13,7 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
     type: row.companyTypeName,
     city: pa?.city ?? '',
     state: pa?.stateProvince ?? '',
-    dmaIds: [String(row.dmaId)],
+    dmaIds: row.dmaId != null ? [String(row.dmaId)] : [],
     serviceAreaDmaIds: [],
     physicalStreet: pa?.addressLine1 ?? '',
     physicalCity: pa?.city ?? '',

@@ -169,7 +169,7 @@ export class TourService {
   }
 
 
-  async create(dto: CreateTourDto): Promise<{ tourId: number }> {
+  async create(dto: CreateTourDto): Promise<TourListRow> {
     const attraction = await this.attractionRepo.findOne({
       where: { attractionId: dto.attractionId },
     });
@@ -219,10 +219,10 @@ export class TourService {
     });
     const saved = await this.tourRepo.save(row);
     this.emsCreated.recordTour(saved.tourId);
-    return { tourId: saved.tourId };
+    return this.buildListRow(saved.tourId);
   }
 
-  async update(id: number, dto: UpdateTourDto): Promise<void> {
+  async update(id: number, dto: UpdateTourDto): Promise<TourListRow> {
     const existing = await this.tourRepo.findOne({ where: { tourId: id } });
     if (!existing) {
       throw new NotFoundException({ message: 'Tour not found.' });
@@ -306,6 +306,43 @@ export class TourService {
       }
       throw e;
     }
+    return this.buildListRow(id);
+  }
+
+  /** Same shape as GET /tours rows, so the client can patch its cache in-place. */
+  private async buildListRow(tourId: number): Promise<TourListRow> {
+    const t = await this.tourRepo
+      .createQueryBuilder('t')
+      .innerJoinAndSelect('t.attraction', 'a')
+      .innerJoinAndSelect('t.class', 'c')
+      .leftJoinAndSelect('t.tourManagementCompany', 'm')
+      .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .where('t.tourId = :tourId', { tourId })
+      .getOne();
+    if (!t) {
+      throw new NotFoundException({ message: 'Tour not found.' });
+    }
+    return {
+      tourId: t.tourId,
+      tourName: t.tourName,
+      attractionId: t.attractionId,
+      attractionName: t.attraction?.attractionName ?? '',
+      classId: t.classId,
+      className: t.class?.className ?? '',
+      audienceGender: t.audienceGender,
+      audienceAgeRange: t.audienceAgeRange,
+      ascap: t.ascap,
+      bmi: t.bmi,
+      sesac: t.sesac,
+      gmr: t.gmr,
+      tourInsuranceLanguage: t.tourInsuranceLanguage,
+      tourManagementCompanyId: t.tourManagementCompanyId,
+      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+      techRiderLinkId: t.techRiderLinkId,
+      venueTypePreferenceId: t.venueTypePreferenceId,
+      venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
+      appCreated: this.emsCreated.canDeleteTour(t.tourId),
+    };
   }
 
   async remove(id: number): Promise<void> {

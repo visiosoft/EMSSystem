@@ -157,8 +157,36 @@ html {
   background: hsl(var(--text-muted));
 }
 
-button, a, input, select, textarea {
-  transition: all 150ms ease;
+/**
+ * Avoid `transition: all` on text inputs — it can cause cursor/pointer flicker on hover/focus
+ * when borders and rings animate. Buttons/links keep a slightly broader set.
+ */
+button,
+a {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+select {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+input,
+textarea {
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
 }
 
 [data-theme="light"] .bg-card,

@@ -17,7 +17,7 @@ export interface ApiCompanyListRow {
   companyTypeName: string;
   physicalCity: string;
   physicalStateProvince: string;
-  dmaId: number;
+  dmaId: number | null;
   dmaMarketName: string;
   physicalAddress: ApiAddress;
   mailingAddress: ApiAddress;
@@ -168,14 +168,14 @@ export function fetchCompany(id: number) {
 }
 
 export function createCompany(body: CreateCompanyPayload) {
-  return apiFetch<{ companyId: number } & Record<string, unknown>>('/companies', {
+  return apiFetch<ApiCompanyListRow>('/companies', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export function updateCompany(id: number, body: UpdateCompanyPayload) {
-  return apiFetch<unknown>(`/companies/${id}`, {
+  return apiFetch<ApiCompanyListRow>(`/companies/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });

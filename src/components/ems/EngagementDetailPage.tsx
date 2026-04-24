@@ -116,7 +116,6 @@ export function LegacyEngagementDetailPage({
           This engagement uses a local demo id. Use an engagement from the main list for full detail.
         </p>
         <h1 className="text-lg font-semibold text-text-primary">{engagement.name}</h1>
-        <p className="text-xs text-text-muted">ID {engagement.id}</p>
         <div className="text-sm text-text-secondary pt-2 border-t border-border">
           Status: {engagement.status}
         </div>
@@ -299,7 +298,7 @@ function VenuesTab({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-text-primary">
-                      {v.venueCompanyName ?? `Company #${v.venueCompanyId}`}
+                      {v.venueCompanyName ?? 'Unknown company'}
                     </span>
                     {v.isPrimary && (
                       <span className="inline-flex items-center gap-1 text-[10px] bg-ems-accent/15 text-ems-accent px-1.5 py-0.5 rounded font-medium shrink-0">
@@ -342,7 +341,7 @@ function VenuesTab({
             <AlertDialogTitle>Remove venue?</AlertDialogTitle>
             <AlertDialogDescription>
               Remove{' '}
-              <strong>{pendingRemove?.venueCompanyName ?? `Company #${pendingRemove?.venueCompanyId}`}</strong>{' '}
+              <strong>{pendingRemove?.venueCompanyName ?? 'Unknown company'}</strong>{' '}
               from this engagement?
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -504,9 +503,6 @@ function EditablePerformanceRow({
                 {perf.performanceStatus}
               </span>
             </div>
-            <div className="text-[10px] text-text-muted/60 mt-0.5 font-mono">
-              ID: {perf.performanceId}
-            </div>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -664,7 +660,7 @@ function EngagementFinancePanel({
     const rows = ldata?.nonResidentWithholdings ?? [];
     const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
     if (withholdingFk && !base.some((o) => o.value === withholdingFk)) {
-      return [{ value: withholdingFk, label: `ID ${withholdingFk} (saved)` }, ...base];
+      return [{ value: withholdingFk, label: 'Current selection (saved)' }, ...base];
     }
     return base;
   }, [ldata?.nonResidentWithholdings, withholdingFk]);
@@ -673,7 +669,7 @@ function EngagementFinancePanel({
     const rows = ldata?.artistFinances ?? [];
     const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
     if (artistFinanceFk && !base.some((o) => o.value === artistFinanceFk)) {
-      return [{ value: artistFinanceFk, label: `ID ${artistFinanceFk} (saved)` }, ...base];
+      return [{ value: artistFinanceFk, label: 'Current selection (saved)' }, ...base];
     }
     return base;
   }, [ldata?.artistFinances, artistFinanceFk]);
@@ -683,7 +679,7 @@ function EngagementFinancePanel({
     const base = rows.map((r) => ({ value: String(r.id), label: r.label }));
     if (settlementFinanceFk && !base.some((o) => o.value === settlementFinanceFk)) {
       return [
-        { value: settlementFinanceFk, label: `ID ${settlementFinanceFk} (saved)` },
+        { value: settlementFinanceFk, label: 'Current selection (saved)' },
         ...base,
       ];
     }
@@ -801,12 +797,6 @@ function EngagementFinancePanel({
   const fkDisabled = saveMut.isPending || lookupsQuery.isLoading;
   return (
     <div className="bg-card border border-border rounded-lg p-5 space-y-8">
-      {rec?.financeId != null && (
-        <p className="text-xs text-text-muted font-mono">
-          dbo.EngagementFinances · FinanceID {rec.financeId}
-        </p>
-      )}
-
       {lookupsQuery.isError && (
         <p className="text-xs text-ems-coral">
           {friendlyApiError(lookupsQuery.error)} — dropdowns may be incomplete.{' '}
@@ -1246,10 +1236,9 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
                 </span>
               )}
             </div>
-            <p className="text-xs text-text-muted">
-              Engagement #{row.engagementId}
-              {row.dmaMarketName ? ` · ${row.dmaMarketName}` : ''}
-            </p>
+            {row.dmaMarketName && (
+              <p className="text-xs text-text-muted">{row.dmaMarketName}</p>
+            )}
           </div>
 
           {/* Action area */}
@@ -1614,8 +1603,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
               <span className="font-medium text-text-primary">
                 {row.displayTitle}
               </span>{' '}
-              (engagement <span className="font-mono tabular-nums">#{row.engagementId}</span>) from
-              your list. If something blocks the removal, you’ll see a short explanation right
+              from your list. If something blocks the removal, you’ll see a short explanation right
               after you confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>

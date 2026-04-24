@@ -29,8 +29,8 @@ import {
   companiesServerSearchQueryKeyPrefix,
   COMPANIES_PICKER_LIMIT,
   type ApiPaginatedResponse,
+  type ApiCompanyContact,
   fetchCompanies,
-  fetchCompany,
   fetchCompanyContacts,
   fetchCompanyEngagements,
   fetchDmaByPostal,
@@ -44,16 +44,21 @@ import {
   type CreateCompanyPayload,
   type UpdateCompanyPayload,
 } from '@/api/companyApi';
+import {
+  upsertInList,
+  removeFromList,
+  removeQueriesByPrefix,
+} from '@/api/cacheHelpers';
 import { mapApiCompanyToCompany } from './companyMapping';
 import { CompanyVenueProfilePanel } from './CompanyVenueProfilePanel';
 import { ContactPhoneRow } from './ContactPhoneRow';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
+  type PhoneCountrySelection,
   parsePhoneFieldValue,
   tryE164FromDisplay,
   PHONE_INVALID_MESSAGE,
 } from '@/lib/contactPhoneField';
-import type { CountryCode } from 'libphonenumber-js';
 import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -68,6 +73,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import { clampToMaxLen, COMPANY_FORM } from '@/lib/companyFormLimits';
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
@@ -193,7 +199,12 @@ function InlineEditField({
               rows={3}
               value={draft}
               maxLength={maxLength}
-              onChange={e => setDraft(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDraft(
+                  maxLength != null ? clampToMaxLen(v, maxLength) : v,
+                );
+              }}
               onKeyDown={e => { if (e.key === 'Escape') cancel(); }}
               className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none resize-none"
             />
@@ -202,7 +213,12 @@ function InlineEditField({
               ref={ref as React.Ref<HTMLInputElement>}
               value={draft}
               maxLength={maxLength}
-              onChange={e => setDraft(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDraft(
+                  maxLength != null ? clampToMaxLen(v, maxLength) : v,
+                );
+              }}
               onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
               className="flex-1 bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
             />
@@ -289,7 +305,8 @@ function InlineEditableOverview({
   company: Company;
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  onSaved: () => void;
+  /** Receives the fresh list row returned by PATCH /companies/:id so the parent can patch its cache. */
+  onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
   const [name, setName]             = useState(company.name);
   const [typeId, setTypeId]         = useState(company.companyTypeId != null ? String(company.companyTypeId) : '');
@@ -302,35 +319,33 @@ function InlineEditableOverview({
   const [mailCity, setMailCity]     = useState(company.mailingCity ?? '');
   const [mailState, setMailState]   = useState(company.mailingState ?? '');
   const [mailPostal, setMailPostal] = useState(company.mailingPostalCode ?? '');
-  const [mailCountry, setMailCountry] = useState(company.mailingCountry ?? 'USA');
+  const [mailCountry, setMailCountry] = useState(
+    company.mailingCountry ?? company.physicalCountry ?? 'USA',
+  );
   const [dirty, setDirty]           = useState(false);
   const [saving, setSaving]         = useState(false);
   const [nameEditing, setNameEditing] = useState(false);
   const [inlineSaveErrors, setInlineSaveErrors] = useState<string[]>([]);
+  const [resolvedDma, setResolvedDma] = useState<string | null>(company.dmaMarketName ?? null);
+  const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
 
-  const hasMailingData = useMemo(
-    () => !!(mailStreet.trim() || mailCity.trim()),
-    [mailStreet, mailCity],
-  );
+  /** True only when the effective mailing line differs from physical and needs its own full row + validation. */
+  const sameMailingAsPhysical = useMemo(() => {
+    const t0 = (s: string) => s.trim();
+    const pick = (mail: string, phys: string) => t0(mail) || t0(phys);
+    return (
+      pick(mailStreet, physStreet) === t0(physStreet) &&
+      pick(mailCity, physCity) === t0(physCity) &&
+      pick(mailState, physState) === t0(physState) &&
+      pick(mailPostal, physPostal) === t0(physPostal) &&
+      pick(mailCountry, physCountry) === t0(physCountry)
+    );
+  }, [
+    physStreet, physCity, physState, physPostal, physCountry,
+    mailStreet, mailCity, mailState, mailPostal, mailCountry,
+  ]);
 
-  // Sync when a different company is selected
-  useEffect(() => {
-    setName(company.name);
-    setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
-    setPhysStreet(company.physicalStreet ?? '');
-    setPhysCity(company.physicalCity ?? company.city ?? '');
-    setPhysState(company.physicalState ?? company.state ?? '');
-    setPhysPostal(company.physicalPostalCode ?? '');
-    setPhysCountry(company.physicalCountry ?? 'USA');
-    setMailStreet(company.mailingStreet ?? '');
-    setMailCity(company.mailingCity ?? '');
-    setMailState(company.mailingState ?? '');
-    setMailPostal(company.mailingPostalCode ?? '');
-    setMailCountry(company.mailingCountry ?? 'USA');
-    setDirty(false);
-    setNameEditing(false);
-    setInlineSaveErrors([]);
-  }, [company.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const separateMailing = !sameMailingAsPhysical;
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
@@ -342,16 +357,32 @@ function InlineEditableOverview({
   // empties (no street, no postal, etc.) render as empty fields, not prior company data.
   const onPlaceResolved = useCallback((details: PlaceDetailsResult) => {
     const placeName = details.placeName?.trim();
-    if (placeName) setName(placeName);
-    setPhysStreet(placeAddressField(details.physical.street));
-    setPhysCity(placeAddressField(details.physical.city));
-    setPhysState(placeAddressField(details.physical.state));
-    setPhysPostal(placeAddressField(details.physical.postalCode));
+    if (placeName) setName(clampToMaxLen(placeName, COMPANY_FORM.companyName));
+    setPhysStreet(
+      clampToMaxLen(placeAddressField(details.physical.street), COMPANY_FORM.addressLine1),
+    );
+    setPhysCity(
+      clampToMaxLen(placeAddressField(details.physical.city), COMPANY_FORM.city),
+    );
+    setPhysState(
+      clampToMaxLen(placeAddressField(details.physical.state), COMPANY_FORM.stateProvince),
+    );
+    setPhysPostal(
+      clampToMaxLen(placeAddressField(details.physical.postalCode), COMPANY_FORM.postalCode),
+    );
     setPhysCountry(sanitizeCountryInput(placeAddressField(details.physical.country)));
-    setMailStreet(placeAddressField(details.mailing.street));
-    setMailCity(placeAddressField(details.mailing.city));
-    setMailState(placeAddressField(details.mailing.state));
-    setMailPostal(placeAddressField(details.mailing.postalCode));
+    setMailStreet(
+      clampToMaxLen(placeAddressField(details.mailing.street), COMPANY_FORM.addressLine1),
+    );
+    setMailCity(
+      clampToMaxLen(placeAddressField(details.mailing.city), COMPANY_FORM.city),
+    );
+    setMailState(
+      clampToMaxLen(placeAddressField(details.mailing.state), COMPANY_FORM.stateProvince),
+    );
+    setMailPostal(
+      clampToMaxLen(placeAddressField(details.mailing.postalCode), COMPANY_FORM.postalCode),
+    );
     setMailCountry(sanitizeCountryInput(placeAddressField(details.mailing.country)));
     setDirty(true);
     setNameEditing(false);
@@ -361,9 +392,6 @@ function InlineEditableOverview({
   const companyPlace = useCompanyPlaceSearch({ query: name, onPlaceResolved });
 
   // DMA auto-resolution from postal code
-  const [resolvedDma, setResolvedDma] = useState<string | null>(company.dmaMarketName ?? null);
-  const [dmaLookupBusy, setDmaLookupBusy] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
     const pc = physPostal.trim();
@@ -395,42 +423,61 @@ function InlineEditableOverview({
     setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
     setPhysCountry(company.physicalCountry ?? 'USA'); setMailStreet(company.mailingStreet ?? '');
     setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
-    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? 'USA');
+    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? company.physicalCountry ?? 'USA');
     setResolvedDma(company.dmaMarketName ?? null);
     setDirty(false);
     setInlineSaveErrors([]);
   };
 
   const collectEditCompanyErrors = useCallback((): string[] => {
+    const M = COMPANY_FORM;
     const e: string[] = [];
     const n = name.trim();
     if (!n) e.push('Company name is required.');
-    else if (n.length > 200) e.push('Company name must be 200 characters or fewer.');
+    else if (n.length > M.companyName) e.push(`Company name must be ${M.companyName} characters or fewer.`);
     if (!typeId) e.push('Company type is required.');
     if (!physStreet.trim()) e.push('Physical street is required.');
-    else if (physStreet.trim().length > 200) e.push('Physical street must be 200 characters or fewer.');
+    else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
     if (!physCity.trim()) e.push('Physical city is required.');
-    else if (physCity.trim().length > 100) e.push('Physical city must be 100 characters or fewer.');
+    else if (physCity.trim().length > M.city) e.push(`Physical city must be ${M.city} characters or fewer.`);
     if (!physState.trim()) e.push('Physical state or province is required.');
-    else if (physState.trim().length > 100) e.push('Physical state or province must be 100 characters or fewer.');
+    else if (physState.trim().length > M.stateProvince) e.push(`Physical state or province must be ${M.stateProvince} characters or fewer.`);
     if (!physPostal.trim()) e.push('Physical postal code is required.');
-    else if (physPostal.trim().length > 20) e.push('Physical postal code must be 20 characters or fewer.');
+    else if (physPostal.trim().length > M.postalCode) e.push(`Physical postal code must be ${M.postalCode} characters or fewer.`);
     if (!physCountry.trim()) e.push('Physical country is required.');
-    else if (physCountry.trim().length > 100) e.push('Physical country must be 100 characters or fewer.');
+    else if (physCountry.trim().length > M.country) e.push(`Physical country must be ${M.country} characters or fewer.`);
     else if (!isValidCountryName(physCountry)) {
       e.push(`Physical country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
     }
-    if (hasMailingData) {
+    // DMA* is shown as required: block save when nothing resolves and we cannot keep dbo.dmaid.
+    const pTrim = physPostal.trim();
+    const samePostalAsLoaded = pTrim === (company.physicalPostalCode ?? '').trim();
+    const canKeepExistingDma =
+      samePostalAsLoaded &&
+      typeof company.dmaId === 'number' &&
+      company.dmaId > 0;
+    if (pTrim.length >= 3) {
+      if (!dmaLookupBusy && !resolvedDma && !canKeepExistingDma) {
+        e.push(
+          'DMA is required: this physical postal code does not match any market in the DMA data. Use a different postal (as in the DMA list), or leave the physical postal code unchanged to keep this company’s existing DMA (when it has one).',
+        );
+      }
+    } else if (pTrim.length > 0 && !canKeepExistingDma) {
+      e.push(
+        'Use a physical postal code of at least 3 characters so a DMA can be found, or leave the postal code unchanged to keep the existing DMA.',
+      );
+    }
+    if (separateMailing) {
       if (!mailStreet.trim()) e.push('Mailing street is required when a separate mailing address is used.');
-      else if (mailStreet.trim().length > 200) e.push('Mailing street must be 200 characters or fewer.');
+      else if (mailStreet.trim().length > M.addressLine1) e.push(`Mailing street must be ${M.addressLine1} characters or fewer.`);
       if (!mailCity.trim()) e.push('Mailing city is required when a separate mailing address is used.');
-      else if (mailCity.trim().length > 100) e.push('Mailing city must be 100 characters or fewer.');
+      else if (mailCity.trim().length > M.city) e.push(`Mailing city must be ${M.city} characters or fewer.`);
       if (!mailState.trim()) e.push('Mailing state or province is required when a separate mailing address is used.');
-      else if (mailState.trim().length > 100) e.push('Mailing state or province must be 100 characters or fewer.');
+      else if (mailState.trim().length > M.stateProvince) e.push(`Mailing state or province must be ${M.stateProvince} characters or fewer.`);
       if (!mailPostal.trim()) e.push('Mailing postal code is required when a separate mailing address is used.');
-      else if (mailPostal.trim().length > 20) e.push('Mailing postal code must be 20 characters or fewer.');
+      else if (mailPostal.trim().length > M.postalCode) e.push(`Mailing postal code must be ${M.postalCode} characters or fewer.`);
       if (!mailCountry.trim()) e.push('Mailing country is required when a separate mailing address is used.');
-      else if (mailCountry.trim().length > 100) e.push('Mailing country must be 100 characters or fewer.');
+      else if (mailCountry.trim().length > M.country) e.push(`Mailing country must be ${M.country} characters or fewer.`);
       else if (!isValidCountryName(mailCountry)) {
         e.push(`Mailing country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`);
       }
@@ -438,7 +485,8 @@ function InlineEditableOverview({
     return e;
   }, [
     name, typeId, physStreet, physCity, physState, physPostal, physCountry,
-    hasMailingData, mailStreet, mailCity, mailState, mailPostal, mailCountry,
+    separateMailing, mailStreet, mailCity, mailState, mailPostal, mailCountry,
+    company.dmaId, company.physicalPostalCode, resolvedDma, dmaLookupBusy,
   ]);
 
   const handleSave = async () => {
@@ -450,31 +498,51 @@ function InlineEditableOverview({
     setInlineSaveErrors([]);
     setSaving(true);
     try {
-      await updateCompany(Number(company.id), {
-        companyName: name.trim(),
+      const pc = physPostal.trim();
+      const dmaFromLookup = pc.length >= 3 ? await fetchDmaByPostal(pc) : null;
+      const previousPostal = (company.physicalPostalCode ?? '').trim();
+      const postalUnchanged = pc === previousPostal;
+      const dmaIdToSend =
+        dmaFromLookup?.dmaid != null
+          ? dmaFromLookup.dmaid
+          : postalUnchanged && typeof company.dmaId === 'number' && company.dmaId > 0
+            ? company.dmaId
+            : undefined;
+
+      if (dmaIdToSend == null || !Number.isFinite(dmaIdToSend) || dmaIdToSend <= 0) {
+        setInlineSaveErrors([
+          'A valid DMA is required. The physical postal code and country did not match any DMA, and there is no stored DMA to keep. Use a combination that exists in the DMA data, or leave the physical postal code unchanged to keep the company’s current DMA (when it has one).',
+        ]);
+        return;
+      }
+
+      const M = COMPANY_FORM;
+      const updated = await updateCompany(Number(company.id), {
+        companyName: name.trim().slice(0, M.companyName),
         companyTypeId: Number(typeId),
+        dmaId: dmaIdToSend,
         physical: {
-          addressLine1: physStreet.trim().slice(0, 200),
+          addressLine1: physStreet.trim().slice(0, M.addressLine1),
           addressLine2: null,
-          city: physCity.trim().slice(0, 100),
-          stateProvince: physState.trim().slice(0, 100),
-          postalCode: physPostal.trim().slice(0, 20),
-          country: physCountry.trim().slice(0, 100),
+          city: physCity.trim().slice(0, M.city),
+          stateProvince: physState.trim().slice(0, M.stateProvince),
+          postalCode: physPostal.trim().slice(0, M.postalCode),
+          country: physCountry.trim().slice(0, M.country),
         },
-        mailingSameAsPhysical: !hasMailingData,
-        mailing: hasMailingData ? {
-          addressLine1: mailStreet.trim().slice(0, 200),
+        mailingSameAsPhysical: !separateMailing,
+        mailing: separateMailing ? {
+          addressLine1: mailStreet.trim().slice(0, M.addressLine1),
           addressLine2: null,
-          city: mailCity.trim().slice(0, 100),
-          stateProvince: mailState.trim().slice(0, 100),
-          postalCode: mailPostal.trim().slice(0, 20),
-          country: mailCountry.trim().slice(0, 100),
+          city: mailCity.trim().slice(0, M.city),
+          stateProvince: mailState.trim().slice(0, M.stateProvince),
+          postalCode: mailPostal.trim().slice(0, M.postalCode),
+          country: mailCountry.trim().slice(0, M.country),
         } : undefined,
       });
+      await Promise.resolve(onSaved(updated));
       setDirty(false);
       setInlineSaveErrors([]);
       addToast('Company updated successfully.', 'success');
-      onSaved();
     } catch (e) {
       addToast(friendlyApiError(e, 'Could not update company.'), 'error');
     } finally { setSaving(false); }
@@ -513,20 +581,33 @@ function InlineEditableOverview({
               </label>
               <div className="relative">
                 <input
-                  className="w-full bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
+                  className="w-full cursor-text bg-surface border border-ems-accent rounded px-2 py-1 text-sm text-text-primary focus:outline-none"
                   value={name}
-                  maxLength={200}
-                  onChange={(e) => { setName(e.target.value); setDirty(true); setInlineSaveErrors([]); }}
+                  maxLength={COMPANY_FORM.companyName}
+                  onChange={(e) => {
+                    setName(clampToMaxLen(e.target.value, COMPANY_FORM.companyName));
+                    setDirty(true);
+                    setInlineSaveErrors([]);
+                  }}
                   onFocus={companyPlace.onNameFocus}
                   onBlur={companyPlace.onNameBlur}
                   placeholder="Search venue or address…"
                   autoComplete="off"
+                  spellCheck={false}
                 />
-                {companyPlace.menuOpen && (
-                  <div className="absolute z-20 left-0 right-0 mt-1 bg-surface border border-border rounded shadow-lg max-h-56 overflow-auto">
-                    {companyPlace.loading && (
+                {companyPlace.listVisible && (
+                  <div
+                    className="absolute z-20 left-0 right-0 mt-1 bg-surface border border-border rounded shadow-lg max-h-56 overflow-auto"
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    {companyPlace.loading && companyPlace.suggestions.length === 0 && (
                       <div className="px-3 py-2 text-xs text-text-muted flex items-center gap-2">
                         <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                      </div>
+                    )}
+                    {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-text-muted">
+                        No matching places — try a different name.
                       </div>
                     )}
                     {companyPlace.suggestions.map((s) => (
@@ -609,7 +690,7 @@ function InlineEditableOverview({
             onChange={mark(setPhysStreet)}
             placeholder="Not set"
             required
-            maxLength={200}
+            maxLength={COMPANY_FORM.addressLine1}
           />
           <div className="grid grid-cols-2 gap-4">
             <InlineEditField
@@ -618,7 +699,7 @@ function InlineEditableOverview({
               onChange={mark(setPhysCity)}
               placeholder="Not set"
               required
-              maxLength={100}
+              maxLength={COMPANY_FORM.city}
             />
             <InlineEditField
               label="State / Province"
@@ -626,7 +707,7 @@ function InlineEditableOverview({
               onChange={mark(setPhysState)}
               placeholder="Not set"
               required
-              maxLength={100}
+              maxLength={COMPANY_FORM.stateProvince}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -636,14 +717,14 @@ function InlineEditableOverview({
               onChange={mark(setPhysPostal)}
               placeholder="Not set"
               required
-              maxLength={20}
+              maxLength={COMPANY_FORM.postalCode}
             />
             <InlineEditField
               label="Country"
               value={physCountry}
               onChange={mark((v) => setPhysCountry(sanitizeCountryInput(v)))}
               required
-              maxLength={100}
+              maxLength={COMPANY_FORM.country}
             />
           </div>
         </div>
@@ -652,11 +733,12 @@ function InlineEditableOverview({
         <div className="space-y-3">
           <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide border-b border-border/60 pb-1.5">
             Mailing Address
-            {hasMailingData && <span className="text-ems-coral font-normal normal-case"> *</span>}
+            {separateMailing && <span className="text-ems-coral font-normal normal-case"> *</span>}
           </h4>
-          {hasMailingData && (
+          {separateMailing && (
             <p className="text-[11px] text-text-muted -mt-1">
-              All mailing fields are required when this address differs from physical (at least street or city is set).
+              This mailing line differs from physical: fill all fields. Empty fields inherit the physical line for
+              comparison; matching physical on every line stays a single address.
             </p>
           )}
           <InlineEditField
@@ -664,8 +746,8 @@ function InlineEditableOverview({
             value={mailStreet}
             onChange={mark(setMailStreet)}
             placeholder="Same as physical"
-            required={hasMailingData}
-            maxLength={200}
+            required={separateMailing}
+            maxLength={COMPANY_FORM.addressLine1}
           />
           <div className="grid grid-cols-2 gap-4">
             <InlineEditField
@@ -673,16 +755,16 @@ function InlineEditableOverview({
               value={mailCity}
               onChange={mark(setMailCity)}
               placeholder="Same as physical"
-              required={hasMailingData}
-              maxLength={100}
+              required={separateMailing}
+              maxLength={COMPANY_FORM.city}
             />
             <InlineEditField
               label="State / Province"
               value={mailState}
               onChange={mark(setMailState)}
               placeholder="Same as physical"
-              required={hasMailingData}
-              maxLength={100}
+              required={separateMailing}
+              maxLength={COMPANY_FORM.stateProvince}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -691,16 +773,16 @@ function InlineEditableOverview({
               value={mailPostal}
               onChange={mark(setMailPostal)}
               placeholder="Same as physical"
-              required={hasMailingData}
-              maxLength={20}
+              required={separateMailing}
+              maxLength={COMPANY_FORM.postalCode}
             />
             <InlineEditField
               label="Country"
               value={mailCountry}
               onChange={mark((v) => setMailCountry(sanitizeCountryInput(v)))}
               placeholder="Same as physical"
-              required={hasMailingData}
-              maxLength={100}
+              required={separateMailing}
+              maxLength={COMPANY_FORM.country}
             />
           </div>
         </div>
@@ -775,12 +857,11 @@ function EngagementsTab({ companyId }: { companyId: string }) {
           >
             {r.displayTitle}
           </div>
-          <div className="text-xs text-text-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="font-mono">#{r.engagementId}</span>
-            {r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' && (
+          {r.engagementStatus && r.engagementStatus.toLowerCase() !== 'unknown' && (
+            <div className="text-xs text-text-muted mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <StatusBadge status={r.engagementStatus} />
-            )}
-          </div>
+            </div>
+          )}
         </li>
       ))}
     </ul>
@@ -847,13 +928,11 @@ function ContactFormDb({
   const [firstName, setFirstName] = useState(initial?.firstName || '');
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [email, setEmail] = useState(initial?.email || '');
-  const [workPhoneCountry, setWorkPhoneCountry] = useState<CountryCode>(
-    DEFAULT_PHONE_COUNTRY,
-  );
+  const [workPhoneCountry, setWorkPhoneCountry] =
+    useState<PhoneCountrySelection>('');
   const [workPhoneDisplay, setWorkPhoneDisplay] = useState('');
-  const [cellPhoneCountry, setCellPhoneCountry] = useState<CountryCode>(
-    DEFAULT_PHONE_COUNTRY,
-  );
+  const [cellPhoneCountry, setCellPhoneCountry] =
+    useState<PhoneCountrySelection>('');
   const [cellPhoneDisplay, setCellPhoneDisplay] = useState('');
   const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
   const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
@@ -863,17 +942,29 @@ function ContactFormDb({
   const [departmentId, setDepartmentId] = useState(
     initial?.departmentId != null ? String(initial.departmentId) : '',
   );
+  const [fieldErrors, setFieldErrors] = useState<{
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+    department?: string;
+  }>({});
 
   useEffect(() => {
     setWorkPhoneError(undefined);
     setCellPhoneError(undefined);
+    setFieldErrors({});
     setFirstName(initial?.firstName || '');
     setLastName(initial?.lastName || '');
     setEmail(initial?.email || '');
-    const w = parsePhoneFieldValue(initial?.workPhone);
+    const w = parsePhoneFieldValue(initial?.workPhone, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
     setWorkPhoneCountry(w.country);
     setWorkPhoneDisplay(w.display);
-    const c = parsePhoneFieldValue(initial?.cellPhone);
+    const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
     setCellPhoneCountry(c.country);
     setCellPhoneDisplay(c.display);
     setRoleId(initial?.roleId != null ? String(initial.roleId) : '');
@@ -883,7 +974,7 @@ function ContactFormDb({
   }, [initial]);
 
   const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
+    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
   const roleOpts = useMemo(
     () =>
@@ -904,29 +995,38 @@ function ContactFormDb({
   return (
     <div className="bg-elevated border border-border rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
-        <FormField label="First Name" required>
+        <FormField label="First Name" required error={fieldErrors.firstName}>
           <input
             className={inputCls}
             maxLength={100}
             value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
+            onChange={(e) => {
+              setFirstName(e.target.value);
+              setFieldErrors((prev) => ({ ...prev, firstName: undefined }));
+            }}
           />
         </FormField>
-        <FormField label="Last Name" required>
+        <FormField label="Last Name" required error={fieldErrors.lastName}>
           <input
             className={inputCls}
             maxLength={100}
             value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
+            onChange={(e) => {
+              setLastName(e.target.value);
+              setFieldErrors((er) => ({ ...er, lastName: undefined }));
+            }}
           />
         </FormField>
-        <FormField label="Email" required>
+        <FormField label="Email" required error={fieldErrors.email}>
           <input
             type="email"
             className={inputCls}
             maxLength={254}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setFieldErrors((er) => ({ ...er, email: undefined }));
+            }}
           />
         </FormField>
         <ContactPhoneRow
@@ -957,19 +1057,25 @@ function ContactFormDb({
           }}
           error={cellPhoneError}
         />
-        <FormField label="Role" required>
+        <FormField label="Role" required error={fieldErrors.role}>
           <Select2
             options={[{ value: '', label: 'Select role…' }, ...roleOpts]}
             value={roleId}
-            onChange={setRoleId}
+            onChange={(v) => {
+              setRoleId(v);
+              setFieldErrors((prev) => ({ ...prev, role: undefined }));
+            }}
           />
         </FormField>
         <div className="sm:col-span-2">
-          <FormField label="Department" required>
+          <FormField label="Department" required error={fieldErrors.department}>
             <Select2
               options={[{ value: '', label: 'Select department…' }, ...deptOpts]}
               value={departmentId}
-              onChange={setDepartmentId}
+              onChange={(v) => {
+                setDepartmentId(v);
+                setFieldErrors((prev) => ({ ...prev, department: undefined }));
+              }}
             />
           </FormField>
         </div>
@@ -987,14 +1093,40 @@ function ContactFormDb({
           type="button"
           disabled={saving}
           onClick={async () => {
-            if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+            const next: {
+              firstName?: string;
+              lastName?: string;
+              email?: string;
+              role?: string;
+              department?: string;
+            } = {};
+            if (!firstName.trim()) next.firstName = 'First name is required.';
+            if (!lastName.trim()) next.lastName = 'Last name is required.';
+            if (!email.trim()) next.email = 'Email is required.';
+            if (!roleId) next.role = 'Select a role.';
+            if (!departmentId) next.department = 'Select a department.';
+            if (Object.keys(next).length > 0) {
+              setFieldErrors(next);
               return;
             }
-            if (!roleId || !departmentId) return;
-            const wE = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
-            const cE = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
+            setFieldErrors({});
             let wErr: string | undefined;
             let cErr: string | undefined;
+            if (workPhoneDisplay.trim() && !workPhoneCountry) {
+              wErr =
+                'Select a country for work phone, or clear the number.';
+            }
+            if (cellPhoneDisplay.trim() && !cellPhoneCountry) {
+              cErr =
+                'Select a country for cell phone, or clear the number.';
+            }
+            if (wErr || cErr) {
+              setWorkPhoneError(wErr);
+              setCellPhoneError(cErr);
+              return;
+            }
+            const wE = tryE164FromDisplay(workPhoneDisplay, workPhoneCountry);
+            const cE = tryE164FromDisplay(cellPhoneDisplay, cellPhoneCountry);
             if (workPhoneDisplay.trim() && !wE) {
               wErr = PHONE_INVALID_MESSAGE;
             }
@@ -1092,7 +1224,7 @@ function CompanyFormDb({
     initial?.physicalPostalCode || '',
   );
   const [physicalCountry, setPhysicalCountry] = useState(
-    initial?.physicalCountry || 'USA',
+    initial?.physicalCountry || '',
   );
   const [lastGoogleFormattedMailing, setLastGoogleFormattedMailing] =
     useState('');
@@ -1111,7 +1243,7 @@ function CompanyFormDb({
     initial?.mailingPostalCode || '',
   );
   const [mailingCountry, setMailingCountry] = useState(
-    initial?.mailingCountry || 'USA',
+    initial?.mailingCountry || '',
   );
 
   useEffect(() => {
@@ -1128,7 +1260,7 @@ function CompanyFormDb({
     setPhysicalCity(initial.physicalCity || '');
     setPhysicalState(initial.physicalState || '');
     setPhysicalPostalCode(initial.physicalPostalCode || '');
-    setPhysicalCountry(initial.physicalCountry || 'USA');
+    setPhysicalCountry(initial.physicalCountry || '');
     const hasMailing = !!(
       initial.mailingStreet &&
       (initial.mailingStreet !== initial.physicalStreet ||
@@ -1139,7 +1271,7 @@ function CompanyFormDb({
     setMailingCity(initial.mailingCity || '');
     setMailingState(initial.mailingState || '');
     setMailingPostalCode(initial.mailingPostalCode || '');
-    setMailingCountry(initial.mailingCountry || 'USA');
+    setMailingCountry(initial.mailingCountry || '');
     setResolvedDma(initial.dmaMarketName ?? null);
     setFieldErrors({});
   }, [initial, companyTypes]);
@@ -1179,10 +1311,18 @@ function CompanyFormDb({
       postalCode: string;
       country: string;
     }>) => {
-      if (patch.street !== undefined) setPhysicalStreet(patch.street);
-      if (patch.city !== undefined) setPhysicalCity(patch.city);
-      if (patch.state !== undefined) setPhysicalState(patch.state);
-      if (patch.postalCode !== undefined) setPhysicalPostalCode(patch.postalCode);
+      if (patch.street !== undefined) {
+        setPhysicalStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
+      }
+      if (patch.city !== undefined) {
+        setPhysicalCity(clampToMaxLen(patch.city, COMPANY_FORM.city));
+      }
+      if (patch.state !== undefined) {
+        setPhysicalState(clampToMaxLen(patch.state, COMPANY_FORM.stateProvince));
+      }
+      if (patch.postalCode !== undefined) {
+        setPhysicalPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
+      }
       if (patch.country !== undefined) {
         setPhysicalCountry(sanitizeCountryInput(patch.country));
       }
@@ -1201,10 +1341,18 @@ function CompanyFormDb({
       postalCode: string;
       country: string;
     }>) => {
-      if (patch.street !== undefined) setMailingStreet(patch.street);
-      if (patch.city !== undefined) setMailingCity(patch.city);
-      if (patch.state !== undefined) setMailingState(patch.state);
-      if (patch.postalCode !== undefined) setMailingPostalCode(patch.postalCode);
+      if (patch.street !== undefined) {
+        setMailingStreet(clampToMaxLen(patch.street, COMPANY_FORM.addressLine1));
+      }
+      if (patch.city !== undefined) {
+        setMailingCity(clampToMaxLen(patch.city, COMPANY_FORM.city));
+      }
+      if (patch.state !== undefined) {
+        setMailingState(clampToMaxLen(patch.state, COMPANY_FORM.stateProvince));
+      }
+      if (patch.postalCode !== undefined) {
+        setMailingPostalCode(clampToMaxLen(patch.postalCode, COMPANY_FORM.postalCode));
+      }
       if (patch.country !== undefined) {
         setMailingCountry(sanitizeCountryInput(patch.country));
       }
@@ -1218,22 +1366,27 @@ function CompanyFormDb({
   const onPlaceResolved = useCallback(
     (details: PlaceDetailsResult) => {
       const name = details.placeName?.trim();
-      if (name) setCompanyName(name);
+      if (name) setCompanyName(clampToMaxLen(name, COMPANY_FORM.companyName));
       patchPhysicalAddress({
         street: details.physical.street || '',
         city: details.physical.city || '',
         state: details.physical.state || '',
         postalCode: details.physical.postalCode || '',
-        country: sanitizeCountryInput(details.physical.country || 'USA'),
+        country: sanitizeCountryInput(details.physical.country || ''),
       });
       patchMailingAddress({
         street: details.mailing.street || '',
         city: details.mailing.city || '',
         state: details.mailing.state || '',
         postalCode: details.mailing.postalCode || '',
-        country: sanitizeCountryInput(details.mailing.country || 'USA'),
+        country: sanitizeCountryInput(details.mailing.country || ''),
       });
-      setLastGoogleFormattedMailing(details.formattedAddress?.trim() || '');
+      setLastGoogleFormattedMailing(
+        clampToMaxLen(
+          details.formattedAddress?.trim() || '',
+          COMPANY_FORM.googleFormattedMailingDisplay,
+        ),
+      );
       setFieldErrors({});
     },
     [patchPhysicalAddress, patchMailingAddress],
@@ -1269,7 +1422,7 @@ function CompanyFormDb({
   });
 
   const inputCls =
-    'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
+    'w-full min-w-0 cursor-text bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent placeholder:text-text-muted';
 
   const typeOpts = useMemo(
     () =>
@@ -1281,39 +1434,68 @@ function CompanyFormDb({
   );
 
   const handleSave = async () => {
+    const M = COMPANY_FORM;
     const next: Partial<Record<string, string>> = {};
     const n = companyName.trim();
     if (!n) next.companyName = 'Company name is required.';
-    else if (n.length > 200) next.companyName = 'Company name must be 200 characters or fewer.';
+    else if (n.length > M.companyName) {
+      next.companyName = `Company name must be ${M.companyName} characters or fewer.`;
+    }
     if (!companyTypeId) next.companyType = 'Company type is required.';
 
     if (!physicalStreet.trim()) next.physicalStreet = 'Physical street is required.';
-    else if (physicalStreet.trim().length > 200) next.physicalStreet = 'Physical street must be 200 characters or fewer.';
+    else if (physicalStreet.trim().length > M.addressLine1) {
+      next.physicalStreet = `Physical street must be ${M.addressLine1} characters or fewer.`;
+    }
     if (!physicalCity.trim()) next.physicalCity = 'Physical city is required.';
-    else if (physicalCity.trim().length > 100) next.physicalCity = 'Physical city must be 100 characters or fewer.';
+    else if (physicalCity.trim().length > M.city) {
+      next.physicalCity = `Physical city must be ${M.city} characters or fewer.`;
+    }
     if (!physicalState.trim()) next.physicalState = 'Physical state or province is required.';
-    else if (physicalState.trim().length > 100) next.physicalState = 'Physical state or province must be 100 characters or fewer.';
+    else if (physicalState.trim().length > M.stateProvince) {
+      next.physicalState = `Physical state or province must be ${M.stateProvince} characters or fewer.`;
+    }
     if (!physicalPostalCode.trim()) next.physicalPostal = 'Physical postal code is required.';
-    else if (physicalPostalCode.trim().length > 20) next.physicalPostal = 'Physical postal code must be 20 characters or fewer.';
+    else if (physicalPostalCode.trim().length > M.postalCode) {
+      next.physicalPostal = `Physical postal code must be ${M.postalCode} characters or fewer.`;
+    }
     if (!physicalCountry.trim()) next.physicalCountry = 'Physical country is required.';
-    else if (physicalCountry.trim().length > 100) {
-      next.physicalCountry = 'Physical country must be 100 characters or fewer.';
+    else if (physicalCountry.trim().length > M.country) {
+      next.physicalCountry = `Physical country must be ${M.country} characters or fewer.`;
     } else if (!isValidCountryName(physicalCountry)) {
       next.physicalCountry = `Physical country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
     }
 
+    const pc = physicalPostalCode.trim();
+    if (pc.length >= 3) {
+      if (!dmaLookupBusy && !resolvedDma) {
+        next.dma =
+          'This physical postal code does not match any market in the DMA data. Use a different postal code.';
+      }
+    } else if (pc.length > 0) {
+      next.dma = `Use a physical postal code of at least 3 characters so a DMA can be found.`;
+    }
+
     if (mailingEnabled) {
       if (!mailingStreet.trim()) next.mailingStreet = 'Mailing street is required.';
-      else if (mailingStreet.trim().length > 200) next.mailingStreet = 'Mailing street must be 200 characters or fewer.';
+      else if (mailingStreet.trim().length > M.addressLine1) {
+        next.mailingStreet = `Mailing street must be ${M.addressLine1} characters or fewer.`;
+      }
       if (!mailingCity.trim()) next.mailingCity = 'Mailing city is required.';
-      else if (mailingCity.trim().length > 100) next.mailingCity = 'Mailing city must be 100 characters or fewer.';
+      else if (mailingCity.trim().length > M.city) {
+        next.mailingCity = `Mailing city must be ${M.city} characters or fewer.`;
+      }
       if (!mailingState.trim()) next.mailingState = 'Mailing state or province is required.';
-      else if (mailingState.trim().length > 100) next.mailingState = 'Mailing state or province must be 100 characters or fewer.';
+      else if (mailingState.trim().length > M.stateProvince) {
+        next.mailingState = `Mailing state or province must be ${M.stateProvince} characters or fewer.`;
+      }
       if (!mailingPostalCode.trim()) next.mailingPostal = 'Mailing postal code is required.';
-      else if (mailingPostalCode.trim().length > 20) next.mailingPostal = 'Mailing postal code must be 20 characters or fewer.';
+      else if (mailingPostalCode.trim().length > M.postalCode) {
+        next.mailingPostal = `Mailing postal code must be ${M.postalCode} characters or fewer.`;
+      }
       if (!mailingCountry.trim()) next.mailingCountry = 'Mailing country is required.';
-      else if (mailingCountry.trim().length > 100) {
-        next.mailingCountry = 'Mailing country must be 100 characters or fewer.';
+      else if (mailingCountry.trim().length > M.country) {
+        next.mailingCountry = `Mailing country must be ${M.country} characters or fewer.`;
       } else if (!isValidCountryName(mailingCountry)) {
         next.mailingCountry = `Mailing country: ${COUNTRY_NAME_FORMAT_USER_MESSAGE}`;
       }
@@ -1324,27 +1506,27 @@ function CompanyFormDb({
     }
 
     const physical = {
-      addressLine1: physicalStreet.trim().slice(0, 200),
+      addressLine1: physicalStreet.trim().slice(0, M.addressLine1),
       addressLine2: null as string | null,
-      city: physicalCity.trim().slice(0, 100),
-      stateProvince: physicalState.trim().slice(0, 100),
-      postalCode: physicalPostalCode.trim().slice(0, 20),
-      country: physicalCountry.trim().slice(0, 100),
+      city: physicalCity.trim().slice(0, M.city),
+      stateProvince: physicalState.trim().slice(0, M.stateProvince),
+      postalCode: physicalPostalCode.trim().slice(0, M.postalCode),
+      country: physicalCountry.trim().slice(0, M.country),
     };
     const mailingSameAsPhysical = !mailingEnabled;
     const mailing = mailingEnabled
       ? {
-          addressLine1: mailingStreet.trim().slice(0, 200),
+          addressLine1: mailingStreet.trim().slice(0, M.addressLine1),
           addressLine2: null as string | null,
-          city: mailingCity.trim().slice(0, 100),
-          stateProvince: mailingState.trim().slice(0, 100),
-          postalCode: mailingPostalCode.trim().slice(0, 20),
-          country: mailingCountry.trim().slice(0, 100),
+          city: mailingCity.trim().slice(0, M.city),
+          stateProvince: mailingState.trim().slice(0, M.stateProvince),
+          postalCode: mailingPostalCode.trim().slice(0, M.postalCode),
+          country: mailingCountry.trim().slice(0, M.country),
         }
       : undefined;
 
     const base: CreateCompanyPayload = {
-      companyName: companyName.trim().slice(0, 200),
+      companyName: companyName.trim().slice(0, M.companyName),
       companyTypeId: Number(companyTypeId),
       physical,
       mailingSameAsPhysical,
@@ -1379,21 +1561,32 @@ function CompanyFormDb({
         <div className="relative">
           <input
             className={inputCls}
-            maxLength={200}
+            maxLength={COMPANY_FORM.companyName}
             value={companyName}
             onChange={(e) => {
-              setCompanyName(e.target.value);
+              setCompanyName(
+                clampToMaxLen(e.target.value, COMPANY_FORM.companyName),
+              );
               clearError('companyName');
             }}
             onFocus={companyPlace.onNameFocus}
             onBlur={companyPlace.onNameBlur}
             placeholder="Search venue or address…"
             autoComplete="off"
+            spellCheck={false}
           />
-          {companyPlace.menuOpen && (
-            <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto">
+          {companyPlace.listVisible && (
+            <div
+              className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-52 overflow-auto"
+              onMouseDown={(e) => e.preventDefault()}
+            >
               {companyPlace.loading && companyPlace.suggestions.length === 0 && (
                 <div className="px-3 py-2 text-xs text-text-muted">Searching…</div>
+              )}
+              {!companyPlace.loading && companyPlace.suggestions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-text-muted">
+                  No matching places — try a different name.
+                </div>
               )}
               {companyPlace.suggestions.map((s) => (
                 <button
@@ -1426,10 +1619,12 @@ function CompanyFormDb({
           <FormField label="Street Address" required error={fieldErrors.physicalStreet}>
             <input
               className={inputCls}
-              maxLength={200}
+              maxLength={COMPANY_FORM.addressLine1}
               value={physicalStreet}
               onChange={(e) => {
-                setPhysicalStreet(e.target.value);
+                setPhysicalStreet(
+                  clampToMaxLen(e.target.value, COMPANY_FORM.addressLine1),
+                );
                 clearError('physicalStreet');
               }}
               placeholder="Street line 1"
@@ -1439,10 +1634,12 @@ function CompanyFormDb({
             <FormField label="City" required error={fieldErrors.physicalCity}>
               <input
                 className={inputCls}
-                maxLength={100}
+                maxLength={COMPANY_FORM.city}
                 value={physicalCity}
                 onChange={(e) => {
-                  setPhysicalCity(e.target.value);
+                  setPhysicalCity(
+                    clampToMaxLen(e.target.value, COMPANY_FORM.city),
+                  );
                   clearError('physicalCity');
                 }}
               />
@@ -1450,10 +1647,12 @@ function CompanyFormDb({
             <FormField label="State / Province" required error={fieldErrors.physicalState}>
               <input
                 className={inputCls}
-                maxLength={100}
+                maxLength={COMPANY_FORM.stateProvince}
                 value={physicalState}
                 onChange={(e) => {
-                  setPhysicalState(e.target.value);
+                  setPhysicalState(
+                    clampToMaxLen(e.target.value, COMPANY_FORM.stateProvince),
+                  );
                   clearError('physicalState');
                 }}
               />
@@ -1463,11 +1662,14 @@ function CompanyFormDb({
             <FormField label="Postal Code" required error={fieldErrors.physicalPostal}>
               <input
                 className={inputCls}
-                maxLength={20}
+                maxLength={COMPANY_FORM.postalCode}
                 value={physicalPostalCode}
                 onChange={(e) => {
-                  setPhysicalPostalCode(e.target.value);
+                  setPhysicalPostalCode(
+                    clampToMaxLen(e.target.value, COMPANY_FORM.postalCode),
+                  );
                   clearError('physicalPostal');
+                  clearError('dma');
                 }}
                 onBlur={physicalAutofill.resolveByPostalCode}
                 placeholder="ZIP / postal"
@@ -1476,13 +1678,14 @@ function CompanyFormDb({
             <FormField label="Country" required error={fieldErrors.physicalCountry}>
               <input
                 className={inputCls}
-                maxLength={100}
+                maxLength={COMPANY_FORM.country}
                 value={physicalCountry}
                 onChange={(e) => {
                   setPhysicalCountry(sanitizeCountryInput(e.target.value));
                   clearError('physicalCountry');
+                  clearError('dma');
                 }}
-                placeholder="USA"
+                placeholder="Country name"
                 autoComplete="country-name"
                 spellCheck
               />
@@ -1520,10 +1723,12 @@ function CompanyFormDb({
                 <div className="relative">
                   <input
                     className={inputCls}
-                    maxLength={200}
+                    maxLength={COMPANY_FORM.addressLine1}
                     value={mailingStreet}
                     onChange={(e) => {
-                      setMailingStreet(e.target.value);
+                      setMailingStreet(
+                        clampToMaxLen(e.target.value, COMPANY_FORM.addressLine1),
+                      );
                       clearError('mailingStreet');
                     }}
                     onFocus={mailingAutofill.onStreetFocus}
@@ -1553,10 +1758,12 @@ function CompanyFormDb({
                 <FormField label="City" required error={fieldErrors.mailingCity}>
                   <input
                     className={inputCls}
-                    maxLength={100}
+                    maxLength={COMPANY_FORM.city}
                     value={mailingCity}
                     onChange={(e) => {
-                      setMailingCity(e.target.value);
+                      setMailingCity(
+                        clampToMaxLen(e.target.value, COMPANY_FORM.city),
+                      );
                       clearError('mailingCity');
                     }}
                   />
@@ -1564,10 +1771,12 @@ function CompanyFormDb({
                 <FormField label="State / Province" required error={fieldErrors.mailingState}>
                   <input
                     className={inputCls}
-                    maxLength={100}
+                    maxLength={COMPANY_FORM.stateProvince}
                     value={mailingState}
                     onChange={(e) => {
-                      setMailingState(e.target.value);
+                      setMailingState(
+                        clampToMaxLen(e.target.value, COMPANY_FORM.stateProvince),
+                      );
                       clearError('mailingState');
                     }}
                   />
@@ -1577,10 +1786,12 @@ function CompanyFormDb({
                 <FormField label="Postal Code" required error={fieldErrors.mailingPostal}>
                   <input
                     className={inputCls}
-                    maxLength={20}
+                    maxLength={COMPANY_FORM.postalCode}
                     value={mailingPostalCode}
                     onChange={(e) => {
-                      setMailingPostalCode(e.target.value);
+                      setMailingPostalCode(
+                        clampToMaxLen(e.target.value, COMPANY_FORM.postalCode),
+                      );
                       clearError('mailingPostal');
                     }}
                     onBlur={mailingAutofill.resolveByPostalCode}
@@ -1589,12 +1800,13 @@ function CompanyFormDb({
                 <FormField label="Country" required error={fieldErrors.mailingCountry}>
                   <input
                     className={inputCls}
-                    maxLength={100}
+                    maxLength={COMPANY_FORM.country}
                     value={mailingCountry}
                     onChange={(e) => {
                       setMailingCountry(sanitizeCountryInput(e.target.value));
                       clearError('mailingCountry');
                     }}
+                    placeholder="Country name"
                     autoComplete="country-name"
                     spellCheck
                   />
@@ -1638,6 +1850,11 @@ function CompanyFormDb({
             </span>
           )}
         </div>
+        {fieldErrors.dma && (
+          <p className="text-xs text-ems-coral mt-1" role="alert">
+            {fieldErrors.dma}
+          </p>
+        )}
       </div>
 
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
@@ -1699,7 +1916,6 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
               <th className="text-left py-2.5 px-3">Type</th>
               <th className="text-left py-2.5 px-3">City, State</th>
               <th className="text-left py-2.5 px-3">DMA</th>
-              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
@@ -1716,9 +1932,6 @@ function CompaniesTableSkeleton({ rows = PAGE_SIZE }: { rows?: number }) {
                 </td>
                 <td className="py-3 px-3">
                   <Skeleton className="h-3 w-36 bg-muted/60" />
-                </td>
-                <td className="py-3 px-3">
-                  <Skeleton className="h-6 w-6 rounded bg-muted/60 ml-auto" />
                 </td>
               </tr>
             ))}
@@ -1791,25 +2004,23 @@ export function CompaniesPage({ addToast }: Props) {
     setShowSuggestions(false);
   }, [searchInput]);
 
-  /** 1) Filter the in-memory cache only. */
+  /**
+   * When no text search: filter the in-memory list by type only.
+   * When the user has committed a name search: always use the API — the in-memory
+   * list can miss matches (substring false positives) or omit companies outside
+   * the loaded set, which previously skipped the server search entirely.
+   */
   const cacheFiltered = useMemo(() => {
     const rows = companies.filter((c) => {
-      if (activeSearch && !c.name.toLowerCase().includes(activeSearch.toLowerCase())) {
-        return false;
-      }
       if (typeFilter !== 'All' && c.type !== typeFilter) return false;
       return true;
     });
     return [...rows].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
     );
-  }, [companies, activeSearch, typeFilter]);
+  }, [companies, typeFilter]);
 
-  /** 2) If the committed string isn’t in cache, run a one-off API search (not a full list refresh). */
-  const needServerSearch = Boolean(
-    activeSearch.trim() && cacheFiltered.length === 0,
-  );
-
+  const hasActiveSearch = activeSearch.trim().length > 0;
   const companyTypeParam =
     typeFilter !== 'All' ? typeFilter : undefined;
   const serverSearchQuery = useQuery({
@@ -1820,22 +2031,22 @@ export function CompaniesPage({ addToast }: Props) {
     ] as const,
     queryFn: () =>
       fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
-        q: activeSearch,
+        q: activeSearch.trim(),
         companyType: companyTypeParam,
       }),
-    enabled: needServerSearch,
+    enabled: hasActiveSearch,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
   const displayList = useMemo((): Company[] => {
-    if (needServerSearch) {
+    if (hasActiveSearch) {
       const data = serverSearchQuery.data?.data ?? [];
       return data.map(mapApiCompanyToCompany);
     }
     return cacheFiltered;
-  }, [needServerSearch, serverSearchQuery.data, cacheFiltered]);
+  }, [hasActiveSearch, serverSearchQuery.data, cacheFiltered]);
 
   const { offset, limit } = getPageParams(page);
   const pagedRows = useMemo(
@@ -1844,35 +2055,42 @@ export function CompaniesPage({ addToast }: Props) {
   );
   const serverTotal = displayList.length;
 
-  /** After CRUD, patch the main list in-place (one GET by id) and drop only server-side search result caches. */
-  const markCompanyInCache = useCallback(
-    async (companyId: number) => {
-      const row = await fetchCompany(companyId);
-      qc.setQueryData(companiesApiQueryKey, (old: ApiCompanyListRow[] | undefined) => {
-        if (!old) return [row];
-        const idx = old.findIndex((c) => c.companyId === companyId);
-        if (idx >= 0) {
-          const n = old.slice();
-          n[idx] = row;
-          return n;
-        }
-        return [...old, row].sort((a, b) =>
-          a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
-        );
-      });
-      await qc.removeQueries({ queryKey: companiesServerSearchQueryKeyPrefix });
+  /**
+   * Surgical cache patches — the user requirement is: cache only refreshes every
+   * 30 minutes, but any mutation must reflect in both DB and cached list
+   * IMMEDIATELY, without a full list refetch. The backend create/update endpoints
+   * return the full `ApiCompanyListRow`, so we can splice the row in place with
+   * `setQueryData` and leave `staleTime` untouched.
+   *
+   * Server-search caches (keyed by `q`+`companyType`) are dropped, since
+   * recomputing which variants still contain a given row is fragile — they'll
+   * re-fetch on demand next time the user searches.
+   */
+  const upsertCompanyInCache = useCallback(
+    (row: ApiCompanyListRow) => {
+      upsertInList<ApiCompanyListRow>(
+        qc,
+        companiesApiQueryKey,
+        row,
+        (r) => r.companyId === row.companyId,
+        (a, b) =>
+          a.companyName.localeCompare(b.companyName, undefined, {
+            sensitivity: 'base',
+          }),
+      );
+      removeQueriesByPrefix(qc, companiesServerSearchQueryKeyPrefix);
     },
     [qc],
   );
 
   const removeCompanyFromCache = useCallback(
-    async (companyId: number) => {
-      qc.setQueryData(
+    (companyId: number) => {
+      removeFromList<ApiCompanyListRow>(
+        qc,
         companiesApiQueryKey,
-        (old: ApiCompanyListRow[] | undefined) =>
-          (old ?? []).filter((c) => c.companyId !== companyId),
+        (r) => r.companyId === companyId,
       );
-      await qc.removeQueries({ queryKey: companiesServerSearchQueryKeyPrefix });
+      removeQueriesByPrefix(qc, companiesServerSearchQueryKeyPrefix);
     },
     [qc],
   );
@@ -1898,9 +2116,10 @@ export function CompaniesPage({ addToast }: Props) {
     return ['All', ...Array.from(set).sort()];
   }, [lookupsQuery.data?.companyTypes, companies]);
 
+  // Prefer the row the user is looking at (table / server search) over a possibly stale main list row.
   const selectedCompany = selectedCompanyId
-    ? companies.find((c) => c.id === selectedCompanyId) ??
-      displayList.find((c) => c.id === selectedCompanyId) ??
+    ? displayList.find((c) => c.id === selectedCompanyId) ??
+      companies.find((c) => c.id === selectedCompanyId) ??
       null
     : null;
 
@@ -1938,12 +2157,13 @@ export function CompaniesPage({ addToast }: Props) {
   const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
   const isLoadingCompanies =
     companiesQuery.isPending ||
-    (needServerSearch && (serverSearchQuery.isPending || serverSearchQuery.isFetching));
+    (hasActiveSearch &&
+      (serverSearchQuery.isPending || serverSearchQuery.isFetching));
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
-    onSuccess: async (_, id) => {
-      await removeCompanyFromCache(id);
+    onSuccess: (_, id) => {
+      removeCompanyFromCache(id);
     },
   });
 
@@ -1958,9 +2178,15 @@ export function CompaniesPage({ addToast }: Props) {
     const assignmentId = contactPendingDelete.contactAssignmentId;
     try {
       await deleteContactMut.mutateAsync(assignmentId);
-      await qc.invalidateQueries({
-        queryKey: ['companies', selectedCompanyId, 'contacts'],
-      });
+      /**
+       * Surgical patch instead of invalidate: drop just this contact row from the
+       * per-company contacts cache. No refetch, list stays fresh for 30 min.
+       */
+      removeFromList<Contact>(
+        qc,
+        ['companies', selectedCompanyId, 'contacts'],
+        (c) => c.contactAssignmentId === assignmentId,
+      );
       setContactPendingDelete(null);
       addToast('Contact removed from this company.', 'warning');
     } catch (e) {
@@ -2132,14 +2358,16 @@ export function CompaniesPage({ addToast }: Props) {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="relative w-full sm:w-64" ref={searchWrapperRef}>
-          <div className="flex items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
+        <div className="relative w-full min-w-0 sm:w-64" ref={searchWrapperRef}>
+          <div className="flex min-w-0 items-center border border-border rounded-md bg-surface overflow-hidden focus-within:border-ems-accent transition-colors">
             <input
               type="text"
-              className="flex-1 bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none"
+              className="min-w-0 flex-1 cursor-text bg-transparent px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none disabled:cursor-not-allowed"
               placeholder="Search companies..."
               value={searchInput}
               disabled={isLoadingCompanies}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => {
                 const v = e.target.value;
                 setSearchInput(v);
@@ -2153,6 +2381,7 @@ export function CompaniesPage({ addToast }: Props) {
               onFocus={() => {
                 if (searchInput.trim()) setShowSuggestions(true);
               }}
+              onBlur={commitSearch}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') commitSearch();
                 if (e.key === 'Escape') setShowSuggestions(false);
@@ -2161,7 +2390,7 @@ export function CompaniesPage({ addToast }: Props) {
             <button
               type="button"
               onClick={commitSearch}
-              className="px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
+              className="shrink-0 cursor-pointer px-2.5 py-1.5 text-text-muted hover:text-ems-accent transition-colors"
               title="Search"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2171,7 +2400,10 @@ export function CompaniesPage({ addToast }: Props) {
             </button>
           </div>
               {showSuggestions && searchSuggestions.length > 0 && (
-            <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden">
+            <div
+              className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
+              onMouseDown={(e) => e.preventDefault()}
+            >
               {searchSuggestions.map((suggestion, i) => (
                 <button
                   key={`${i}-${suggestion}`}
@@ -2306,7 +2538,7 @@ export function CompaniesPage({ addToast }: Props) {
               <h2 className="text-lg font-semibold text-text-primary">
                 {selectedCompany.name}
               </h2>
-              <div className="flex gap-1.5 mt-1">
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
                   {selectedCompany.type}
                 </span>
@@ -2335,12 +2567,13 @@ export function CompaniesPage({ addToast }: Props) {
           <div className="p-4">
             {drawerTab === 'Overview' && lookupsQuery.data && (
               <InlineEditableOverview
+                key={String(selectedCompany.id)}
                 company={selectedCompany}
                 companyTypes={lookupsQuery.data.companyTypes}
                 addToast={addToast}
-                onSaved={() =>
-                  void markCompanyInCache(Number(selectedCompany.id))
-                }
+                onSaved={(row) => {
+                  upsertCompanyInCache(row);
+                }}
               />
             )}
 
@@ -2360,13 +2593,24 @@ export function CompaniesPage({ addToast }: Props) {
                     onCancel={() => setShowAddContact(false)}
                     onSave={async (payload) => {
                       try {
-                        await createCompanyContact(
+                        const created = await createCompanyContact(
                           Number(selectedCompany.id),
                           payload,
                         );
-                        await qc.invalidateQueries({
-                          queryKey: ['companies', selectedCompany.id, 'contacts'],
-                        });
+                        /**
+                         * Splice the brand-new contact into the drawer's contacts
+                         * cache directly — no refetch, no drawer flicker.
+                         */
+                        const mapped = mapContactRow(
+                          created as ApiCompanyContact,
+                          String(selectedCompany.id),
+                        );
+                        upsertInList<Contact>(
+                          qc,
+                          ['companies', selectedCompany.id, 'contacts'],
+                          mapped,
+                          (c) => c.contactAssignmentId === mapped.contactAssignmentId,
+                        );
                         setShowAddContact(false);
                         addToast('Contact added to this company.', 'success');
                       } catch (e) {
@@ -2497,8 +2741,7 @@ export function CompaniesPage({ addToast }: Props) {
             onSubmit={async (payload) => {
               try {
                 const created = await createCompany(payload as CreateCompanyPayload);
-                const cid = (created as { companyId: number }).companyId;
-                if (cid != null) await markCompanyInCache(cid);
+                upsertCompanyInCache(created);
                 setShowAddModal(false);
                 addToast('Company saved. You can find it in the list.', 'success');
               } catch (e) {
@@ -2513,7 +2756,7 @@ export function CompaniesPage({ addToast }: Props) {
         <Modal
           title="Edit Contact"
           onClose={() => setEditContact(null)}
-          width={700}
+          width={900}
           allowContentOverflow
         >
           <ContactFormDb
@@ -2525,13 +2768,20 @@ export function CompaniesPage({ addToast }: Props) {
             onSave={async (payload) => {
               if (editContact.contactAssignmentId == null) return;
               try {
-                await updateContactAssignment(
+                const updated = await updateContactAssignment(
                   editContact.contactAssignmentId,
                   payload,
                 );
-                await qc.invalidateQueries({
-                  queryKey: ['companies', selectedCompany.id, 'contacts'],
-                });
+                const mapped = mapContactRow(
+                  updated as ApiCompanyContact,
+                  String(selectedCompany.id),
+                );
+                upsertInList<Contact>(
+                  qc,
+                  ['companies', selectedCompany.id, 'contacts'],
+                  mapped,
+                  (c) => c.contactAssignmentId === mapped.contactAssignmentId,
+                );
                 setEditContact(null);
                 addToast('Contact updated.', 'success');
               } catch (e) {
