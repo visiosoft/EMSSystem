@@ -1,6 +1,5 @@
 import {
   AsYouType,
-  isValidPhoneNumber,
   parsePhoneNumber,
   validatePhoneNumberLength,
   type CountryCode,
@@ -33,7 +32,8 @@ export function parsePhoneFieldValue(
     try {
       const p = parsePhoneNumber(t);
       const a = new AsYouType(p.country);
-      return { country: p.country, display: a.input(p.nationalNumber) };
+      const nat = String(p.nationalNumber ?? '');
+      return { country: p.country, display: a.input(nat) };
     } catch {
       return { country: fallbackCountry, display: t };
     }
@@ -41,26 +41,50 @@ export function parsePhoneFieldValue(
   try {
     const p = parsePhoneNumber(t, fallbackCountry);
     const a = new AsYouType(p.country);
-    return { country: p.country, display: a.input(p.nationalNumber) };
+    return {
+      country: p.country,
+      display: a.input(String(p.nationalNumber ?? '')),
+    };
   } catch {
     return { country: fallbackCountry, display: t };
   }
 }
 
-/** Returns E.164 if the current input is a complete valid number, otherwise empty string. */
+/**
+ * Returns E.164 from the selected country + national input.
+ * Uses national digits + `parsePhoneNumber(digits, country)` so we don’t rely on
+ * AsYouType state over formatted/pasted strings (which can mis-parse).
+ */
 export function tryE164FromDisplay(
   display: string,
   country: PhoneCountrySelection,
 ): string {
-  const t = (display || '').trim();
-  if (!t) return '';
+  const digitsOnly = (display ?? '').replace(/\D/g, '');
+  if (!digitsOnly) return '';
   if (!country) return '';
-  const a = new AsYouType(country);
-  a.input(t);
-  const n = a.getNumber();
-  if (!n) return '';
-  const e164 = n.format('E.164');
-  return isValidPhoneNumber(e164) ? e164 : '';
+  try {
+    const p = parsePhoneNumber(digitsOnly, country as CountryCode);
+    if (!p.isValid()) return '';
+    return p.format('E.164');
+  } catch {
+    return '';
+  }
+}
+
+/** Format a stored E.164 value for list/detail UI (stable international spacing). */
+export function formatE164ForDisplay(
+  raw: string | null | undefined,
+): string {
+  const t = (raw ?? '').trim();
+  if (!t) return '';
+  try {
+    if (t.startsWith('+')) {
+      return parsePhoneNumber(t).formatInternational();
+    }
+  } catch {
+    return t;
+  }
+  return t;
 }
 
 function clampNationalDigitsToCountry(

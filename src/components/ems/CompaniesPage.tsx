@@ -57,6 +57,7 @@ import { ContactPhoneRow } from './ContactPhoneRow';
 import { DEFAULT_PHONE_COUNTRY } from '@/lib/contactPhoneOptions';
 import {
   type PhoneCountrySelection,
+  formatE164ForDisplay,
   parsePhoneFieldValue,
   tryE164FromDisplay,
   PHONE_INVALID_MESSAGE,
@@ -970,8 +971,9 @@ function ContactFormDb({
     firstName: string;
     lastName: string;
     email: string;
-    cellPhone?: string;
-    workPhone?: string;
+    /** Omitted on create when empty; `null` on edit clears the stored value. */
+    cellPhone?: string | null;
+    workPhone?: string | null;
     roleId: number;
     departmentId: number;
   }) => void | Promise<void>;
@@ -1010,9 +1012,14 @@ function ContactFormDb({
     setFirstName(initial?.firstName || '');
     setLastName(initial?.lastName || '');
     setEmail(initial?.email || '');
-    const w = parsePhoneFieldValue(initial?.workPhone, DEFAULT_PHONE_COUNTRY, {
-      noCountryWhenEmpty: true,
-    });
+    const workRaw = initial?.workPhone ?? initial?.phone;
+    const w = parsePhoneFieldValue(
+      workRaw || undefined,
+      DEFAULT_PHONE_COUNTRY,
+      {
+        noCountryWhenEmpty: true,
+      },
+    );
     setWorkPhoneCountry(w.country);
     setWorkPhoneDisplay(w.display);
     const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
@@ -1189,14 +1196,25 @@ function ContactFormDb({
             setWorkPhoneError(wErr);
             setCellPhoneError(cErr);
             if (wErr || cErr) return;
+            const isEditing = initial?.contactAssignmentId != null;
             setSaving(true);
             try {
+              const hasWork = workPhoneDisplay.trim().length > 0;
+              const hasCell = cellPhoneDisplay.trim().length > 0;
               await onSave({
                 firstName: firstName.trim(),
                 lastName: lastName.trim(),
                 email: email.trim(),
-                workPhone: wE || undefined,
-                cellPhone: cE || undefined,
+                workPhone: hasWork
+                  ? wE!
+                  : isEditing
+                    ? null
+                    : undefined,
+                cellPhone: hasCell
+                  ? cE!
+                  : isEditing
+                    ? null
+                    : undefined,
                 roleId: Number(roleId),
                 departmentId: Number(departmentId),
               });
@@ -2766,7 +2784,7 @@ export function CompaniesPage({ addToast }: Props) {
                           {ct.workEmail || ct.email}
                         </td>
                         <td className="py-2 text-text-secondary text-xs">
-                          {ct.workPhone || ct.phone}
+                          {formatE164ForDisplay(ct.workPhone || ct.phone) || '—'}
                         </td>
                         <td className="py-2 text-right">
                           <ActionMenu
