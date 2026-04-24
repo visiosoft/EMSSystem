@@ -2301,6 +2301,10 @@ export function CompaniesPage({ addToast }: Props) {
         ['companies', selectedCompanyId, 'contacts'],
         (c) => c.contactAssignmentId === assignmentId,
       );
+      await qc.invalidateQueries({
+        queryKey: ['companies', selectedCompanyId, 'contacts'],
+        exact: true,
+      });
       setContactPendingDelete(null);
       addToast('Contact removed from this company.', 'warning');
     } catch (e) {
@@ -2725,6 +2729,10 @@ export function CompaniesPage({ addToast }: Props) {
                           mapped,
                           (c) => c.contactAssignmentId === mapped.contactAssignmentId,
                         );
+                        await qc.invalidateQueries({
+                          queryKey: ['companies', selectedCompany.id, 'contacts'],
+                          exact: true,
+                        });
                         setShowAddContact(false);
                         addToast('Contact added to this company.', 'success');
                       } catch (e) {
@@ -2896,6 +2904,10 @@ export function CompaniesPage({ addToast }: Props) {
                   mapped,
                   (c) => c.contactAssignmentId === mapped.contactAssignmentId,
                 );
+                await qc.invalidateQueries({
+                  queryKey: ['companies', selectedCompany.id, 'contacts'],
+                  exact: true,
+                });
                 setEditContact(null);
                 addToast('Contact updated.', 'success');
               } catch (e) {
