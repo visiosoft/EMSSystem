@@ -6,7 +6,7 @@ import {
   patchEachInList,
   removeQueriesByPrefix,
 } from '@/api/cacheHelpers';
-import { Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Loader2, Pencil, Trash2, Check, X, LayoutGrid, List, ChevronDown, ChevronRight, ImageIcon } from 'lucide-react';
 import {
   TabBar,
   Drawer,
@@ -150,6 +150,9 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+type AttractionsViewMode = 'list' | 'tiles';
+const ATTRACTIONS_VIEW_MODE_STORAGE_KEY = 'iae-attractions-view-mode-v1';
+
 function licenseSummary(t: ApiTourListRow): string {
   const parts: string[] = [];
   if (t.ascap) parts.push('ASCAP');
@@ -157,6 +160,43 @@ function licenseSummary(t: ApiTourListRow): string {
   if (t.sesac) parts.push('SESAC');
   if (t.gmr) parts.push('GMR');
   return parts.length ? parts.join(' · ') : '—';
+}
+
+function loadAttractionsViewMode(): AttractionsViewMode {
+  if (typeof window === 'undefined') return 'tiles';
+  try {
+    const raw = localStorage.getItem(ATTRACTIONS_VIEW_MODE_STORAGE_KEY);
+    return raw === 'list' || raw === 'tiles' ? raw : 'tiles';
+  } catch {
+    return 'tiles';
+  }
+}
+
+function saveAttractionsViewMode(mode: AttractionsViewMode) {
+  try {
+    localStorage.setItem(ATTRACTIONS_VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function initialsFromName(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (parts.length === 0) return 'AT';
+  return parts.map((p) => p[0]?.toUpperCase() ?? '').join('');
+}
+
+function getThumbnailUrl(entity: Record<string, unknown>): string | null {
+  const keys = ['thumbnailUrl', 'attractionThumbnailUrl', 'tourThumbnailUrl', 'imageUrl', 'posterUrl'];
+  for (const key of keys) {
+    const val = entity[key];
+    if (typeof val === 'string' && val.trim()) return val.trim();
+  }
+  return null;
 }
 
 /** Read-only tour summary when viewing an attraction (editing is on the Tours tab / tour drawer). */
@@ -181,6 +221,28 @@ function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
         <span className="text-text-muted">Tour Management Company </span>
         {t.tourManagementCompanyName ?? '—'}
       </div>
+    </div>
+  );
+}
+
+function TourThumbnailTile({ tour }: { tour: ApiTourListRow }) {
+  const thumb = getThumbnailUrl(tour as unknown as Record<string, unknown>);
+  return (
+    <div className="rounded-lg border border-border/80 bg-card p-2.5">
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-md border border-border/70 bg-elevated">
+        {thumb ? (
+          <img src={thumb} alt={`${tour.tourName} thumbnail`} className="h-full w-full object-cover" loading="lazy" />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-text-muted">
+            <ImageIcon className="h-4 w-4" aria-hidden />
+            <span className="text-[10px] uppercase tracking-wide">No image</span>
+          </div>
+        )}
+      </div>
+      <p className="mt-2 text-xs font-medium text-text-primary truncate" title={tour.tourName}>
+        {tour.tourName}
+      </p>
+      <p className="text-[11px] text-text-muted truncate">{tour.className || '—'}</p>
     </div>
   );
 }
@@ -922,6 +984,8 @@ export function AttractionToursPage({ addToast }: Props) {
   const attractionSearchRef = useRef<HTMLDivElement>(null);
   const tourSearchRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
+  const [attractionsViewMode, setAttractionsViewMode] = useState<AttractionsViewMode>(loadAttractionsViewMode);
+  const [expandedAttractionTileId, setExpandedAttractionTileId] = useState<number | null>(null);
 
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
   const [selectedTourId, setSelectedTourId] = useState<number | null>(null);
@@ -958,6 +1022,12 @@ export function AttractionToursPage({ addToast }: Props) {
       setTourInput('');
       setTourSearch('');
       setShowTourSuggestions(false);
+    }
+  }, [pageTab]);
+
+  useEffect(() => {
+    if (pageTab !== 'Attractions') {
+      setExpandedAttractionTileId(null);
     }
   }, [pageTab]);
 
@@ -1295,6 +1365,19 @@ export function AttractionToursPage({ addToast }: Props) {
       )
     : [];
 
+  const toursByAttractionId = useMemo(() => {
+    const byAttraction = new Map<number, ApiTourListRow[]>();
+    for (const t of tours) {
+      const arr = byAttraction.get(t.attractionId);
+      if (arr) arr.push(t);
+      else byAttraction.set(t.attractionId, [t]);
+    }
+    for (const arr of byAttraction.values()) {
+      arr.sort(compareTours);
+    }
+    return byAttraction;
+  }, [tours]);
+
   const lkp = lookupsQuery.data;
   const classes = lkp?.classes ?? [];
   const venueTypes = lkp?.venueTypes ?? [];
@@ -1449,7 +1532,7 @@ export function AttractionToursPage({ addToast }: Props) {
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-xl font-semibold text-text-primary">Attraction-Tours</h1>
+          <h1 className="text-xl font-semibold text-text-primary">Attraction Tours</h1>
           {loading ? (
             <Skeleton className="h-5 w-12 rounded bg-muted/80" aria-hidden />
           ) : (
@@ -1608,6 +1691,45 @@ export function AttractionToursPage({ addToast }: Props) {
             )}
           </div>
         )}
+        {pageTab === 'Attractions' && (
+          <div className="sm:ml-auto inline-flex items-center rounded-md border border-border bg-surface p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setAttractionsViewMode('list');
+                saveAttractionsViewMode('list');
+                setExpandedAttractionTileId(null);
+              }}
+              className={[
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                attractionsViewMode === 'list'
+                  ? 'bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary',
+              ].join(' ')}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" aria-hidden />
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAttractionsViewMode('tiles');
+                saveAttractionsViewMode('tiles');
+              }}
+              className={[
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                attractionsViewMode === 'tiles'
+                  ? 'bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary',
+              ].join(' ')}
+              title="Tile view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+              Tiles
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -1616,37 +1738,131 @@ export function AttractionToursPage({ addToast }: Props) {
         <>
           {pageTab === 'Attractions' && (
             <>
-              <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-                <table className="w-full text-sm min-w-[520px]">
-                  <thead>
-                    <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                      <th className="text-left py-2.5 px-3">Attraction Name</th>
-                      <th className="text-left py-2.5 px-3">Active Tours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAttractions.length === 0 && !attractionsQuery.isError && (
-                      <tr>
-                        <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
-                          {!attractionSearch.trim()
-                            ? 'No attractions found.'
-                            : 'No attractions match your search.'}
-                        </td>
+              {attractionsViewMode === 'list' ? (
+                <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+                  <table className="w-full text-sm min-w-[520px]">
+                    <thead>
+                      <tr className="text-text-muted text-xs border-b border-border bg-surface">
+                        <th className="text-left py-2.5 px-3">Attraction Name</th>
+                        <th className="text-left py-2.5 px-3">Active Tours</th>
                       </tr>
-                    )}
-                    {(paginated as ApiAttractionListRow[]).map((a) => (
-                      <tr
-                        key={a.attractionId}
-                        onClick={() => setSelectedAttractionId(a.attractionId)}
-                        className="border-b border-border/50 hover:bg-hover cursor-pointer"
-                      >
-                        <td className="py-2.5 px-3 text-text-primary font-medium">{a.attractionName}</td>
-                        <td className="py-2.5 px-3 text-text-secondary tabular-nums text-sm">{a.activeTourCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {serverTotal === 0 && !attractionsQuery.isError && (
+                        <tr>
+                          <td colSpan={3} className="py-12 px-3 text-center text-sm text-text-muted">
+                            {!attractionSearch.trim()
+                              ? 'No attractions found.'
+                              : 'No attractions match your search.'}
+                          </td>
+                        </tr>
+                      )}
+                      {(paginated as ApiAttractionListRow[]).map((a) => (
+                        <tr
+                          key={a.attractionId}
+                          onClick={() => setSelectedAttractionId(a.attractionId)}
+                          className="border-b border-border/50 hover:bg-hover cursor-pointer"
+                        >
+                          <td className="py-2.5 px-3 text-text-primary font-medium">{a.attractionName}</td>
+                          <td className="py-2.5 px-3 text-text-secondary tabular-nums text-sm">{a.activeTourCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {serverTotal === 0 && !attractionsQuery.isError ? (
+                    <div className="rounded-lg border border-border bg-card py-12 px-3 text-center text-sm text-text-muted">
+                      {!attractionSearch.trim()
+                        ? 'No attractions found.'
+                        : 'No attractions match your search.'}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {(paginated as ApiAttractionListRow[]).map((a) => {
+                        const isExpanded = expandedAttractionTileId === a.attractionId;
+                        const toursForAttraction = toursByAttractionId.get(a.attractionId) ?? [];
+                        const thumb = getThumbnailUrl(a as unknown as Record<string, unknown>);
+                        return (
+                          <div key={a.attractionId} className="rounded-xl border border-border bg-card overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedAttractionTileId((cur) =>
+                                  cur === a.attractionId ? null : a.attractionId,
+                                )
+                              }
+                              className="w-full text-left transition-colors hover:bg-surface/40"
+                            >
+                              <div className="p-3">
+                                <div className="relative aspect-[16/9] w-full overflow-hidden rounded-lg border border-border/70 bg-elevated">
+                                  {thumb ? (
+                                    <img
+                                      src={thumb}
+                                      alt={`${a.attractionName} thumbnail`}
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ems-accent-dim/50 to-ems-purple-dim/50 text-text-secondary">
+                                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/70 text-sm font-semibold text-text-primary">
+                                        {initialsFromName(a.attractionName)}
+                                      </span>
+                                      <span className="text-[11px] uppercase tracking-wide">Attraction</span>
+                                    </div>
+                                  )}
+                                  <span className="absolute right-2 top-2 rounded-md bg-card/90 border border-border px-2 py-0.5 text-[10px] font-medium text-text-secondary">
+                                    {a.activeTourCount} tours
+                                  </span>
+                                </div>
+                                <div className="mt-2.5 flex items-center justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-text-primary truncate" title={a.attractionName}>
+                                      {a.attractionName}
+                                    </p>
+                                    <p className="text-[11px] text-text-muted">Common proper name</p>
+                                  </div>
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 text-text-muted shrink-0" aria-hidden />
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                            {isExpanded && (
+                              <div className="border-t border-border/80 bg-surface/30 px-3 py-3 space-y-2.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                                    Related Tours
+                                  </h3>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-ems-accent hover:text-ems-accent/80 font-medium"
+                                    onClick={() => setSelectedAttractionId(a.attractionId)}
+                                  >
+                                    Open details
+                                  </button>
+                                </div>
+                                {toursForAttraction.length === 0 ? (
+                                  <p className="text-xs text-text-muted">No tours attached yet.</p>
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    {toursForAttraction.map((t) => (
+                                      <TourThumbnailTile key={t.tourId} tour={t} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               {pageTab === 'Attractions' && serverTotal > 0 && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
                   <p className="tabular-nums">

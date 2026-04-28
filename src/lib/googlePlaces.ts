@@ -1,3 +1,5 @@
+import { toCountryAlpha2FromGoogleComponents } from '@/lib/addressAbbrev';
+
 export interface AddressParts {
   street?: string;
   city?: string;
@@ -50,13 +52,91 @@ function toCountryCode(input?: string): string | undefined {
 }
 
 function normalizeCountry(longName?: string, shortName?: string): string | undefined {
-  const short = shortName?.toUpperCase();
-  if (short === 'US') return 'USA';
-  return longName || shortName;
+  return toCountryAlpha2FromGoogleComponents(longName, shortName);
 }
 
 function componentByType(addressComponents: any[] | undefined, type: string) {
   return addressComponents?.find((comp) => comp.types?.includes(type));
+}
+
+/**
+ * `administrative_area_level_1` from Google only — `short_name` (often 2-letter or local short form);
+ * if absent, `long_name`. No app-side abbrev tables; matches Places/Geocoder structured output.
+ */
+function stateFromAddressComponents(a1: { long_name?: string; short_name?: string } | undefined) {
+  if (!a1) return undefined;
+  const s = a1.short_name?.trim() || a1.long_name?.trim() || '';
+  return s || undefined;
+}
+
+function isUsCountry(display: string | undefined): boolean {
+  const c = (display || '').trim().toLowerCase();
+  return c === 'usa' || c === 'united states' || c === 'united states of america' || c === 'us';
+}
+
+function isCanadaCountry(display: string | undefined): boolean {
+  const c = (display || '').trim().toLowerCase();
+  return c === 'canada' || c === 'can' || c === 'cdn' || c === 'ca';
+}
+
+function isJordanCountry(display: string | undefined): boolean {
+  const c = (display || '').trim().toLowerCase();
+  return c === 'jo' || c === 'jor' || c === 'jordan';
+}
+
+/**
+ * Autocomplete `description` line often ends with `..., City, ST, USA` while Place Details
+ * `address_components` may still use the full state name. Prefer the dropdown token when it is a 2-letter code.
+ * Jordan: `..., AM, JO` or `..., AM, Jordan` (ISO 3166-2:JO subdivision before country).
+ */
+export function parseSubdivisionCodeFromAutocompleteDescription(
+  description: string | undefined,
+  country: 'us' | 'ca' | 'jo',
+): string | undefined {
+  const d = (description || '').trim();
+  if (!d) return undefined;
+  if (country === 'us') {
+    const m = d.match(/, ([A-Za-z]{2}),\s*(?:USA|United States)\s*$/i);
+    return m ? m[1].toUpperCase() : undefined;
+  }
+  if (country === 'ca') {
+    const m = d.match(/, ([A-Za-z]{2}),\s*Canada\s*$/i);
+    return m ? m[1].toUpperCase() : undefined;
+  }
+  const mj = d.match(/, ([A-Za-z]{2}),\s*(?:JO|Jordan|JOR)\s*$/i);
+  return mj ? mj[1].toUpperCase() : undefined;
+}
+
+function applyAutocompleteStateHint(
+  physical: AddressParts,
+  mailing: AddressParts,
+  autocompleteDescription: string | undefined,
+): { physical: AddressParts; mailing: AddressParts } {
+  const country =
+    physical.country || mailing.country || '';
+  let nextPhysical = physical;
+  let nextMailing = mailing;
+
+  if (isUsCountry(country)) {
+    const code = parseSubdivisionCodeFromAutocompleteDescription(autocompleteDescription, 'us');
+    if (code) {
+      nextPhysical = { ...nextPhysical, state: code };
+      nextMailing = { ...nextMailing, state: code };
+    }
+  } else if (isCanadaCountry(country)) {
+    const code = parseSubdivisionCodeFromAutocompleteDescription(autocompleteDescription, 'ca');
+    if (code) {
+      nextPhysical = { ...nextPhysical, state: code };
+      nextMailing = { ...nextMailing, state: code };
+    }
+  } else if (isJordanCountry(country)) {
+    const code = parseSubdivisionCodeFromAutocompleteDescription(autocompleteDescription, 'jo');
+    if (code) {
+      nextPhysical = { ...nextPhysical, state: code };
+      nextMailing = { ...nextMailing, state: code };
+    }
+  }
+  return { physical: nextPhysical, mailing: nextMailing };
 }
 
 /** Structured line for the place’s street / premises (visit location). */
@@ -69,6 +149,11 @@ function extractPhysicalFromComponents(addressComponents: any[] | undefined): Ad
   const route = componentByType(addressComponents, 'route')?.long_name || '';
   const poBox = componentByType(addressComponents, 'post_box')?.long_name || '';
 
+  const countryComp = componentByType(addressComponents, 'country');
+  const country = normalizeCountry(countryComp?.long_name, countryComp?.short_name);
+  const a1 = componentByType(addressComponents, 'administrative_area_level_1');
+  const state = stateFromAddressComponents(a1);
+
   const city =
     componentByType(addressComponents, 'locality')?.long_name ||
     componentByType(addressComponents, 'postal_town')?.long_name ||
@@ -76,12 +161,7 @@ function extractPhysicalFromComponents(addressComponents: any[] | undefined): Ad
     componentByType(addressComponents, 'administrative_area_level_2')?.long_name ||
     undefined;
 
-  const state = componentByType(addressComponents, 'administrative_area_level_1')?.short_name || undefined;
   const postalCode = componentByType(addressComponents, 'postal_code')?.long_name || undefined;
-  const country = normalizeCountry(
-    componentByType(addressComponents, 'country')?.long_name,
-    componentByType(addressComponents, 'country')?.short_name,
-  );
 
   const streetCore = [premise, subpremise, streetNumber, route].filter(Boolean).join(' ').trim();
   const street =
@@ -99,6 +179,11 @@ function extractAddressParts(addressComponents: any[] | undefined): AddressParts
   const streetNumber = componentByType(addressComponents, 'street_number')?.long_name || '';
   const route = componentByType(addressComponents, 'route')?.long_name || '';
 
+  const countryComp = componentByType(addressComponents, 'country');
+  const country = normalizeCountry(countryComp?.long_name, countryComp?.short_name);
+  const a1 = componentByType(addressComponents, 'administrative_area_level_1');
+  const state = stateFromAddressComponents(a1);
+
   const city =
     componentByType(addressComponents, 'locality')?.long_name ||
     componentByType(addressComponents, 'postal_town')?.long_name ||
@@ -106,12 +191,7 @@ function extractAddressParts(addressComponents: any[] | undefined): AddressParts
     componentByType(addressComponents, 'administrative_area_level_2')?.long_name ||
     undefined;
 
-  const state = componentByType(addressComponents, 'administrative_area_level_1')?.short_name || undefined;
   const postalCode = componentByType(addressComponents, 'postal_code')?.long_name || undefined;
-  const country = normalizeCountry(
-    componentByType(addressComponents, 'country')?.long_name,
-    componentByType(addressComponents, 'country')?.short_name,
-  );
 
   const street =
     [subpremise, streetNumber, route].filter(Boolean).join(' ').trim() || undefined;
@@ -248,7 +328,11 @@ export async function fetchAddressPredictions(input: string, country?: string): 
   });
 }
 
-export async function fetchPlaceDetailsByPlaceId(placeId: string): Promise<PlaceDetailsResult | null> {
+export async function fetchPlaceDetailsByPlaceId(
+  placeId: string,
+  /** Same row the user picked in Autocomplete — aligns state with the dropdown line. */
+  autocompleteDescription?: string,
+): Promise<PlaceDetailsResult | null> {
   if (!isGooglePlacesConfigured() || !placeId) return null;
   const service = await getPlacesDetailsService();
   if (!service) return null;
@@ -281,11 +365,17 @@ export async function fetchPlaceDetailsByPlaceId(placeId: string): Promise<Place
             if (geocoded) mailing = geocoded;
           }
 
+          const { physical: physOut, mailing: mailOut } = applyAutocompleteStateHint(
+            physical,
+            mailing,
+            autocompleteDescription,
+          );
+
           resolve({
             placeName: typeof place.name === 'string' ? place.name : undefined,
             formattedAddress: typeof place.formatted_address === 'string' ? place.formatted_address : undefined,
-            physical,
-            mailing,
+            physical: physOut,
+            mailing: mailOut,
           });
         } catch {
           resolve(null);

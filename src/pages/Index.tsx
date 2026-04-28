@@ -13,7 +13,7 @@ import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 
 const Index = () => {
-  const [currentView, setCurrentView] = useState('companies');
+  const [currentView, setCurrentView] = useState('projects');
   const [viewData, setViewData] = useState<Record<string, unknown>>({});
   const [users, setUsers] = useState(USERS);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -40,7 +40,7 @@ const Index = () => {
   const getBreadcrumb = (): string[] => {
     const map: Record<string, string[]> = {
       companies:          ['Companies'],
-      'attraction-tours': ['Attraction-Tours'],
+      'attraction-tours': ['Attraction Tours'],
       calendar:           ['Calendar'],
       projects:           ['Projects'],
       'project-detail':   ['Projects', 'Project detail'],
@@ -49,7 +49,7 @@ const Index = () => {
       'engagement-detail': ['Engagements', 'Engagement detail'],
       settings:           ['Settings'],
     };
-    return map[currentView] ?? ['Companies'];
+    return map[currentView] ?? ['Projects'];
   };
 
   const sidebarView = ['project-detail', 'engagement-detail'].includes(currentView)

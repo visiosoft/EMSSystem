@@ -78,16 +78,22 @@ interface SidebarProps {
 }
 
 const NAV_SECTIONS = [
-  { label: 'PRIMARY DATA', items: [
-    { key: 'companies', label: 'Companies', icon: '⬡' },
-    { key: 'attraction-tours', label: 'Attraction-Tours', icon: '⬡' },
-    { key: 'calendar', label: 'Calendar', icon: '⬡' },
-  ] },
-  { label: 'OPERATIONS', items: [
-    { key: 'projects', label: 'Projects', icon: '⬡' },
-    { key: 'engagements', label: 'Engagements', icon: '⬡' },
-    { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
-  ] },
+  {
+    label: 'OPERATIONS',
+    items: [
+      { key: 'projects', label: 'Projects', icon: '⬡' },
+      { key: 'engagements', label: 'Engagements', icon: '⬡' },
+      { key: 'daily-sales', label: 'Daily Sales', icon: '⬡' },
+    ],
+  },
+  {
+    label: 'Primary Data Library',
+    items: [
+      { key: 'companies', label: 'Companies', icon: '⬡' },
+      { key: 'attraction-tours', label: 'Attraction Tours', icon: '⬡' },
+      { key: 'calendar', label: 'Calendar', icon: '⬡' },
+    ],
+  },
   { label: 'SYSTEM', items: [{ key: 'settings', label: 'Settings', icon: '⬡' }] },
 ];
 

@@ -100,14 +100,41 @@ function ReportingAsOfBar({
   );
 }
 
-// ─── Summary card ─────────────────────────────────────────────────────────────
+// ─── Summary cards (two date columns: soft blue = prior day, soft teal = current) ─
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function DailySummaryCard({
+  dateStr,
+  statLabel,
+  value,
+  sub,
+  tone,
+}: {
+  dateStr: string;
+  statLabel: string;
+  value: string;
+  sub?: string;
+  tone: 'prior' | 'current';
+}) {
+  const shell =
+    tone === 'prior'
+      ? 'border-ems-blue/20 bg-ems-blue-dim/50 shadow-sm shadow-ems-blue/[0.06]'
+      : 'border-ems-accent/25 bg-ems-accent-dim/60 shadow-sm shadow-ems-accent/[0.08]';
+  const dateChip =
+    tone === 'prior'
+      ? 'bg-ems-blue/12 text-ems-blue ring-1 ring-ems-blue/15'
+      : 'bg-ems-accent/12 text-ems-accent ring-1 ring-ems-accent/20';
   return (
-    <div className="bg-card border border-border rounded-lg p-4">
-      <div className="text-xs text-text-muted">{label}</div>
-      <div className="text-xl font-semibold text-text-primary mt-1">{value}</div>
-      {sub && <div className="text-xs text-text-secondary mt-0.5">{sub}</div>}
+    <div className={['rounded-xl border p-3.5 sm:p-4 transition-colors', shell].join(' ')}>
+      <div className={['inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums', dateChip].join(' ')}>
+        <span
+          className={tone === 'prior' ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-ems-blue' : 'h-1.5 w-1.5 shrink-0 rounded-full bg-ems-accent'}
+          aria-hidden
+        />
+        <span className="truncate">{dateStr}</span>
+      </div>
+      <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted mt-2.5">{statLabel}</div>
+      <div className="text-xl font-semibold text-text-primary mt-0.5 tabular-nums">{value}</div>
+      {sub && <div className="text-xs text-text-secondary mt-1">{sub}</div>}
     </div>
   );
 }
@@ -241,27 +268,36 @@ function PerformanceRow({
         )}
       </td>
 
-      {/* Yesterday */}
-      <td className="py-1.5 px-2" onClick={e => e.stopPropagation()}>
+      {/* Prior day (soft blue) */}
+      <td
+        className="py-1.5 px-2 bg-ems-blue-dim/25 border-l border-ems-blue/10 align-middle"
+        onClick={e => e.stopPropagation()}
+      >
         <input type="number" min={0} step={1} className={inputCls}
           value={yestTickets} onChange={e => setYestTickets(e.target.value)} placeholder="—" />
       </td>
-      <td className="py-1.5 px-2" onClick={e => e.stopPropagation()}>
+      <td
+        className="py-1.5 px-2 bg-ems-blue-dim/25 border-r border-ems-blue/10 align-middle"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="relative">
-          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-text-muted text-xs pointer-events-none">$</span>
+          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-ems-blue/60 text-xs pointer-events-none">$</span>
           <input type="number" min={0} step={0.01} className={inputCls + ' pl-4'}
             value={yestRevenue} onChange={e => setYestRevenue(e.target.value)} placeholder="—" />
         </div>
       </td>
 
-      {/* Today */}
-      <td className="py-1.5 px-2" onClick={e => e.stopPropagation()}>
+      {/* Reporting day (soft teal) */}
+      <td
+        className="py-1.5 px-2 bg-ems-accent-dim/30 border-l border-ems-accent/15 align-middle"
+        onClick={e => e.stopPropagation()}
+      >
         <input type="number" min={0} step={1} className={inputCls}
           value={todayTickets} onChange={e => setTodayTickets(e.target.value)} placeholder="—" />
       </td>
-      <td className="py-1.5 px-2" onClick={e => e.stopPropagation()}>
+      <td className="py-1.5 px-2 bg-ems-accent-dim/30 align-middle" onClick={e => e.stopPropagation()}>
         <div className="relative">
-          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-text-muted text-xs pointer-events-none">$</span>
+          <span className="absolute left-1 top-1/2 -translate-y-1/2 text-ems-accent/60 text-xs pointer-events-none">$</span>
           <input type="number" min={0} step={0.01} className={inputCls + ' pl-4'}
             value={todayRevenue} onChange={e => setTodayRevenue(e.target.value)} placeholder="—" />
         </div>
@@ -512,10 +548,34 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       {/* Summary */}
       {!showFullSkeleton && serverTotal > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SummaryCard label={`${todayLabel} — Tickets`} value={totalTicketsToday.toLocaleString()} sub={labelCurShort} />
-          <SummaryCard label={`${todayLabel} — Revenue`} value={$fmt(totalRevenueToday)} sub={labelCurShort} />
-          <SummaryCard label={`${yesterdayLabel} — Tickets`} value={totalTicketsYest.toLocaleString()} sub={labelPriorShort} />
-          <SummaryCard label={`${yesterdayLabel} — Revenue`} value={$fmt(totalRevenueYest)} sub={labelPriorShort} />
+          <DailySummaryCard
+            dateStr={yesterdayLabel}
+            statLabel="Tickets"
+            value={totalTicketsYest.toLocaleString()}
+            sub={labelPriorShort}
+            tone="prior"
+          />
+          <DailySummaryCard
+            dateStr={yesterdayLabel}
+            statLabel="Revenue"
+            value={$fmt(totalRevenueYest)}
+            sub={labelPriorShort}
+            tone="prior"
+          />
+          <DailySummaryCard
+            dateStr={todayLabel}
+            statLabel="Tickets"
+            value={totalTicketsToday.toLocaleString()}
+            sub={labelCurShort}
+            tone="current"
+          />
+          <DailySummaryCard
+            dateStr={todayLabel}
+            statLabel="Revenue"
+            value={$fmt(totalRevenueToday)}
+            sub={labelCurShort}
+            tone="current"
+          />
         </div>
       )}
 
@@ -556,29 +616,58 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
             <div className="overflow-x-auto">
               <table className="w-full text-sm" style={{ minWidth: '900px' }}>
               <thead>
-                <tr className="text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2 px-3 text-text-muted" rowSpan={2}>Attraction</th>
-                  <th className="text-left py-2 px-3 text-text-muted" rowSpan={2}>Date</th>
-                  <th className="text-left py-2 px-3 text-text-muted" rowSpan={2}>Venue</th>
-                  <th colSpan={2} className="text-center py-2 px-3 font-semibold text-text-secondary bg-elevated border-l border-border">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-text-muted/50 inline-block" />
-                      {yesterdayLabel}
-                    </span>
+                <tr className="text-xs border-b border-border">
+                  <th
+                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
+                    rowSpan={2}
+                  >
+                    Attraction
                   </th>
-                  <th colSpan={2} className="text-center py-2 px-3 font-semibold text-ems-accent bg-ems-accent/5 border-l border-border">
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-ems-accent inline-block" />
-                      {todayLabel}
-                    </span>
+                  <th
+                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
+                    rowSpan={2}
+                  >
+                    Date
                   </th>
-                  <th className="py-2 px-3" rowSpan={2} />
+                  <th
+                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
+                    rowSpan={2}
+                  >
+                    Venue
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
+                  >
+                    <span className="inline-flex items-center justify-center gap-2 rounded-lg px-2 py-0.5 text-ems-blue">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-ems-blue shadow-sm shadow-ems-blue/30" />
+                      <span className="tabular-nums">{yesterdayLabel}</span>
+                    </span>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-ems-blue/80 mt-1.5">Prior day</div>
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="text-center py-2.5 px-3 font-semibold bg-ems-accent-dim/80 border-l border-ems-accent/25"
+                  >
+                    <span className="inline-flex items-center justify-center gap-2 rounded-lg px-2 py-0.5 text-ems-accent">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-ems-accent shadow-sm shadow-ems-accent/30" />
+                      <span className="tabular-nums">{todayLabel}</span>
+                    </span>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-ems-accent/80 mt-1.5">Reporting day</div>
+                  </th>
+                  <th className="py-2 px-3 align-bottom bg-surface/90" rowSpan={2} />
                 </tr>
-                <tr className="text-xs border-b border-border bg-surface">
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-elevated border-l border-border">Tickets</th>
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-elevated border-r border-border">Revenue</th>
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-ems-accent/5 border-l border-border">Tickets</th>
-                  <th className="text-right py-2 px-2 text-text-muted font-medium bg-ems-accent/5">Revenue</th>
+                <tr className="text-xs border-b border-border">
+                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-l border-ems-blue/15">
+                    Tickets
+                  </th>
+                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-blue-dim/40 border-r border-ems-blue/10">
+                    Revenue
+                  </th>
+                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50 border-l border-ems-accent/20">
+                    Tickets
+                  </th>
+                  <th className="text-right py-2 px-2 font-medium text-text-secondary bg-ems-accent-dim/50">Revenue</th>
                 </tr>
               </thead>
               <tbody>

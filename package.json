@@ -50,6 +50,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
+    "i18n-iso-countries": "^7.14.0",
     "input-otp": "^1.4.2",
     "libphonenumber-js": "^1.12.42",
     "lucide-react": "^0.462.0",

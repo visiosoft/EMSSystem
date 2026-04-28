@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, GripVertical } from 'lucide-react';
 import {
   SearchInput,
   FilterChips,
@@ -33,6 +33,123 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+const ENGAGEMENT_TABLE_COLUMN_ORDER_KEY = 'iae-engagements-table-column-order-v2';
+
+type EngagementTableColumnId =
+  | 'attraction'
+  | 'tour'
+  | 'venue'
+  | 'market'
+  | 'date'
+  | 'status';
+
+const DEFAULT_ENGAGEMENT_TABLE_COLUMNS: EngagementTableColumnId[] = [
+  'attraction',
+  'tour',
+  'venue',
+  'market',
+  'date',
+  'status',
+];
+
+const ENGAGEMENT_COLUMN_LABELS: Record<EngagementTableColumnId, string> = {
+  attraction: 'Attraction',
+  tour: 'Tour',
+  venue: 'Venue',
+  market: 'Market',
+  date: 'Date',
+  status: 'Status',
+};
+
+function loadEngagementTableColumnOrder(): EngagementTableColumnId[] {
+  if (typeof window === 'undefined') return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
+  try {
+    const raw = localStorage.getItem(ENGAGEMENT_TABLE_COLUMN_ORDER_KEY);
+    if (!raw) return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
+    const need = new Set<EngagementTableColumnId>(DEFAULT_ENGAGEMENT_TABLE_COLUMNS);
+    const out: EngagementTableColumnId[] = [];
+    for (const x of parsed) {
+      if (typeof x === 'string' && need.has(x as EngagementTableColumnId)) {
+        out.push(x as EngagementTableColumnId);
+        need.delete(x as EngagementTableColumnId);
+      }
+    }
+    for (const id of DEFAULT_ENGAGEMENT_TABLE_COLUMNS) {
+      if (need.has(id)) {
+        out.push(id);
+        need.delete(id);
+      }
+    }
+    return out;
+  } catch {
+    return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
+  }
+}
+
+function saveEngagementTableColumnOrder(order: EngagementTableColumnId[]) {
+  try {
+    localStorage.setItem(ENGAGEMENT_TABLE_COLUMN_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderEngagementTableCell(
+  col: EngagementTableColumnId,
+  r: ApiEngagementListRow,
+) {
+  switch (col) {
+    case 'attraction':
+      return (
+        <td key={col} className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
+          {r.attractionName ?? '—'}
+        </td>
+      );
+    case 'tour':
+      return (
+        <td key={col} className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
+          {r.tourName ?? '—'}
+        </td>
+      );
+    case 'venue':
+      return (
+        <td
+          key={col}
+          className="py-2.5 px-3 text-text-secondary min-w-0 truncate"
+          title={r.venueCompanyName ?? r.venueName ?? '—'}
+        >
+          {r.venueCompanyName ?? r.venueName ?? '—'}
+        </td>
+      );
+    case 'market':
+      return (
+        <td key={col} className="py-2.5 px-3 text-xs text-text-secondary max-w-[140px] truncate">
+          {r.dmaMarketName ?? '—'}
+        </td>
+      );
+    case 'date':
+      return (
+        <td
+          key={col}
+          className="py-2.5 px-3 text-text-secondary text-xs min-w-0 truncate"
+          title={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
+        >
+          {formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
+        </td>
+      );
+    case 'status':
+      return (
+        <td key={col} className="py-2.5 px-3">
+          <StatusBadge status={r.engagementStatus} />
+        </td>
+      );
+    default:
+      return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Skeleton loader
 // ---------------------------------------------------------------------------
@@ -54,10 +171,10 @@ function EngagementsTableSkeleton() {
         </div>
       </div>
       <div className="overflow-x-auto overflow-y-clip">
-        <table className="w-full table-fixed text-sm min-w-[960px]">
+        <table className="w-full table-fixed text-sm min-w-[880px]">
           <thead>
             <tr className="text-text-muted text-xs border-b border-border bg-surface">
-              {Array.from({ length: 7 }).map((_, i) => (
+              {Array.from({ length: 6 }).map((_, i) => (
                 <th key={i} className="text-left py-2.5 px-3 min-w-0">
                   <Skeleton className="h-3 w-16" />
                 </th>
@@ -67,7 +184,7 @@ function EngagementsTableSkeleton() {
           <tbody>
             {Array.from({ length: PAGE_SIZE }).map((_, i) => (
               <tr key={i} className="border-b border-border/50">
-                {Array.from({ length: 7 }).map((__, j) => (
+                {Array.from({ length: 6 }).map((__, j) => (
                   <td key={j} className="py-2.5 px-3">
                     <Skeleton className="h-4 w-full max-w-[10rem]" />
                   </td>
@@ -95,6 +212,18 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [timingFilter, setTimingFilter] = useState<'all' | 'upcoming' | 'past'>('all');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
+  const [columnOrder, setColumnOrder] = useState<EngagementTableColumnId[]>(loadEngagementTableColumnOrder);
+
+  const reorderColumns = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setColumnOrder((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      saveEngagementTableColumnOrder(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (initFilter) setStatusFilter(initFilter);
@@ -338,32 +467,54 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         <EngagementsTableSkeleton />
       ) : (
         <>
+          <p className="text-[11px] text-text-muted mb-1.5 px-0.5">
+            Drag column headers to reorder. Your order is saved in this browser.
+          </p>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
-            <table className="w-full table-fixed text-sm min-w-[960px]">
+            <table className="w-full table-fixed text-sm min-w-[880px]">
               <colgroup>
-                <col className="w-[22%] min-w-0" />
-                <col className="w-[12%] min-w-0" />
-                <col className="w-[12%] min-w-0" />
-                <col className="w-[15%] min-w-0" />
-                <col className="w-[16%] min-w-0" />
-                <col className="w-[15%] min-w-0" />
-                <col className="w-[8%] min-w-0" />
+                {columnOrder.map((cid) => (
+                  <col key={cid} style={{ width: `${100 / 6}%` }} />
+                ))}
               </colgroup>
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Engagement</th>
-                  <th className="text-left py-2.5 px-3">Attraction</th>
-                  <th className="text-left py-2.5 px-3">Tour</th>
-                  <th className="text-left py-2.5 px-3">First Show</th>
-                  <th className="text-left py-2.5 px-3">Venue</th>
-                  <th className="text-left py-2.5 px-3">Market</th>
-                  <th className="text-left py-2.5 px-3">Status</th>
+                  {columnOrder.map((colId, colIndex) => (
+                    <th
+                      key={colId}
+                      scope="col"
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', String(colIndex));
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                        if (Number.isNaN(from)) return;
+                        reorderColumns(from, colIndex);
+                      }}
+                      className="text-left py-2.5 px-3 select-none cursor-grab active:cursor-grabbing min-w-0"
+                      title="Drag to move column"
+                    >
+                      <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
+                        <GripVertical
+                          className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-70"
+                          aria-hidden
+                        />
+                        <span className="truncate">
+                          {ENGAGEMENT_COLUMN_LABELS[colId]}
+                        </span>
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && !engagementsPagedQuery.isError && (
                   <tr>
-                    <td colSpan={7} className="py-12 px-3 text-center text-sm text-text-muted">
+                    <td colSpan={6} className="py-12 px-3 text-center text-sm text-text-muted">
                       {serverTotal === 0 && !hasActiveFilters
                         ? 'No engagements loaded yet.'
                         : 'No engagements match your search or filters.'}
@@ -376,36 +527,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
-                    <td
-                      className="py-2.5 px-3 text-text-primary font-medium max-w-[280px] truncate"
-                      title={r.displayTitle}
-                    >
-                      {r.displayTitle}
-                    </td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
-                      {r.attractionName ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[160px] truncate">
-                      {r.tourName ?? '—'}
-                    </td>
-                    <td
-                      className="py-2.5 px-3 text-text-secondary text-xs min-w-0 truncate"
-                      title={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
-                    >
-                      {formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
-                    </td>
-                    <td
-                      className="py-2.5 px-3 text-text-secondary min-w-0 truncate"
-                      title={r.venueCompanyName ?? r.venueName ?? '—'}
-                    >
-                      {r.venueCompanyName ?? r.venueName ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-xs text-text-secondary max-w-[140px] truncate">
-                      {r.dmaMarketName ?? '—'}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <StatusBadge status={r.engagementStatus} />
-                    </td>
+                    {columnOrder.map((colId) => renderEngagementTableCell(colId, r))}
                   </tr>
                 ))}
               </tbody>

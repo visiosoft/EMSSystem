@@ -247,38 +247,6 @@ export class CompanyService {
     return em.save(Address, address);
   }
 
-  /**
-   * Blocks creating/updating a company when another already has the same
-   * name (case-insensitive) and company type.
-   */
-  private async assertNoDuplicateCompany(
-    em: EntityManager,
-    args: {
-      companyName: string;
-      companyTypeId: number;
-      excludeCompanyId?: number;
-    },
-  ): Promise<void> {
-    const name = args.companyName.trim();
-    const qb = em
-      .getRepository(Company)
-      .createQueryBuilder('c')
-      .where('c.companyTypeId = :ct', { ct: args.companyTypeId })
-      .andWhere('LOWER(LTRIM(RTRIM(c.companyName))) = LOWER(LTRIM(RTRIM(:name)))', {
-        name,
-      });
-    if (args.excludeCompanyId != null) {
-      qb.andWhere('c.companyId != :id', { id: args.excludeCompanyId });
-    }
-    const found = await qb.getOne();
-    if (found) {
-      throw new ConflictException({
-        message:
-          'A company with this name and type already exists. Open that record or use a different name or type.',
-      });
-    }
-  }
-
   async findAll(): Promise<CompanyDetail[]> {
     const rows = await this.companyRepo
       .createQueryBuilder('c')
@@ -391,11 +359,6 @@ export class CompanyService {
         'Mailing address is required when mailingSameAsPhysical is false.',
       );
     }
-
-    await this.assertNoDuplicateCompany(this.dataSource.manager, {
-      companyName: dto.companyName,
-      companyTypeId: dto.companyTypeId,
-    });
 
     const saved = await this.dataSource.transaction(async (em) => {
       const savedPhysical = await this.getOrCreateAddress(em, dto.physical);
@@ -650,10 +613,6 @@ export class CompanyService {
     if (!existing)
       throw new NotFoundException(`Company ${companyId} not found`);
 
-    /** If unchanged, name+type duplicate check is skipped (saves with only address/DMA edits). */
-    const companyNameBefore = existing.companyName.trim();
-    const companyTypeIdBefore = existing.companyTypeId;
-
     const oldPhysicalId = existing.physicalAddressId;
     const oldMailingId = existing.mailingAddressId;
 
@@ -710,18 +669,6 @@ export class CompanyService {
     existing.dmaid = nextDmaId;
     existing.physicalAddressId = physicalAddressId;
     existing.mailingAddressId = mailingAddressId;
-
-    const nameAfter = existing.companyName.trim();
-    const typeAfter = existing.companyTypeId;
-    const nameOrTypeChanged =
-      nameAfter !== companyNameBefore || typeAfter !== companyTypeIdBefore;
-    if (nameOrTypeChanged) {
-      await this.assertNoDuplicateCompany(this.dataSource.manager, {
-        companyName: existing.companyName,
-        companyTypeId: existing.companyTypeId,
-        excludeCompanyId: companyId,
-      });
-    }
 
     // TypeORM can persist the loaded ManyToOne relations and overwrite PhysicalAddressID /
     // MailingAddressID with the stale in-memory join rows. Point relations at the rows that

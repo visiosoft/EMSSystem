@@ -77,6 +77,10 @@ import {
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
 import { clampToMaxLen, COMPANY_FORM } from '@/lib/companyFormLimits';
+import {
+  toCountryAlpha2FromDisplayString,
+  toStateProvinceAbbrevForDisplay,
+} from '@/lib/addressAbbrev';
 
 interface Props {
   onNavigate?: (view: string, data?: unknown) => void;
@@ -317,13 +321,13 @@ function InlineEditableOverview({
   const [physCity, setPhysCity]     = useState(company.physicalCity ?? company.city ?? '');
   const [physState, setPhysState]   = useState(company.physicalState ?? company.state ?? '');
   const [physPostal, setPhysPostal] = useState(company.physicalPostalCode ?? '');
-  const [physCountry, setPhysCountry] = useState(company.physicalCountry ?? 'USA');
+  const [physCountry, setPhysCountry] = useState(company.physicalCountry ?? 'US');
   const [mailStreet, setMailStreet] = useState(company.mailingStreet ?? '');
   const [mailCity, setMailCity]     = useState(company.mailingCity ?? '');
   const [mailState, setMailState]   = useState(company.mailingState ?? '');
   const [mailPostal, setMailPostal] = useState(company.mailingPostalCode ?? '');
   const [mailCountry, setMailCountry] = useState(
-    company.mailingCountry ?? company.physicalCountry ?? 'USA',
+    company.mailingCountry ?? company.physicalCountry ?? 'US',
   );
   const [dirty, setDirty]           = useState(false);
   const [saving, setSaving]         = useState(false);
@@ -359,46 +363,65 @@ function InlineEditableOverview({
   // Google Places: replace the whole address from the new place only. Per-field
   // empties (no street, no postal, etc.) render as empty fields, not prior company data.
   const onPlaceResolved = useCallback((details: PlaceDetailsResult) => {
+    const M = COMPANY_FORM;
     const placeName = details.placeName?.trim();
-    if (placeName) setName(clampToMaxLen(placeName, COMPANY_FORM.companyName));
+    if (placeName) setName(clampToMaxLen(placeName, M.companyName));
     setPhysStreet(
-      clampToMaxLen(placeAddressField(details.physical.street), COMPANY_FORM.addressLine1),
+      clampToMaxLen(placeAddressField(details.physical.street), M.addressLine1),
     );
     setPhysCity(
       sanitizeCityStateInput(
         placeAddressField(details.physical.city),
-        COMPANY_FORM.city,
+        M.city,
       ),
     );
+    const pCountry = toCountryAlpha2FromDisplayString(
+      sanitizeCountryInput(
+        placeAddressField(details.physical.country) || '',
+        M.country,
+      ),
+    );
+    setPhysCountry(pCountry);
     setPhysState(
       sanitizeCityStateInput(
-        placeAddressField(details.physical.state),
-        COMPANY_FORM.stateProvince,
+        toStateProvinceAbbrevForDisplay(
+          placeAddressField(details.physical.state),
+          pCountry,
+        ),
+        M.stateProvince,
       ),
     );
     setPhysPostal(
-      clampToMaxLen(placeAddressField(details.physical.postalCode), COMPANY_FORM.postalCode),
+      clampToMaxLen(placeAddressField(details.physical.postalCode), M.postalCode),
     );
-    setPhysCountry(sanitizeCountryInput(placeAddressField(details.physical.country)));
     setMailStreet(
-      clampToMaxLen(placeAddressField(details.mailing.street), COMPANY_FORM.addressLine1),
+      clampToMaxLen(placeAddressField(details.mailing.street), M.addressLine1),
     );
     setMailCity(
       sanitizeCityStateInput(
         placeAddressField(details.mailing.city),
-        COMPANY_FORM.city,
+        M.city,
       ),
     );
+    const mCountry = toCountryAlpha2FromDisplayString(
+      sanitizeCountryInput(
+        placeAddressField(details.mailing.country) || '',
+        M.country,
+      ),
+    );
+    setMailCountry(mCountry);
     setMailState(
       sanitizeCityStateInput(
-        placeAddressField(details.mailing.state),
-        COMPANY_FORM.stateProvince,
+        toStateProvinceAbbrevForDisplay(
+          placeAddressField(details.mailing.state),
+          mCountry,
+        ),
+        M.stateProvince,
       ),
     );
     setMailPostal(
-      clampToMaxLen(placeAddressField(details.mailing.postalCode), COMPANY_FORM.postalCode),
+      clampToMaxLen(placeAddressField(details.mailing.postalCode), M.postalCode),
     );
-    setMailCountry(sanitizeCountryInput(placeAddressField(details.mailing.country)));
     setDirty(true);
     setNameEditing(false);
     setInlineSaveErrors([]);
@@ -436,9 +459,9 @@ function InlineEditableOverview({
     setName(company.name); setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
     setPhysStreet(company.physicalStreet ?? ''); setPhysCity(company.physicalCity ?? company.city ?? '');
     setPhysState(company.physicalState ?? company.state ?? ''); setPhysPostal(company.physicalPostalCode ?? '');
-    setPhysCountry(company.physicalCountry ?? 'USA'); setMailStreet(company.mailingStreet ?? '');
+    setPhysCountry(company.physicalCountry ?? 'US'); setMailStreet(company.mailingStreet ?? '');
     setMailCity(company.mailingCity ?? ''); setMailState(company.mailingState ?? '');
-    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? company.physicalCountry ?? 'USA');
+    setMailPostal(company.mailingPostalCode ?? ''); setMailCountry(company.mailingCountry ?? company.physicalCountry ?? 'US');
     setResolvedDma(company.dmaMarketName ?? null);
     setDirty(false);
     setInlineSaveErrors([]);
@@ -544,6 +567,20 @@ function InlineEditableOverview({
       }
 
       const M = COMPANY_FORM;
+      const physC = toCountryAlpha2FromDisplayString(
+        physCountry.trim().slice(0, M.country),
+      );
+      const physS = toStateProvinceAbbrevForDisplay(
+        physState.trim().slice(0, M.stateProvince),
+        physC,
+      );
+      const mailC = toCountryAlpha2FromDisplayString(
+        mailCountry.trim().slice(0, M.country),
+      );
+      const mailS = toStateProvinceAbbrevForDisplay(
+        mailState.trim().slice(0, M.stateProvince),
+        mailC,
+      );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
         companyTypeId: Number(typeId),
@@ -552,18 +589,18 @@ function InlineEditableOverview({
           addressLine1: physStreet.trim().slice(0, M.addressLine1),
           addressLine2: null,
           city: physCity.trim().slice(0, M.city),
-          stateProvince: physState.trim().slice(0, M.stateProvince),
+          stateProvince: physS.slice(0, M.stateProvince),
           postalCode: physPostal.trim().slice(0, M.postalCode),
-          country: physCountry.trim().slice(0, M.country),
+          country: physC.slice(0, M.country),
         },
         mailingSameAsPhysical: !separateMailing,
         mailing: separateMailing ? {
           addressLine1: mailStreet.trim().slice(0, M.addressLine1),
           addressLine2: null,
           city: mailCity.trim().slice(0, M.city),
-          stateProvince: mailState.trim().slice(0, M.stateProvince),
+          stateProvince: mailS.slice(0, M.stateProvince),
           postalCode: mailPostal.trim().slice(0, M.postalCode),
-          country: mailCountry.trim().slice(0, M.country),
+          country: mailC.slice(0, M.country),
         } : undefined,
       });
       await Promise.resolve(onSaved(updated));
@@ -1444,26 +1481,39 @@ function CompanyFormDb({
 
   const onPlaceResolved = useCallback(
     (details: PlaceDetailsResult) => {
+      const M = COMPANY_FORM;
       const name = details.placeName?.trim();
-      if (name) setCompanyName(clampToMaxLen(name, COMPANY_FORM.companyName));
+      if (name) setCompanyName(clampToMaxLen(name, M.companyName));
+      const pCountry = toCountryAlpha2FromDisplayString(
+        sanitizeCountryInput(details.physical.country || '', M.country),
+      );
+      const mCountry = toCountryAlpha2FromDisplayString(
+        sanitizeCountryInput(details.mailing.country || '', M.country),
+      );
       patchPhysicalAddress({
         street: details.physical.street || '',
         city: details.physical.city || '',
-        state: details.physical.state || '',
+        state: toStateProvinceAbbrevForDisplay(
+          details.physical.state || '',
+          pCountry,
+        ),
         postalCode: details.physical.postalCode || '',
-        country: sanitizeCountryInput(details.physical.country || ''),
+        country: pCountry,
       });
       patchMailingAddress({
         street: details.mailing.street || '',
         city: details.mailing.city || '',
-        state: details.mailing.state || '',
+        state: toStateProvinceAbbrevForDisplay(
+          details.mailing.state || '',
+          mCountry,
+        ),
         postalCode: details.mailing.postalCode || '',
-        country: sanitizeCountryInput(details.mailing.country || ''),
+        country: mCountry,
       });
       setLastGoogleFormattedMailing(
         clampToMaxLen(
           details.formattedAddress?.trim() || '',
-          COMPANY_FORM.googleFormattedMailingDisplay,
+          M.googleFormattedMailingDisplay,
         ),
       );
       setFieldErrors({});
@@ -1592,13 +1642,27 @@ function CompanyFormDb({
       return;
     }
 
+    const physC = toCountryAlpha2FromDisplayString(
+      physicalCountry.trim().slice(0, M.country),
+    );
+    const physS = toStateProvinceAbbrevForDisplay(
+      physicalState.trim().slice(0, M.stateProvince),
+      physC,
+    );
+    const mailC = toCountryAlpha2FromDisplayString(
+      mailingCountry.trim().slice(0, M.country),
+    );
+    const mailS = toStateProvinceAbbrevForDisplay(
+      mailingState.trim().slice(0, M.stateProvince),
+      mailC,
+    );
     const physical = {
       addressLine1: physicalStreet.trim().slice(0, M.addressLine1),
       addressLine2: null as string | null,
       city: physicalCity.trim().slice(0, M.city),
-      stateProvince: physicalState.trim().slice(0, M.stateProvince),
+      stateProvince: physS.slice(0, M.stateProvince),
       postalCode: physicalPostalCode.trim().slice(0, M.postalCode),
-      country: physicalCountry.trim().slice(0, M.country),
+      country: physC.slice(0, M.country),
     };
     const mailingSameAsPhysical = !mailingEnabled;
     const mailing = mailingEnabled
@@ -1606,9 +1670,9 @@ function CompanyFormDb({
           addressLine1: mailingStreet.trim().slice(0, M.addressLine1),
           addressLine2: null as string | null,
           city: mailingCity.trim().slice(0, M.city),
-          stateProvince: mailingState.trim().slice(0, M.stateProvince),
+          stateProvince: mailS.slice(0, M.stateProvince),
           postalCode: mailingPostalCode.trim().slice(0, M.postalCode),
-          country: mailingCountry.trim().slice(0, M.country),
+          country: mailC.slice(0, M.country),
         }
       : undefined;
 

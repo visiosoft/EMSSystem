@@ -70,7 +70,10 @@ export function useCompanyPlaceSearch({ query, onPlaceResolved }: UseCompanyPlac
 
   const selectPrediction = async (prediction: AddressPrediction) => {
     if (!configured) return;
-    const details = await fetchPlaceDetailsByPlaceId(prediction.placeId);
+    const details = await fetchPlaceDetailsByPlaceId(
+      prediction.placeId,
+      prediction.description,
+    );
     setSuggestions([]);
     setMenuOpen(false);
     if (details) onPlaceResolved(details);
