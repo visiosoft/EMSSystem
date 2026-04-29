@@ -4,7 +4,14 @@ import { Loader2 } from 'lucide-react';
 import { StatusBadge, TabBar, ActionMenu, Modal, FormField, SearchInput } from './Primitives';
 import { Select2, toOptions } from './Select2';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getTotalPages,
+  getPageRange,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import { fetchDmaMarketsPaged } from '@/api/companyApi';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -20,7 +27,7 @@ interface Props {
   onUpdateDmas?: (dmas: unknown[]) => void; // kept for API compat
 }
 
-function DmaMarketsTableSkeleton() {
+function DmaMarketsTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) {
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[22rem]"
@@ -33,7 +40,7 @@ function DmaMarketsTableSkeleton() {
         <div className="text-center max-w-sm space-y-1">
           <p className="text-sm font-semibold text-text-primary">Loading DMA markets</p>
           <p className="text-xs text-text-muted leading-relaxed">
-            Fetching {PAGE_SIZE} rows from the server…
+            Fetching {rowCount} rows from the server…
           </p>
         </div>
       </div>
@@ -47,7 +54,7 @@ function DmaMarketsTableSkeleton() {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: rowCount }).map((_, i) => (
               <tr key={i} className="border-b border-border/40">
                 <td className="py-3 px-3">
                   <Skeleton className="h-4 w-48 max-w-[16rem] bg-muted/80" />
@@ -78,10 +85,11 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
   const [dmaSearchInput, setDmaSearchInput] = useState('');
   const [dmaSearchDebounced, setDmaSearchDebounced] = useState('');
   const [dmaPage, setDmaPage] = useState(1);
+  const [dmaPageSize, setDmaPageSize] = useState<PageSizeOption>(PAGE_SIZE);
 
   const inputCls = 'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
 
-  const { offset: dmaOffset, limit: dmaLimit } = getPageParams(dmaPage);
+  const { offset: dmaOffset, limit: dmaLimit } = getPageParams(dmaPage, dmaPageSize);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDmaSearchDebounced(dmaSearchInput.trim()), 300);
@@ -92,8 +100,12 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
     setDmaPage(1);
   }, [dmaSearchDebounced]);
 
+  useEffect(() => {
+    setDmaPage(1);
+  }, [dmaPageSize]);
+
   const dmaQuery = useQuery({
-    queryKey: ['dma-markets', 'settings', dmaPage, dmaSearchDebounced, dmaOffset, dmaLimit],
+    queryKey: ['dma-markets', 'settings', dmaPage, dmaPageSize, dmaSearchDebounced, dmaOffset, dmaLimit],
     queryFn: () =>
       fetchDmaMarketsPaged(dmaOffset, dmaLimit, dmaSearchDebounced || undefined),
     staleTime: 5 * 60 * 1000,
@@ -103,9 +115,13 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
 
   const dmaTotal = dmaQuery.data?.total ?? 0;
   const dmaRows = dmaQuery.data?.data ?? [];
-  const dmaPageCount = getTotalPages(dmaTotal);
+  const dmaPageCount = getTotalPages(dmaTotal, dmaPageSize);
   const dmaPageClamped = Math.min(dmaPage, dmaPageCount);
-  const { rangeStart: dmaRangeStart, rangeEnd: dmaRangeEnd } = getPageRange(dmaPageClamped, dmaTotal);
+  const { rangeStart: dmaRangeStart, rangeEnd: dmaRangeEnd } = getPageRange(
+    dmaPageClamped,
+    dmaTotal,
+    dmaPageSize,
+  );
   const dmaTableLoading = dmaQuery.isPending || dmaQuery.isFetching;
 
   useEffect(() => {
@@ -216,7 +232,7 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
           )}
 
           {dmaTableLoading ? (
-            <DmaMarketsTableSkeleton />
+            <DmaMarketsTableSkeleton rowCount={dmaPageSize} />
           ) : (
             <>
               <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
@@ -261,7 +277,15 @@ export function SettingsPage({ addToast, users, onUpdateUsers }: Props) {
                       {dmaRangeStart}–{dmaRangeEnd}
                     </span>{' '}
                     of <span className="text-text-primary font-medium">{dmaTotal.toLocaleString()}</span>
-                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                      <span aria-hidden>·</span>
+                      <PageSizeSelect
+                        value={dmaPageSize}
+                        onChange={setDmaPageSize}
+                        disabled={dmaQuery.isFetching}
+                      />
+                      <span>per page</span>
+                    </span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
                     <button

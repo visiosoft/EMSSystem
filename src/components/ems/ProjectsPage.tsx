@@ -2,7 +2,7 @@
  * ProjectsPage – Fully dynamic, API-driven.
  * Pattern matches CompaniesPage:
  *   - useQuery / useMutation from @tanstack/react-query
- *   - Server-paginated list (search + stage on API), 25 per page
+ *   - Server-paginated list (search + stage on API), selectable rows per page
  *   - Auto-reload after every CRUD (invalidateQueries)
  *   - Disabled buttons / spinners while loading
  *   - Success/error toasts
@@ -35,7 +35,14 @@ import {
 } from './Primitives';
 import { Select2 } from './Select2';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { getPageParams, getPageRange, getTotalPages, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getPageRange,
+  getTotalPages,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import {
   createPerformanceOption,
   createProject,
@@ -513,7 +520,7 @@ interface Props {
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
-function ProjectsTableSkeleton() {
+function ProjectsTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) {
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]" role="status" aria-live="polite" aria-busy="true">
       <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 border-b border-border bg-surface/40">
@@ -533,7 +540,7 @@ function ProjectsTableSkeleton() {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: rowCount }).map((_, i) => (
               <tr key={i} className="border-b border-border/40">
                 {Array.from({ length: 6 }).map((__, j) => (
                   <td key={j} className="py-3 px-3"><Skeleton className="h-4 w-24 bg-muted/80" /></td>
@@ -1643,11 +1650,12 @@ export function ProjectsPage({ addToast }: Props) {
   const [searchDebounced, setSearchDebounced] = useState('');
   const [stageFilter, setStageFilter] = useState('All');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ApiProjectListRow | null>(null);
 
-  const { offset, limit } = getPageParams(page);
+  const { offset, limit } = getPageParams(page, pageSize);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -1691,8 +1699,10 @@ export function ProjectsPage({ addToast }: Props) {
 
   useEffect(() => { setPage(1); }, [searchDebounced, stageFilter]);
 
-  const pageCount = getTotalPages(serverTotal);
-  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
+  useEffect(() => { setPage(1); }, [pageSize]);
+
+  const pageCount = getTotalPages(serverTotal, pageSize);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal, pageSize);
   const pageClamped = Math.min(page, pageCount);
 
   useEffect(() => {
@@ -1787,7 +1797,7 @@ export function ProjectsPage({ addToast }: Props) {
       </div>
 
       {/* Table */}
-      {isLoading ? <ProjectsTableSkeleton /> : (
+      {isLoading ? <ProjectsTableSkeleton rowCount={pageSize} /> : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
             <table className="w-full text-sm min-w-[700px]">
@@ -1843,8 +1853,14 @@ export function ProjectsPage({ addToast }: Props) {
                   {rangeStart}–{rangeEnd}
                 </span>{' '}
                 of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                <span className="text-text-muted">
-                  {' '}({PAGE_SIZE} per page)
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                  <span aria-hidden>·</span>
+                  <PageSizeSelect
+                    value={pageSize}
+                    onChange={setPageSize}
+                    disabled={isLoading}
+                  />
+                  <span>per page</span>
                 </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">

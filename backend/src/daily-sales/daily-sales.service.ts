@@ -212,7 +212,7 @@ export class DailySalesService {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
     const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
     const pageSize = Math.min(
-      100,
+      500,
       Math.max(1, Number.isFinite(pageSizeIn) ? Math.floor(pageSizeIn) : 25),
     );
     const search = (searchRaw ?? '').trim() || undefined;

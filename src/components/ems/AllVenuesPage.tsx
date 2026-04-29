@@ -7,7 +7,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
 import { Select2 } from './Select2';
-import { getPageParams, getPageRange, getTotalPages, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getPageRange,
+  getTotalPages,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import {
   allVenuesQueryKey,
   fetchAllVenues,
@@ -43,6 +50,7 @@ function complexOptions(companyRows: ApiCompanyListRow[]) {
 
 export function AllVenuesPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [venueInput, setVenueInput] = useState('');
   const debouncedVenue = useDebouncedValue(venueInput, 400);
@@ -106,11 +114,16 @@ export function AllVenuesPage() {
     setPage(1);
   }, [filterParams]);
 
-  const { offset, limit } = getPageParams(page);
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const { offset, limit } = getPageParams(page, pageSize);
   const listQ = useQuery({
     queryKey: [
       ...allVenuesQueryKey,
       page,
+      pageSize,
       filterParams,
     ] as const,
     queryFn: () => fetchAllVenues(offset, limit, filterParams),
@@ -118,8 +131,8 @@ export function AllVenuesPage() {
 
   const total = listQ.data?.total ?? 0;
   const rows: ApiAllVenueRow[] = listQ.data?.data ?? [];
-  const pageCount = getTotalPages(total);
-  const { rangeStart, rangeEnd } = getPageRange(page, total);
+  const pageCount = getTotalPages(total, pageSize);
+  const { rangeStart, rangeEnd } = getPageRange(page, total, pageSize);
   const loading = listQ.isPending || listQ.isFetching;
   const filtersLoading =
     lookupsQ.isPending || companiesQ.isPending || dmasQ.isPending;
@@ -310,8 +323,19 @@ export function AllVenuesPage() {
 
       {total > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted">
-          <span>
-            Showing {rangeStart}–{rangeEnd} of {total} (per page {PAGE_SIZE})
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              Showing {rangeStart}–{rangeEnd} of {total}
+            </span>
+            <span className="inline-flex items-center gap-x-1.5 text-text-secondary">
+              <span aria-hidden>·</span>
+              <PageSizeSelect
+                value={pageSize}
+                onChange={setPageSize}
+                disabled={loading}
+              />
+              <span>per page</span>
+            </span>
           </span>
           <div className="flex items-center gap-2">
             <button

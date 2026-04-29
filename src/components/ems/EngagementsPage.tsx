@@ -24,7 +24,14 @@ import { fetchAttractions, fetchTours } from '@/api/attractionToursApi';
 import { fetchCompanies } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { formatFirstShowLine } from '@/lib/engagementDisplay';
-import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getTotalPages,
+  getPageRange,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import { ENGAGEMENT_STATUS_ENUM } from './engagementFormConstants';
 
 interface Props {
@@ -153,7 +160,7 @@ function renderEngagementTableCell(
 // ---------------------------------------------------------------------------
 // Skeleton loader
 // ---------------------------------------------------------------------------
-function EngagementsTableSkeleton() {
+function EngagementsTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) {
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[28rem]"
@@ -182,7 +189,7 @@ function EngagementsTableSkeleton() {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: rowCount }).map((_, i) => (
               <tr key={i} className="border-b border-border/50">
                 {Array.from({ length: 6 }).map((__, j) => (
                   <td key={j} className="py-2.5 px-3">
@@ -211,6 +218,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [venueFilter, setVenueFilter] = useState('');
   const [timingFilter, setTimingFilter] = useState<'all' | 'upcoming' | 'past'>('all');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
   const [columnOrder, setColumnOrder] = useState<EngagementTableColumnId[]>(loadEngagementTableColumnOrder);
 
@@ -234,7 +242,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     return () => window.clearTimeout(t);
   }, [search]);
 
-  const { offset, limit } = getPageParams(page);
+  const { offset, limit } = getPageParams(page, pageSize);
 
   const pagedOpts: EngagementPagedQueryOpts = {
     q: searchDebounced || undefined,
@@ -306,9 +314,9 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     ];
   }, [filterOpts?.venueLabels]);
 
-  const pageCount = getTotalPages(serverTotal);
+  const pageCount = getTotalPages(serverTotal, pageSize);
   const pageClamped = Math.min(page, pageCount);
-  const { rangeStart, rangeEnd } = getPageRange(pageClamped, serverTotal);
+  const { rangeStart, rangeEnd } = getPageRange(pageClamped, serverTotal, pageSize);
 
   const hasActiveFilters =
     !!searchDebounced ||
@@ -321,6 +329,10 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   useEffect(() => {
     setPage(1);
   }, [searchDebounced, statusFilter, attractionFilter, dmaFilter, venueFilter, timingFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
@@ -464,7 +476,7 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
 
       {/* Table */}
       {loading ? (
-        <EngagementsTableSkeleton />
+        <EngagementsTableSkeleton rowCount={pageSize} />
       ) : (
         <>
           <p className="text-[11px] text-text-muted mb-1.5 px-0.5">
@@ -544,7 +556,15 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                 </span>{' '}
                 of{' '}
                 <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                  <span aria-hidden>·</span>
+                  <PageSizeSelect
+                    value={pageSize}
+                    onChange={setPageSize}
+                    disabled={engagementsPagedQuery.isFetching}
+                  />
+                  <span>per page</span>
+                </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 <button

@@ -12,6 +12,8 @@ import {
   type ApiDailySalesRow,
 } from '@/api/dailySalesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
+import { PAGE_SIZE, type PageSizeOption } from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,8 +23,6 @@ interface Props {
   dailySales?: unknown; engagements?: unknown; tours?: unknown;
   attractions?: unknown; companies?: unknown; onUpdateDailySales?: unknown;
 }
-
-const PAGE_SIZE = 25;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -432,6 +432,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const [attractionFilter, setAttractionFilter] = useState('');
   const [asOfDate, setAsOfDate] = useState(todayLocalYmd);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   // Item 7 — engagement click-through state
   const [selectedEngagement, setSelectedEngagement] = useState<{
     engagementId: number;
@@ -449,14 +450,14 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       'daily-sales-by-perf',
       asOfDate,
       page,
-      PAGE_SIZE,
+      pageSize,
       searchDebounced,
       attractionFilter,
     ],
     queryFn: () =>
       fetchDailySalesByPerformance(asOfDate, {
         page,
-        pageSize: PAGE_SIZE,
+        pageSize,
         search: searchDebounced || undefined,
         attraction: attractionFilter || undefined,
       }),
@@ -491,12 +492,16 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const totalTicketsYest = pageData?.summary.yesterdayTickets ?? 0;
   const totalRevenueYest = pageData?.summary.yesterdayRevenue ?? 0;
 
-  const pageCount = Math.max(1, Math.ceil(serverTotal / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(serverTotal / pageSize));
   const pageClamped = Math.min(page, pageCount);
 
   useEffect(() => {
     setPage(1);
   }, [searchDebounced, attractionFilter, asOfDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   useEffect(() => {
     if (serverTotal > 0 && page > pageCount) setPage(pageCount);
@@ -699,8 +704,22 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
           {serverTotal > 0 && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-text-secondary px-1">
               <p className="tabular-nums">
-                Showing <span className="text-text-primary font-medium">{(pageClamped - 1) * PAGE_SIZE + 1}–{Math.min(pageClamped * PAGE_SIZE, serverTotal)}</span>
-                {' '}of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span> performances
+                <span>
+                  Showing{' '}
+                  <span className="text-text-primary font-medium">
+                    {(pageClamped - 1) * pageSize + 1}–{Math.min(pageClamped * pageSize, serverTotal)}
+                  </span>{' '}
+                  of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span> performances
+                </span>
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 text-text-secondary">
+                  <span aria-hidden>·</span>
+                  <PageSizeSelect
+                    value={pageSize}
+                    onChange={setPageSize}
+                    disabled={salesQuery.isFetching}
+                  />
+                  <span>per page</span>
+                </span>
               </p>
               <div className="flex items-center gap-2">
                 <button disabled={pageClamped <= 1} onClick={() => setPage(p => p - 1)}

@@ -55,7 +55,14 @@ import {
 } from '@/api/companyApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
 import { clearFormFieldError } from '@/lib/clearFormFieldError';
-import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getTotalPages,
+  getPageRange,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import { formatE164ForDisplay } from '@/lib/contactPhoneField';
 import { type ApiPaginatedResponse } from '@/api/attractionToursApi';
 import { TOUR_STATUS_OPTIONS } from './tourFormLegacy';
@@ -88,7 +95,13 @@ function buildTourManagementSelectOptions(
 }
 
 /** Matches Companies page loading + table shell styling. */
-function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 'tours' }) {
+function AttractionToursTableSkeleton({
+  variant,
+  rowCount = PAGE_SIZE,
+}: {
+  variant: 'attractions' | 'tours';
+  rowCount?: number;
+}) {
   const isAttr = variant === 'attractions';
   const colCount = isAttr ? 2 : 5;
   return (
@@ -130,7 +143,7 @@ function AttractionToursTableSkeleton({ variant }: { variant: 'attractions' | 't
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: rowCount }).map((_, i) => (
               <tr key={i} className="border-b border-border/50">
                 {Array.from({ length: colCount }).map((__, j) => (
                   <td key={j} className="py-2.5 px-3">
@@ -984,6 +997,7 @@ export function AttractionToursPage({ addToast }: Props) {
   const attractionSearchRef = useRef<HTMLDivElement>(null);
   const tourSearchRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [attractionsViewMode, setAttractionsViewMode] = useState<AttractionsViewMode>(loadAttractionsViewMode);
   const [expandedAttractionTileId, setExpandedAttractionTileId] = useState<number | null>(null);
 
@@ -1318,13 +1332,13 @@ export function AttractionToursPage({ addToast }: Props) {
     [pageTab, displayAttractions, displayTours],
   );
   const serverTotal = listForTable.length;
-  const { offset, limit } = getPageParams(page);
+  const { offset, limit } = getPageParams(page, pageSize);
   const paginated = useMemo(
     () => listForTable.slice(offset, offset + limit),
     [listForTable, offset, limit],
   );
-  const pageCount = getTotalPages(serverTotal);
-  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
+  const pageCount = getTotalPages(serverTotal, pageSize);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal, pageSize);
 
   /** Initial load: lookups + both full lists, or a targeted server search on the active tab. */
   const loading =
@@ -1346,6 +1360,10 @@ export function AttractionToursPage({ addToast }: Props) {
   useEffect(() => {
     setPage(1);
   }, [attractionSearch, tourSearch, pageTab]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
 
   const selectedAttraction = selectedAttractionId
     ? attractions.find((a) => a.attractionId === selectedAttractionId) ??
@@ -1733,7 +1751,10 @@ export function AttractionToursPage({ addToast }: Props) {
       </div>
 
       {loading ? (
-        <AttractionToursTableSkeleton variant={pageTab === 'Attractions' ? 'attractions' : 'tours'} />
+        <AttractionToursTableSkeleton
+          variant={pageTab === 'Attractions' ? 'attractions' : 'tours'}
+          rowCount={pageSize}
+        />
       ) : (
         <>
           {pageTab === 'Attractions' && (
@@ -1871,7 +1892,15 @@ export function AttractionToursPage({ addToast }: Props) {
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
                     of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                      <span aria-hidden>·</span>
+                      <PageSizeSelect
+                        value={pageSize}
+                        onChange={setPageSize}
+                        disabled={attractionsQuery.isFetching}
+                      />
+                      <span>per page</span>
+                    </span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
@@ -1948,7 +1977,15 @@ export function AttractionToursPage({ addToast }: Props) {
                       {rangeStart}–{rangeEnd}
                     </span>{' '}
                     of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                    <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                      <span aria-hidden>·</span>
+                      <PageSizeSelect
+                        value={pageSize}
+                        onChange={setPageSize}
+                        disabled={toursQuery.isFetching}
+                      />
+                      <span>per page</span>
+                    </span>
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
                     <button

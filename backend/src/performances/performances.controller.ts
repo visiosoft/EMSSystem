@@ -12,7 +12,7 @@ export class PerformancesController {
   constructor(private readonly performancesService: PerformancesService) {}
 
   /**
-   * Paginated list for Calendar “List” view (25 rows max per request).
+   * Paginated list for Calendar “List” view.
    * Must be registered before the bare `@Get()` route.
    */
   @Get('paged')
@@ -31,7 +31,7 @@ export class PerformancesController {
             .map((s) => s.trim())
             .filter(Boolean)
       : ['Unknown', 'Private', 'Public'];
-    const safeLimit = Math.min(25, Math.max(1, limit));
+    const safeLimit = Math.min(500, Math.max(1, limit));
     const safeOffset = Math.max(0, offset);
     return this.performancesService.findAllPaginated(
       year,

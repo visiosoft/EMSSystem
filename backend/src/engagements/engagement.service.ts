@@ -509,7 +509,7 @@ export class EngagementService {
     limit: number,
     filters: EngagementListFilters = {},
   ): Promise<{ data: EngagementListRow[]; total: number }> {
-    const safeLimit = Math.min(100, Math.max(1, limit));
+    const safeLimit = Math.min(500, Math.max(1, limit));
     const off = Math.max(0, offset);
 
     const qb = this.buildEngagementQuery();

@@ -8,7 +8,14 @@ import {
   type ApiPerformanceCalendarRow,
 } from '@/api/performancesApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getTotalPages,
+  getPageRange,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -62,7 +69,7 @@ function entryLabel(p: ApiPerformanceCalendarRow): string {
   return p.attractionName ?? p.tourName ?? 'Engagement';
 }
 
-function CalendarListTableSkeleton() {
+function CalendarListTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) {
   return (
     <div
       className="bg-card border border-border rounded-lg overflow-hidden min-h-[22rem]"
@@ -75,7 +82,7 @@ function CalendarListTableSkeleton() {
         <div className="text-center max-w-sm space-y-1">
           <p className="text-sm font-semibold text-text-primary">Loading performances</p>
           <p className="text-xs text-text-muted leading-relaxed">
-            Fetching {PAGE_SIZE} rows from the server…
+            Fetching {rowCount} rows from the server…
           </p>
         </div>
       </div>
@@ -93,7 +100,7 @@ function CalendarListTableSkeleton() {
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: PAGE_SIZE }).map((_, i) => (
+            {Array.from({ length: rowCount }).map((_, i) => (
               <tr key={i} className="border-b border-border/40">
                 {Array.from({ length: 7 }).map((__, j) => (
                   <td key={j} className="py-3 px-3">
@@ -121,6 +128,7 @@ export function CalendarPage({ onNavigate }: Props) {
   );
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState<PageSizeOption>(PAGE_SIZE);
 
   const visibilityKey = useMemo(
     () => [...activeStatuses].sort().join(','),
@@ -141,9 +149,9 @@ export function CalendarPage({ onNavigate }: Props) {
     staleTime: 2 * 60 * 1000,
   });
 
-  const { offset: listOffset, limit: listLimit } = getPageParams(listPage);
+  const { offset: listOffset, limit: listLimit } = getPageParams(listPage, listPageSize);
   const listQuery = useQuery({
-    queryKey: ['performances', 'list', year, month + 1, listPage, visibilityKey, listOffset, listLimit],
+    queryKey: ['performances', 'list', year, month + 1, listPage, listPageSize, visibilityKey, listOffset, listLimit],
     queryFn: () =>
       fetchPerformancesPaged(year, month + 1, listOffset, listLimit, visibilityForApi),
     enabled: viewMode === 'list',
@@ -153,11 +161,12 @@ export function CalendarPage({ onNavigate }: Props) {
 
   const listTotal = listQuery.data?.total ?? 0;
   const listRows = listQuery.data?.data ?? [];
-  const listPageCount = getTotalPages(listTotal);
+  const listPageCount = getTotalPages(listTotal, listPageSize);
   const listPageClamped = Math.min(listPage, listPageCount);
   const { rangeStart: listRangeStart, rangeEnd: listRangeEnd } = getPageRange(
     listPageClamped,
     listTotal,
+    listPageSize,
   );
   const listLoading = listQuery.isPending || listQuery.isFetching;
   const gridLoading = gridQuery.isPending || gridQuery.isFetching;
@@ -165,6 +174,10 @@ export function CalendarPage({ onNavigate }: Props) {
   useEffect(() => {
     setListPage(1);
   }, [year, month, visibilityKey]);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [listPageSize]);
 
   useEffect(() => {
     if (listPage > listPageCount) setListPage(listPageCount);
@@ -360,7 +373,7 @@ export function CalendarPage({ onNavigate }: Props) {
       )}
 
       {/* List view */}
-      {viewMode === 'list' && listLoading && <CalendarListTableSkeleton />}
+      {viewMode === 'list' && listLoading && <CalendarListTableSkeleton rowCount={listPageSize} />}
 
       {viewMode === 'list' && !listLoading && (
         <>
@@ -430,7 +443,15 @@ export function CalendarPage({ onNavigate }: Props) {
                   {listRangeStart}–{listRangeEnd}
                 </span>{' '}
                 of <span className="text-text-primary font-medium">{listTotal.toLocaleString()}</span>
-                <span className="text-text-muted"> ({PAGE_SIZE} per page)</span>
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                  <span aria-hidden>·</span>
+                  <PageSizeSelect
+                    value={listPageSize}
+                    onChange={setListPageSize}
+                    disabled={listQuery.isFetching}
+                  />
+                  <span>per page</span>
+                </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 <button

@@ -78,7 +78,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { getPageParams, getTotalPages, getPageRange, PAGE_SIZE } from '@/lib/serverPagination';
+import {
+  getPageParams,
+  getTotalPages,
+  getPageRange,
+  PAGE_SIZE,
+  type PageSizeOption,
+} from '@/lib/serverPagination';
+import { PageSizeSelect } from './PageSizeSelect';
 import { clampToMaxLen, COMPANY_FORM } from '@/lib/companyFormLimits';
 import {
   toCountryAlpha2FromDisplayString,
@@ -2134,6 +2141,7 @@ export function CompaniesPage({ addToast }: Props) {
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const [typeFilter, setTypeFilter] = useState('All');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [drawerTab, setDrawerTab] = useState('Overview');
@@ -2232,7 +2240,7 @@ export function CompaniesPage({ addToast }: Props) {
     return cacheFiltered;
   }, [hasActiveSearch, serverSearchQuery.data, cacheFiltered]);
 
-  const { offset, limit } = getPageParams(page);
+  const { offset, limit } = getPageParams(page, pageSize);
   const pagedRows = useMemo(
     () => displayList.slice(offset, offset + limit),
     [displayList, offset, limit],
@@ -2343,8 +2351,12 @@ export function CompaniesPage({ addToast }: Props) {
     setPage(1);
   }, [activeSearch, typeFilter]);
 
-  const pageCount = getTotalPages(serverTotal);
-  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal);
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize]);
+
+  const pageCount = getTotalPages(serverTotal, pageSize);
+  const { rangeStart, rangeEnd } = getPageRange(page, serverTotal, pageSize);
   const isLoadingCompanies =
     companiesQuery.isPending ||
     (hasActiveSearch &&
@@ -2628,7 +2640,7 @@ export function CompaniesPage({ addToast }: Props) {
       </div>
 
       {isLoadingCompanies ? (
-        <CompaniesTableSkeleton rows={PAGE_SIZE} />
+        <CompaniesTableSkeleton rows={pageSize} />
       ) : (
         <>
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
@@ -2691,8 +2703,14 @@ export function CompaniesPage({ addToast }: Props) {
                   {rangeStart}–{rangeEnd}
                 </span>{' '}
                 of <span className="text-text-primary font-medium">{serverTotal.toLocaleString()}</span>
-                <span className="text-text-muted">
-                  {' '}({PAGE_SIZE} per page)
+                <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-text-muted">
+                  <span aria-hidden>·</span>
+                  <PageSizeSelect
+                    value={pageSize}
+                    onChange={setPageSize}
+                    disabled={isLoadingCompanies}
+                  />
+                  <span>per page</span>
                 </span>
               </p>
               <div className="flex items-center gap-2 shrink-0">
