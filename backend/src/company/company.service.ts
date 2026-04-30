@@ -1293,14 +1293,31 @@ export class CompanyService {
     limit: number,
     search?: string,
     companyType?: string,
+    sortByRaw?: string,
+    sortDirRaw?: string,
   ): Promise<{ data: CompanyDetail[]; total: number }> {
     const qb = this.companyRepo
       .createQueryBuilder('c')
       .innerJoinAndSelect('c.companyType', 'ct')
       .leftJoinAndSelect('c.physicalAddress', 'pa')
       .leftJoinAndSelect('c.mailingAddress', 'ma')
-      .leftJoinAndSelect('c.dma', 'd')
-      .orderBy('c.companyName', 'ASC');
+      .leftJoinAndSelect('c.dma', 'd');
+
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const tie = 'c.companyName ASC';
+    if (sortBy === 'type') {
+      qb.orderBy('ct.companyTypeName', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'city') {
+      qb.orderBy('pa.city', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'state' || sortBy === 'stateprovince') {
+      qb.orderBy('pa.stateProvince', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'dma' || sortBy === 'market') {
+      qb.orderBy('d.marketName', sortDir).addOrderBy(tie);
+    } else {
+      qb.orderBy('c.companyName', sortDir).addOrderBy('c.companyId', 'ASC');
+    }
 
     const q = (search ?? '').trim();
     if (q) {
@@ -1599,8 +1616,10 @@ export class CompanyService {
     if (!venue) {
       return { missing: true as const };
     }
-    const entertainmentComplexCompanyIds =
-      await this.getVenueComplexCompanyIds(companyId);
+    /** DB may contain legacy multiple rows; product rule is one complex per venue. */
+    const entertainmentComplexCompanyIds = (
+      await this.getVenueComplexCompanyIds(companyId)
+    ).slice(0, 1);
     const entertainmentComplexCompanies =
       entertainmentComplexCompanyIds.length > 0
         ? await this.findCompaniesByIdsChunked(
@@ -1720,6 +1739,12 @@ export class CompanyService {
       ),
     ).sort((a, b) => a - b);
 
+    if (next.length > 1) {
+      throw new BadRequestException({
+        message: 'Only one entertainment complex may be linked to each venue.',
+      });
+    }
+
     if (next.includes(venueCompanyId)) {
       throw new BadRequestException({
         message: 'A venue cannot be linked to itself as an entertainment complex.',
@@ -1771,21 +1796,6 @@ export class CompanyService {
     );
     const nextSet = new Set(next);
 
-    for (const previousComplexId of existingComplexIds) {
-      if (nextSet.has(previousComplexId)) {
-        continue;
-      }
-      const remaining = await memberRepo.count({
-        where: { complexCompanyId: previousComplexId },
-      });
-      if (remaining <= 1) {
-        throw new BadRequestException({
-          message:
-            'This Entertainment Complex must keep at least one venue. Reassign another venue to the complex before removing this link.',
-        });
-      }
-    }
-
     const same =
       existingComplexIds.length === next.length &&
       existingComplexIds.every((id) => nextSet.has(id));
@@ -1797,24 +1807,26 @@ export class CompanyService {
     const existingSet = new Set(existingComplexIds);
     const toAdd = next.filter((id) => !existingSet.has(id));
 
-    if (toRemove.length > 0) {
-      await memberRepo.delete(
-        toRemove.map((complexCompanyId) => ({ venueCompanyId, complexCompanyId })),
-      );
+    // One DELETE per row — TypeORM/array delete criteria for composite keys is unreliable.
+    for (const complexCompanyId of toRemove) {
+      await memberRepo.delete({ venueCompanyId, complexCompanyId });
     }
-    if (toAdd.length > 0) {
-      try {
-        await memberRepo.insert(
-          toAdd.map((complexCompanyId) => ({ venueCompanyId, complexCompanyId })),
-        );
-      } catch (e: unknown) {
-        if (this.isSqlServerDuplicateKeyError(e)) {
-          // Another concurrent request inserted the same tuple first.
-          // Treat as idempotent and continue.
-        } else {
-          throw e;
-        }
-      }
+    // One INSERT per row — bulk INSERT + swallowing duplicate-key errors can drop every
+    // new row in the batch (SQL Server fails the whole statement on one conflict).
+    for (const complexCompanyId of toAdd) {
+      await memberRepo.insert({ venueCompanyId, complexCompanyId });
+    }
+
+    const persisted = (
+      await this.getVenueComplexCompanyIds(venueCompanyId, em)
+    ).sort((a, b) => a - b);
+    const expected = [...next].sort((a, b) => a - b);
+    if (persisted.join(',') !== expected.join(',')) {
+      throw new BadRequestException({
+        message:
+          'Could not save all entertainment complex links. Refresh the page and try again.',
+        detail: `Expected complex company ids [${expected.join(', ')}] but database has [${persisted.join(', ')}].`,
+      });
     }
   }
 
@@ -1908,27 +1920,6 @@ export class CompanyService {
 
   private normalizeCompanyTypeName(name: string | null | undefined): string {
     return (name ?? '').trim().toLowerCase();
-  }
-
-  private isSqlServerDuplicateKeyError(error: unknown): boolean {
-    if (!(error instanceof QueryFailedError)) {
-      return false;
-    }
-    const driver = (error as QueryFailedError).driverError as
-      | { number?: unknown; code?: unknown; message?: unknown }
-      | undefined;
-    const numberCode = Number(driver?.number);
-    if (numberCode === 2601 || numberCode === 2627) {
-      return true;
-    }
-    const code = String(driver?.code ?? '').toUpperCase();
-    if (code === 'EREQUEST') {
-      const msg = String(driver?.message ?? error.message ?? '');
-      if (/duplicate key|PRIMARY KEY|UNIQUE KEY/i.test(msg)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**

@@ -1,8 +1,8 @@
 /** All Venues — list + board from dbo.Venue plus optional complex membership. */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, LayoutGrid, LayoutList, Loader2 } from 'lucide-react';
 import { Select2 } from './Select2';
 import {
   getPageParams,
@@ -62,6 +62,18 @@ export function AllVenuesPage() {
   const [complexId, setComplexId] = useState('');
   const [venueTypeId, setVenueTypeId] = useState('');
   const [dmaId, setDmaId] = useState('');
+  type VenueSortCol = 'venue' | 'complex' | 'type' | 'capacity' | 'dma';
+  const SORT_API: Record<VenueSortCol, string> = {
+    venue: 'venue',
+    complex: 'complex',
+    type: 'type',
+    capacity: 'capacity',
+    dma: 'dma',
+  };
+  const [sortState, setSortState] = useState<{
+    col: VenueSortCol;
+    dir: 'asc' | 'desc';
+  }>({ col: 'venue', dir: 'asc' });
 
   const lookupsQ = useQuery({
     queryKey: ['lookups', 'all-venues'],
@@ -114,13 +126,23 @@ export function AllVenuesPage() {
           ? Number(venueTypeId)
           : undefined,
       dmaId: dmaId !== '' && Number.isFinite(Number(dmaId)) ? Number(dmaId) : undefined,
+      sortBy: SORT_API[sortState.col],
+      sortDir: sortState.dir,
     }),
-    [debouncedVenue, complexId, venueTypeId, dmaId],
+    [debouncedVenue, complexId, venueTypeId, dmaId, sortState.col, sortState.dir],
   );
 
   useEffect(() => {
     setPage(1);
   }, [filterParams]);
+
+  const toggleVenueSort = useCallback((col: VenueSortCol) => {
+    setSortState((s) => {
+      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
+      return { col, dir: 'asc' };
+    });
+    setPage(1);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -248,11 +270,34 @@ export function AllVenuesPage() {
             <table className="w-full text-sm min-w-[800px]">
               <thead>
                 <tr className="text-ems-accent text-xs font-semibold border-b border-border bg-elevated/30">
-                  <th className="text-left py-2.5 px-3">Venue Name</th>
-                  <th className="text-left py-2.5 px-3">Entertainment Complex</th>
-                  <th className="text-left py-2.5 px-3">Venue Type</th>
-                  <th className="text-left py-2.5 px-3">Capacity</th>
-                  <th className="text-left py-2.5 px-3">DMA</th>
+                  {(
+                    [
+                      { col: 'venue' as const, label: 'Venue Name' },
+                      { col: 'complex' as const, label: 'Entertainment Complex' },
+                      { col: 'type' as const, label: 'Venue Type' },
+                      { col: 'capacity' as const, label: 'Capacity' },
+                      { col: 'dma' as const, label: 'DMA' },
+                    ] as const
+                  ).map(({ col, label }) => {
+                    const active = sortState.col === col;
+                    return (
+                      <th key={col} className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-text-primary"
+                          onClick={() => toggleVenueSort(col)}
+                        >
+                          {label}
+                          {active &&
+                            (sortState.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>

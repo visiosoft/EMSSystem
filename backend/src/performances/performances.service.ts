@@ -72,9 +72,7 @@ export class PerformancesService {
       .leftJoin(Venue, 'v', 'v.companyId = ev.venueCompanyId')
       .leftJoin(Company, 'vc', 'vc.companyId = ev.venueCompanyId')
       .leftJoin(Address, 'addr', 'addr.addressId = vc.physicalAddressId')
-      .select([...CALENDAR_SELECT])
-      .orderBy('p.performanceDate', 'ASC')
-      .addOrderBy('p.performanceTime', 'ASC');
+      .select([...CALENDAR_SELECT]);
 
     if (year !== undefined && !isNaN(year)) {
       qb.andWhere('YEAR(p.performanceDate) = :year', { year });
@@ -83,6 +81,48 @@ export class PerformancesService {
       qb.andWhere('MONTH(p.performanceDate) = :month', { month });
     }
     return qb;
+  }
+
+  /**
+   * Use SELECT list aliases (not raw subqueries with stray dots) so ORDER BY survives
+   * TypeORM’s DISTINCT pagination wrapper for skip/take + joins.
+   */
+  private applyCalendarListSort(
+    qb: SelectQueryBuilder<Performance>,
+    sortByRaw?: string,
+    sortDirRaw?: string,
+  ): void {
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const tie = () =>
+      qb
+        .addOrderBy('performanceDate', 'ASC')
+        .addOrderBy('performanceTime', 'ASC')
+        .addOrderBy('performanceId', 'ASC');
+    if (sortBy === 'attraction') {
+      qb.orderBy('attractionName', sortDir);
+      tie();
+    } else if (sortBy === 'tour') {
+      qb.orderBy('tourName', sortDir);
+      tie();
+    } else if (sortBy === 'venue') {
+      qb.orderBy('venueCompanyName', sortDir).addOrderBy('venueName', sortDir);
+      tie();
+    } else if (sortBy === 'city') {
+      qb.orderBy('city', sortDir);
+      tie();
+    } else if (sortBy === 'state') {
+      qb.orderBy('stateProvince', sortDir);
+      tie();
+    } else if (sortBy === 'status') {
+      qb.orderBy('engagementStatus', sortDir);
+      tie();
+    } else {
+      qb.orderBy('performanceDate', sortDir)
+        .addOrderBy('performanceTime', sortDir)
+        .addOrderBy('performanceId', 'ASC');
+    }
   }
 
   /** Optional visibility filter for calendar list (subset of Unknown / Private / Public). */
@@ -145,6 +185,9 @@ export class PerformancesService {
     month?: number,
   ): Promise<PerformanceCalendarRow[]> {
     const qb = this.buildCalendarQuery(year, month);
+    qb.orderBy('p.performanceDate', 'ASC')
+      .addOrderBy('p.performanceTime', 'ASC')
+      .addOrderBy('p.performanceId', 'ASC');
     const raw = await qb.getRawMany<Record<string, unknown>>();
     return raw.map((r) => this.mapCalendarRaw(r));
   }
@@ -155,9 +198,12 @@ export class PerformancesService {
     offset: number,
     limit: number,
     visibility: string[],
+    sortByRaw?: string,
+    sortDirRaw?: string,
   ): Promise<{ data: PerformanceCalendarRow[]; total: number }> {
     const qb = this.buildCalendarQuery(year, month);
     this.applyVisibilityFilter(qb, visibility);
+    this.applyCalendarListSort(qb, sortByRaw, sortDirRaw);
     const total = await qb.getCount();
     const raw = await qb
       .offset(offset)

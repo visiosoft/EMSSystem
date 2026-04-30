@@ -9,9 +9,13 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CreateTourDto } from './dto/create-tour.dto';
 import { UpdateTourDto } from './dto/update-tour.dto';
+import { tourBannerMulterOptions } from './tour-banner-multer.config';
 import { TourService } from './tour.service';
 
 @Controller('tours')
@@ -23,18 +27,29 @@ export class TourController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') q?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
-    return this.tourService.listPaginated(offset, limit, q);
+    return this.tourService.listPaginated(offset, limit, q, sortBy, sortDir);
   }
 
   @Post()
-  create(@Body() dto: CreateTourDto) {
-    return this.tourService.create(dto);
+  @UseInterceptors(FileInterceptor('bannerImage', tourBannerMulterOptions()))
+  create(
+    @Body() dto: CreateTourDto,
+    @UploadedFile() bannerImage?: Express.Multer.File,
+  ) {
+    return this.tourService.create(dto, bannerImage);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTourDto) {
-    return this.tourService.update(id, dto);
+  @UseInterceptors(FileInterceptor('bannerImage', tourBannerMulterOptions()))
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateTourDto,
+    @UploadedFile() bannerImage?: Express.Multer.File,
+  ) {
+    return this.tourService.update(id, dto, bannerImage);
   }
 
   @Delete(':id')

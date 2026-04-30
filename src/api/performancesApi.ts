@@ -38,6 +38,7 @@ export function fetchPerformancesPaged(
   offset: number,
   limit: number,
   visibility: string[],
+  sort?: { sortBy?: string; sortDir?: 'asc' | 'desc' },
 ) {
   const params = new URLSearchParams({
     year: String(year),
@@ -47,6 +48,10 @@ export function fetchPerformancesPaged(
   });
   for (const v of visibility) {
     params.append('visibility', v);
+  }
+  if (sort?.sortBy?.trim()) {
+    params.set('sortBy', sort.sortBy.trim());
+    if (sort.sortDir) params.set('sortDir', sort.sortDir);
   }
   return apiFetch<ApiPerformancesPageResponse>(
     `/performances/paged?${params.toString()}`,

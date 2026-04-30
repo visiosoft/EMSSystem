@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -96,12 +97,13 @@ export class UpdateVenueProfileDto {
   seatingTypeId?: number | null;
 
   /**
-   * Optional entertainment complex companies (dbo.Company rows with type Entertainment Complex).
-   * Persisted as multiple dbo.VenueComplexMember rows (one per complex company).
-   * Empty array clears all links for this venue.
+   * Optional entertainment complex (dbo.Company with type Entertainment Complex).
+   * At most one complex per venue; persisted as one dbo.VenueComplexMember row when set.
+   * Empty array clears the link (standalone venue).
    */
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(1)
   @IsInt({ each: true })
   @Min(1, { each: true })
   entertainmentComplexCompanyIds?: number[];

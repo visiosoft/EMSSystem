@@ -44,8 +44,17 @@ export class ProjectController {
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') q?: string,
     @Query('projectStage') projectStage?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
-    return this.projectService.listPaginated(offset, limit, q, projectStage);
+    return this.projectService.listPaginated(
+      offset,
+      limit,
+      q,
+      projectStage,
+      sortBy,
+      sortDir,
+    );
   }
 
   @Get(':id')

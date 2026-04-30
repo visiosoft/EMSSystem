@@ -91,6 +91,7 @@ export type ApiVenueProfileResponse =
       venueRelationshipIae: string;
       venueTypeId: number | null;
       venueTypeName: string | null;
+      /** At most one id (one entertainment complex per venue). */
       entertainmentComplexCompanyIds: number[];
       entertainmentComplexes: { companyId: number; companyName: string }[];
       seatingTypeId: number | null;
@@ -235,7 +236,30 @@ export const companiesApiQueryKey = ['companies', 'api'] as const;
 /** Prefix for targeted search queries when the in-memory list has no matches. */
 export const companiesServerSearchQueryKeyPrefix = ['companies', 'api', 'serverSearch'] as const;
 
-export type CompanyListQueryOpts = { q?: string; companyType?: string };
+export type CompanyListQueryOpts = {
+  q?: string;
+  companyType?: string;
+  /** name | type | city | state | dma */
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+};
+
+export function companiesListQueryKey(
+  offset: number,
+  limit: number,
+  opts: CompanyListQueryOpts,
+) {
+  return [
+    'companies',
+    'list',
+    offset,
+    limit,
+    opts.q ?? '',
+    opts.companyType ?? '',
+    opts.sortBy ?? '',
+    opts.sortDir ?? '',
+  ] as const;
+}
 
 export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOpts) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
@@ -243,6 +267,10 @@ export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOp
   if (trimmed) params.set('q', trimmed);
   const ct = opts?.companyType?.trim();
   if (ct && ct !== 'All') params.set('companyType', ct);
+  if (opts?.sortBy?.trim()) {
+    params.set('sortBy', opts.sortBy.trim());
+    if (opts.sortDir) params.set('sortDir', opts.sortDir);
+  }
   return apiFetch<ApiPaginatedResponse<ApiCompanyListRow>>(`/companies?${params}`);
 }
 
@@ -598,11 +626,11 @@ export function searchDmaMarkets(query?: string, limit = 50) {
 }
 
 /**
- * First chunk of DMA rows for pickers (e.g. project wizard). Prefer `searchDmaMarkets` / paged
- * APIs for large lists — `GET /lookups/dma-markets` is paginated `{ data, total }`.
+ * First chunk of DMA rows for small pickers (e.g. venue filters). Large lists should use
+ * {@link fetchDmaMarketsPaged} (dbo.DMA, `{ data, total }`).
  */
 export function fetchDmaMarkets() {
-  return searchDmaMarkets('', 500);
+  return searchDmaMarkets('', 100);
 }
 
 export interface ApiDmaMarketsPageResponse {

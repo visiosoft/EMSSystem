@@ -22,6 +22,8 @@ export class PerformancesController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('visibility') visibility?: string | string[],
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
     const visList = visibility
       ? Array.isArray(visibility)
@@ -39,6 +41,8 @@ export class PerformancesController {
       safeOffset,
       safeLimit,
       visList,
+      sortBy,
+      sortDir,
     );
   }
 

@@ -32,7 +32,7 @@ export class DailySalesController {
    * Paged rows per show with PerformanceDate <= asOf.
    * Reporting columns: asOf (current) and asOf minus one calendar day.
    * ?asOfDate=YYYY-MM-DD (optional; defaults to server date in SQL)
-   * &page=1&pageSize=25&search=&attraction=
+   * &page=1&pageSize=25&search=&attraction=&performanceDate=YYYY-MM-DD
    */
   @Get('by-performance')
   findByPerformance(
@@ -41,6 +41,9 @@ export class DailySalesController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('attraction') attraction?: string,
+    @Query('performanceDate') performanceDate?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
     return this.dailySalesService.findByPerformancePage(
       asOfDate,
@@ -48,6 +51,9 @@ export class DailySalesController {
       pageSize != null && pageSize !== '' ? Number(pageSize) : 25,
       search,
       attraction,
+      performanceDate,
+      sortBy,
+      sortDir,
     );
   }
 

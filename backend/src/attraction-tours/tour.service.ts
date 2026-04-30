@@ -12,6 +12,7 @@ import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
+import { Link } from '../entities/link.entity';
 import { Tour } from '../entities/tour.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { CreateTourDto } from './dto/create-tour.dto';
@@ -37,6 +38,8 @@ export interface TourListRow {
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
+  /** dbo.Link.LinkURL from Tour.BannerLinkID */
+  tourBannerImageUrl: string | null;
   appCreated: boolean;
 }
 
@@ -59,8 +62,90 @@ export class TourService {
     private readonly engagementRepo: Repository<Engagement>,
     @InjectRepository(EngagementProject)
     private readonly engagementProjectRepo: Repository<EngagementProject>,
+    @InjectRepository(Link)
+    private readonly linkRepo: Repository<Link>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
+
+  private async attachBannerFromUpload(
+    tour: Tour,
+    file: Express.Multer.File,
+  ): Promise<void> {
+    const fileName = file.filename;
+    if (!fileName?.trim()) {
+      throw new BadRequestException('Upload did not produce a filename.');
+    }
+    const publicPath = `/uploads/tour-banners/${fileName}`.slice(0, 2048);
+    const safeName = (file.originalname || 'Tour banner')
+      .replace(/[\x00-\x1f]/g, '')
+      .slice(0, 255);
+    const link = this.linkRepo.create({
+      linkType: 'Image',
+      linkUrl: publicPath,
+      linkPath: publicPath.slice(0, 1024),
+      linkName: safeName || 'Tour banner',
+    });
+    const savedLink = await this.linkRepo.save(link);
+    tour.bannerLinkId = savedLink.linkId;
+    await this.tourRepo.save(tour);
+  }
+
+  private async tourBannerUrlsByTourIds(
+    tourIds: number[],
+  ): Promise<Map<number, string | null>> {
+    const uniq = [...new Set(tourIds)].filter(
+      (id) => Number.isInteger(id) && id > 0,
+    );
+    const map = new Map<number, string | null>();
+    for (const id of uniq) map.set(id, null);
+    if (!uniq.length) return map;
+
+    const rows = await this.tourRepo
+      .createQueryBuilder('t')
+      .leftJoin(Link, 'tb', 'tb.linkId = t.bannerLinkId')
+      .select('t.tourId', 'tourId')
+      .addSelect('tb.linkUrl', 'tourBannerImageUrl')
+      .where('t.tourId IN (:...ids)', { ids: uniq })
+      .getRawMany<{ tourId: number; tourBannerImageUrl: string | null }>();
+
+    for (const row of rows) {
+      const tid = Number(row.tourId);
+      const u =
+        row.tourBannerImageUrl != null
+          ? String(row.tourBannerImageUrl).trim()
+          : '';
+      map.set(tid, u || null);
+    }
+    return map;
+  }
+
+  private mapTourEntityToRow(
+    t: Tour,
+    tourBannerImageUrl: string | null,
+  ): TourListRow {
+    return {
+      tourId: t.tourId,
+      tourName: t.tourName,
+      attractionId: t.attractionId,
+      attractionName: t.attraction?.attractionName ?? '',
+      classId: t.classId,
+      className: t.class?.className ?? '',
+      audienceGender: t.audienceGender,
+      audienceAgeRange: t.audienceAgeRange,
+      ascap: t.ascap,
+      bmi: t.bmi,
+      sesac: t.sesac,
+      gmr: t.gmr,
+      tourInsuranceLanguage: t.tourInsuranceLanguage,
+      tourManagementCompanyId: t.tourManagementCompanyId,
+      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+      techRiderLinkId: t.techRiderLinkId,
+      venueTypePreferenceId: t.venueTypePreferenceId,
+      venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
+      tourBannerImageUrl,
+      appCreated: this.emsCreated.canDeleteTour(t.tourId),
+    };
+  }
 
   /** Tour names are globally unique (case-insensitive), across all attractions. */
   private async assertUniqueTourName(
@@ -93,41 +178,40 @@ export class TourService {
       .orderBy('t.tourName', 'ASC')
       .getMany();
 
-    return rows.map((t) => ({
-      tourId: t.tourId,
-      tourName: t.tourName,
-      attractionId: t.attractionId,
-      attractionName: t.attraction?.attractionName ?? '',
-      classId: t.classId,
-      className: t.class?.className ?? '',
-      audienceGender: t.audienceGender,
-      audienceAgeRange: t.audienceAgeRange,
-      ascap: t.ascap,
-      bmi: t.bmi,
-      sesac: t.sesac,
-      gmr: t.gmr,
-      tourInsuranceLanguage: t.tourInsuranceLanguage,
-      tourManagementCompanyId: t.tourManagementCompanyId,
-      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
-      techRiderLinkId: t.techRiderLinkId,
-      venueTypePreferenceId: t.venueTypePreferenceId,
-      venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
-      appCreated: this.emsCreated.canDeleteTour(t.tourId),
-    }));
+    const bannerMap = await this.tourBannerUrlsByTourIds(
+      rows.map((t) => t.tourId),
+    );
+    return rows.map((t) =>
+      this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+    );
   }
 
   async listPaginated(
     offset: number,
     limit: number,
     q?: string,
+    sortByRaw?: string,
+    sortDirRaw?: string,
   ): Promise<{ data: TourListRow[]; total: number }> {
     const qb = this.tourRepo
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.attraction', 'a')
       .innerJoinAndSelect('t.class', 'c')
       .leftJoinAndSelect('t.tourManagementCompany', 'm')
-      .leftJoinAndSelect('t.venueTypePreference', 'v')
-      .orderBy('t.tourName', 'ASC');
+      .leftJoinAndSelect('t.venueTypePreference', 'v');
+
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    if (sortBy === 'attraction') {
+      qb.orderBy('a.attractionName', sortDir).addOrderBy('t.tourName', 'ASC');
+    } else if (sortBy === 'class') {
+      qb.orderBy('c.className', sortDir).addOrderBy('t.tourName', 'ASC');
+    } else if (sortBy === 'management' || sortBy === 'tourmgmt') {
+      qb.orderBy('m.companyName', sortDir).addOrderBy('t.tourName', 'ASC');
+    } else {
+      qb.orderBy('t.tourName', sortDir).addOrderBy('t.tourId', 'ASC');
+    }
 
     const trimmed = (q ?? '').trim();
     if (trimmed) {
@@ -140,33 +224,21 @@ export class TourService {
     const total = await qb.getCount();
     const rows = await qb.skip(offset).take(limit).getMany();
 
+    const bannerMap = await this.tourBannerUrlsByTourIds(
+      rows.map((t) => t.tourId),
+    );
     return {
-      data: rows.map((t) => ({
-        tourId: t.tourId,
-        tourName: t.tourName,
-        attractionId: t.attractionId,
-        attractionName: t.attraction?.attractionName ?? '',
-        classId: t.classId,
-        className: t.class?.className ?? '',
-        audienceGender: t.audienceGender,
-        audienceAgeRange: t.audienceAgeRange,
-        ascap: t.ascap,
-        bmi: t.bmi,
-        sesac: t.sesac,
-        gmr: t.gmr,
-        tourInsuranceLanguage: t.tourInsuranceLanguage,
-        tourManagementCompanyId: t.tourManagementCompanyId,
-        tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
-        techRiderLinkId: t.techRiderLinkId,
-        venueTypePreferenceId: t.venueTypePreferenceId,
-        venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
-        appCreated: this.emsCreated.canDeleteTour(t.tourId),
-      })),
+      data: rows.map((t) =>
+        this.mapTourEntityToRow(t, bannerMap.get(t.tourId) ?? null),
+      ),
       total,
     };
   }
 
-  async create(dto: CreateTourDto): Promise<TourListRow> {
+  async create(
+    dto: CreateTourDto,
+    bannerFile?: Express.Multer.File,
+  ): Promise<TourListRow> {
     const attraction = await this.attractionRepo.findOne({
       where: { attractionId: dto.attractionId },
     });
@@ -210,13 +282,21 @@ export class TourService {
       tourManagementCompanyId: dto.tourManagementCompanyId ?? null,
       techRiderLinkId: null,
       venueTypePreferenceId: null,
+      bannerLinkId: null,
     });
     const saved = await this.tourRepo.save(row);
     this.emsCreated.recordTour(saved.tourId);
+    if (bannerFile) {
+      await this.attachBannerFromUpload(saved, bannerFile);
+    }
     return this.buildListRow(saved.tourId);
   }
 
-  async update(id: number, dto: UpdateTourDto): Promise<TourListRow> {
+  async update(
+    id: number,
+    dto: UpdateTourDto,
+    bannerFile?: Express.Multer.File,
+  ): Promise<TourListRow> {
     const existing = await this.tourRepo.findOne({ where: { tourId: id } });
     if (!existing) {
       throw new NotFoundException({ message: 'Tour not found.' });
@@ -297,6 +377,18 @@ export class TourService {
       }
       throw e;
     }
+
+    const refreshed = await this.tourRepo.findOne({ where: { tourId: id } });
+    if (!refreshed) {
+      throw new NotFoundException({ message: 'Tour not found.' });
+    }
+    if (bannerFile) {
+      await this.attachBannerFromUpload(refreshed, bannerFile);
+    } else if (dto.removeBanner) {
+      refreshed.bannerLinkId = null;
+      await this.tourRepo.save(refreshed);
+    }
+
     return this.buildListRow(id);
   }
 
@@ -313,27 +405,8 @@ export class TourService {
     if (!t) {
       throw new NotFoundException({ message: 'Tour not found.' });
     }
-    return {
-      tourId: t.tourId,
-      tourName: t.tourName,
-      attractionId: t.attractionId,
-      attractionName: t.attraction?.attractionName ?? '',
-      classId: t.classId,
-      className: t.class?.className ?? '',
-      audienceGender: t.audienceGender,
-      audienceAgeRange: t.audienceAgeRange,
-      ascap: t.ascap,
-      bmi: t.bmi,
-      sesac: t.sesac,
-      gmr: t.gmr,
-      tourInsuranceLanguage: t.tourInsuranceLanguage,
-      tourManagementCompanyId: t.tourManagementCompanyId,
-      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
-      techRiderLinkId: t.techRiderLinkId,
-      venueTypePreferenceId: t.venueTypePreferenceId,
-      venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
-      appCreated: this.emsCreated.canDeleteTour(t.tourId),
-    };
+    const bannerMap = await this.tourBannerUrlsByTourIds([tourId]);
+    return this.mapTourEntityToRow(t, bannerMap.get(tourId) ?? null);
   }
 
   async remove(id: number): Promise<void> {

@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -14,10 +15,12 @@ export class CreateTourDto {
   @MaxLength(200)
   tourName: string;
 
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   attractionId: number;
 
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   classId: number;
@@ -39,6 +42,7 @@ export class CreateTourDto {
   gmr?: boolean;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   tourManagementCompanyId?: number | null;

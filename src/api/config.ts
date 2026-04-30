@@ -14,11 +14,36 @@ export async function apiFetch<T>(
   const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
   const res = await fetch(url, {
     ...init,
+    /** Avoid stale 304 cached JSON for GETs after PATCH (venue profile, lists, etc.). */
+    cache: init?.cache ?? 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
     },
   });
+  return handleApiResponse<T>(res);
+}
+
+/** Multipart (e.g. tour create/update with optional image). Do not set Content-Type — browser sets boundary. */
+export async function apiFetchMultipart<T>(
+  path: string,
+  init: Omit<RequestInit, 'headers'> & { body: FormData; headers?: HeadersInit },
+): Promise<T> {
+  const base = getApiBaseUrl();
+  const url = `${base}/api${path.startsWith('/') ? path : `/${path}`}`;
+  const { body, headers, ...rest } = init;
+  const res = await fetch(url, {
+    ...rest,
+    body,
+    cache: rest.cache ?? 'no-store',
+    headers: {
+      ...(headers ?? {}),
+    },
+  });
+  return handleApiResponse<T>(res);
+}
+
+async function handleApiResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let userMessage = res.statusText;
     let devDetail: string | undefined;

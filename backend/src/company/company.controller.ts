@@ -32,8 +32,17 @@ export class CompanyController {
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') q?: string,
     @Query('companyType') companyType?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
-    return this.companyService.findAllPaginated(offset, limit, q, companyType);
+    return this.companyService.findAllPaginated(
+      offset,
+      limit,
+      q,
+      companyType,
+      sortBy,
+      sortDir,
+    );
   }
 
   @Post()

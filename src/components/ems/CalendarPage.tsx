@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
 import { StatusBadge } from './Primitives';
 import {
   fetchPerformances,
@@ -70,6 +70,23 @@ function entryLabel(p: ApiPerformanceCalendarRow): string {
   return p.attractionName ?? p.tourName ?? 'Engagement';
 }
 
+/** Grid chip line 1 — prefer attraction name, else tour. */
+function gridEntryAttraction(p: ApiPerformanceCalendarRow): string {
+  const a = p.attractionName?.trim();
+  if (a) return a;
+  const t = p.tourName?.trim();
+  if (t) return t;
+  return 'Engagement';
+}
+
+/** Grid chip line 2 — city, state (or em dash). */
+function gridEntryCityState(p: ApiPerformanceCalendarRow): string {
+  const loc = [p.city, p.stateProvince]
+    .filter((x) => x != null && String(x).trim() !== '')
+    .join(', ');
+  return loc || '—';
+}
+
 function CalendarListTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number }) {
   return (
     <div
@@ -130,6 +147,11 @@ export function CalendarPage({ onNavigate }: Props) {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [listPage, setListPage] = useState(1);
   const [listPageSize, setListPageSize] = useState<PageSizeOption>(PAGE_SIZE);
+  type CalendarListSortCol = 'date' | 'attraction' | 'tour' | 'venue' | 'city' | 'status';
+  const [listSort, setListSort] = useState<{
+    col: CalendarListSortCol;
+    dir: 'asc' | 'desc';
+  }>({ col: 'date', dir: 'asc' });
 
   const visibilityKey = useMemo(
     () => [...activeStatuses].sort().join(','),
@@ -151,10 +173,33 @@ export function CalendarPage({ onNavigate }: Props) {
   });
 
   const { offset: listOffset, limit: listLimit } = getPageParams(listPage, listPageSize);
+
+  const toggleListSort = useCallback((col: CalendarListSortCol) => {
+    setListSort((s) =>
+      s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' },
+    );
+    setListPage(1);
+  }, []);
+
   const listQuery = useQuery({
-    queryKey: ['performances', 'list', year, month + 1, listPage, listPageSize, visibilityKey, listOffset, listLimit],
+    queryKey: [
+      'performances',
+      'list',
+      year,
+      month + 1,
+      listPage,
+      listPageSize,
+      visibilityKey,
+      listOffset,
+      listLimit,
+      listSort.col,
+      listSort.dir,
+    ],
     queryFn: () =>
-      fetchPerformancesPaged(year, month + 1, listOffset, listLimit, visibilityForApi),
+      fetchPerformancesPaged(year, month + 1, listOffset, listLimit, visibilityForApi, {
+        sortBy: listSort.col,
+        sortDir: listSort.dir,
+      }),
     enabled: viewMode === 'list',
     staleTime: 60 * 1000,
     placeholderData: (prev) => prev,
@@ -351,14 +396,20 @@ export function CalendarPage({ onNavigate }: Props) {
                   <div className="space-y-0.5">
                     {dayPerfs.slice(0, 3).map((p) => {
                       const cfg = cfgFor(engagementVisibilityKey(p));
+                      const venue = p.venueName ?? p.venueCompanyName ?? '—';
                       return (
                         <div
                           key={p.performanceId}
                           onClick={(e) => { e.stopPropagation(); onNavigate('engagement-detail', { engagementId: p.engagementId }); }}
-                          className={`text-[10px] truncate px-1 py-0.5 rounded border ${cfg.bg} ${cfg.text} leading-tight cursor-pointer hover:opacity-80`}
-                          title={`${entryLabel(p)} @ ${p.venueName ?? p.venueCompanyName ?? '—'} · ${formatTime12(p.performanceTime)}`}
+                          className={`px-1 py-0.5 rounded border ${cfg.bg} ${cfg.text} leading-tight cursor-pointer hover:opacity-80`}
+                          title={`${gridEntryAttraction(p)} · ${gridEntryCityState(p)} · ${venue} · ${formatTime12(p.performanceTime)}`}
                         >
-                          {entryLabel(p)}
+                          <div className={`truncate text-[10px] font-medium ${cfg.text}`}>
+                            {gridEntryAttraction(p)}
+                          </div>
+                          <div className={`truncate text-[9px] opacity-90 ${cfg.text}`}>
+                            {gridEntryCityState(p)}
+                          </div>
                         </div>
                       );
                     })}
@@ -384,13 +435,39 @@ export function CalendarPage({ onNavigate }: Props) {
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Date</th>
-                  <th className="text-left py-2.5 px-3">Time</th>
-                  <th className="text-left py-2.5 px-3">Attraction</th>
-                  <th className="text-left py-2.5 px-3">Tour</th>
-                  <th className="text-left py-2.5 px-3">Venue</th>
-                  <th className="text-left py-2.5 px-3">City</th>
-                  <th className="text-left py-2.5 px-3">Status</th>
+                  {(
+                    [
+                      { col: 'date' as const, label: 'Date' },
+                      { col: null, label: 'Time' },
+                      { col: 'attraction' as const, label: 'Attraction' },
+                      { col: 'tour' as const, label: 'Tour' },
+                      { col: 'venue' as const, label: 'Venue' },
+                      { col: 'city' as const, label: 'City' },
+                      { col: 'status' as const, label: 'Status' },
+                    ] as const
+                  ).map((h) =>
+                    h.col == null ? (
+                      <th key="time" className="text-left py-2.5 px-3">
+                        {h.label}
+                      </th>
+                    ) : (
+                      <th key={h.col} className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                          onClick={() => toggleListSort(h.col)}
+                        >
+                          {h.label}
+                          {listSort.col === h.col &&
+                            (listSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody>

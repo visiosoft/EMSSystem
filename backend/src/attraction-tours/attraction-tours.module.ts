@@ -5,6 +5,7 @@ import { Class } from '../entities/class.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementProject } from '../entities/engagement-project.entity';
+import { Link } from '../entities/link.entity';
 import { Tour } from '../entities/tour.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { AttractionController } from './attraction.controller';
@@ -17,6 +18,7 @@ import { TourService } from './tour.service';
   imports: [
     TypeOrmModule.forFeature([
       Attraction,
+      Link,
       Tour,
       Class,
       Company,

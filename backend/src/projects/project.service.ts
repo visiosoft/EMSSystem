@@ -544,6 +544,8 @@ export class ProjectService {
     limit: number,
     search?: string,
     projectStageFilter?: string,
+    sortByRaw?: string,
+    sortDirRaw?: string,
   ): Promise<{
     data: Array<{
       engagementProjectId: number;
@@ -566,8 +568,7 @@ export class ProjectService {
       .createQueryBuilder('ep')
       .innerJoinAndSelect('ep.tour', 't')
       .leftJoinAndSelect('t.attraction', 'a')
-      .leftJoinAndSelect('t.tourManagementCompany', 'tm')
-      .orderBy('ep.engagementProjectId', 'DESC');
+      .leftJoinAndSelect('t.tourManagementCompany', 'tm');
 
     const stage = (projectStageFilter ?? '').trim();
     if (stage && stage !== 'All') {
@@ -602,6 +603,23 @@ export class ProjectService {
             });
         }),
       );
+    }
+
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    const sortWhitelist: Record<string, string> = {
+      attraction: 'a.attractionName',
+      tour: 't.tourName',
+      tourmgmt: 'tm.companyName',
+      createdby: 'ep.createdBy',
+      created: 'ep.createdDate',
+    };
+    const sortExpr = sortWhitelist[sortBy];
+    if (sortExpr) {
+      qb.orderBy(sortExpr, sortDir).addOrderBy('ep.engagementProjectId', 'DESC');
+    } else {
+      qb.orderBy('ep.engagementProjectId', 'DESC');
     }
 
     const total = await qb.getCount();

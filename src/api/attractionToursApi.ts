@@ -1,4 +1,4 @@
-import { apiFetch } from './config';
+import { apiFetch, apiFetchMultipart } from './config';
 
 export interface ApiClass {
   classId: number;
@@ -14,6 +14,8 @@ export interface ApiAttractionListRow {
   attractionId: number;
   attractionName: string;
   activeTourCount: number;
+  /** Banner from dbo.Link for the tour with the highest TourID on this attraction */
+  latestTourBannerImageUrl: string | null;
   appCreated: boolean;
 }
 
@@ -36,6 +38,7 @@ export interface ApiTourListRow {
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
+  tourBannerImageUrl: string | null;
   appCreated: boolean;
 }
 
@@ -71,10 +74,17 @@ export interface ApiPaginatedResponse<T> {
   total: number;
 }
 
-export function fetchAttractions(offset = 0, limit = 25, q?: string) {
+export function fetchAttractions(
+  offset = 0,
+  limit = 25,
+  q?: string,
+  sort?: { sortBy?: string; sortDir?: 'asc' | 'desc' },
+) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   const trimmed = q?.trim();
   if (trimmed) params.set('q', trimmed);
+  if (sort?.sortBy?.trim()) params.set('sortBy', sort.sortBy.trim());
+  if (sort?.sortDir) params.set('sortDir', sort.sortDir);
   return apiFetch<ApiPaginatedResponse<ApiAttractionListRow>>(`/attractions?${params}`);
 }
 
@@ -104,25 +114,102 @@ export const toursListQueryKey = ['tours'] as const;
 export const attractionsServerSearchKeyPrefix = ['attractions', 'serverSearch'] as const;
 export const toursServerSearchKeyPrefix = ['tours', 'serverSearch'] as const;
 
-export function fetchTours(offset = 0, limit = 25, q?: string) {
+export function fetchTours(
+  offset = 0,
+  limit = 25,
+  q?: string,
+  sort?: { sortBy?: string; sortDir?: 'asc' | 'desc' },
+) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   const trimmed = q?.trim();
   if (trimmed) params.set('q', trimmed);
+  if (sort?.sortBy?.trim()) params.set('sortBy', sort.sortBy.trim());
+  if (sort?.sortDir) params.set('sortDir', sort.sortDir);
   return apiFetch<ApiPaginatedResponse<ApiTourListRow>>(`/tours?${params}`);
 }
 
-export function createTour(body: CreateTourPayload) {
-  return apiFetch<ApiTourListRow>('/tours', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+function buildCreateTourFormData(body: CreateTourPayload): FormData {
+  const fd = new FormData();
+  fd.append('tourName', body.tourName);
+  fd.append('attractionId', String(body.attractionId));
+  fd.append('classId', String(body.classId));
+  fd.append('ascap', String(Boolean(body.ascap)));
+  fd.append('bmi', String(Boolean(body.bmi)));
+  fd.append('sesac', String(Boolean(body.sesac)));
+  fd.append('gmr', String(Boolean(body.gmr)));
+  if (body.tourManagementCompanyId != null && body.tourManagementCompanyId >= 1) {
+    fd.append('tourManagementCompanyId', String(body.tourManagementCompanyId));
+  }
+  if (body.audienceGender != null && body.audienceGender !== '') {
+    fd.append('audienceGender', body.audienceGender);
+  }
+  if (body.audienceAgeRange != null && body.audienceAgeRange !== '') {
+    fd.append('audienceAgeRange', body.audienceAgeRange);
+  }
+  if (body.tourInsuranceLanguage != null && body.tourInsuranceLanguage !== '') {
+    fd.append('tourInsuranceLanguage', body.tourInsuranceLanguage);
+  }
+  if (body.venueTypePreferenceId != null && body.venueTypePreferenceId >= 1) {
+    fd.append('venueTypePreferenceId', String(body.venueTypePreferenceId));
+  }
+  if (body.techRiderLinkId != null && body.techRiderLinkId >= 1) {
+    fd.append('techRiderLinkId', String(body.techRiderLinkId));
+  }
+  return fd;
 }
 
-export function updateTour(id: number, body: UpdateTourPayload) {
-  return apiFetch<ApiTourListRow>(`/tours/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  });
+function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
+  const fd = new FormData();
+  const keys: (keyof CreateTourPayload)[] = [
+    'tourName',
+    'attractionId',
+    'classId',
+    'ascap',
+    'bmi',
+    'sesac',
+    'gmr',
+    'tourManagementCompanyId',
+    'audienceGender',
+    'audienceAgeRange',
+    'tourInsuranceLanguage',
+    'venueTypePreferenceId',
+    'techRiderLinkId',
+  ];
+  for (const k of keys) {
+    const v = body[k];
+    if (v === undefined) continue;
+    if (v === null) {
+      fd.append(k, '');
+      continue;
+    }
+    if (typeof v === 'boolean') {
+      fd.append(k, v ? 'true' : 'false');
+      continue;
+    }
+    fd.append(k, String(v));
+  }
+  return fd;
+}
+
+/** Optional `bannerFile` is stored under `/uploads/tour-banners/` and linked via dbo.Link + Tour.BannerLinkID. */
+export function createTour(
+  body: CreateTourPayload,
+  opts?: { bannerFile?: File | null },
+) {
+  const fd = buildCreateTourFormData(body);
+  if (opts?.bannerFile) fd.append('bannerImage', opts.bannerFile);
+  return apiFetchMultipart<ApiTourListRow>('/tours', { method: 'POST', body: fd });
+}
+
+export function updateTour(
+  id: number,
+  body: UpdateTourPayload,
+  opts?: { bannerFile?: File | null; removeBanner?: boolean },
+) {
+  const fd = buildUpdateTourFormData(body);
+  if (opts?.bannerFile) fd.append('bannerImage', opts.bannerFile);
+  if (opts?.removeBanner) fd.append('removeBanner', 'true');
+  return apiFetchMultipart<ApiTourListRow>(`/tours/${id}`, { method: 'PATCH', body: fd });
 }
 
 export function deleteTour(id: number) {

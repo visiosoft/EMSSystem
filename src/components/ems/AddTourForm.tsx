@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { ImageIcon } from 'lucide-react';
 import { FormField } from './Primitives';
 import { Select2 } from './Select2';
 import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/attractionToursApi';
@@ -7,6 +8,7 @@ import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/at
 export function AddTourForm({
   attractions,
   classes,
+  managementCompanyOptions,
   submitting,
   onSave,
   onCancel,
@@ -14,8 +16,10 @@ export function AddTourForm({
 }: {
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
+  /** Talent agencies only — same filter as the full tour form on Attraction Tours. */
+  managementCompanyOptions: { value: string; label: string }[];
   submitting: boolean;
-  onSave: (body: CreateTourPayload) => void;
+  onSave: (body: CreateTourPayload, bannerFile?: File | null) => void;
   onCancel: () => void;
   /** When set, attraction is fixed (e.g. project wizard) and the attraction picker is hidden. */
   lockAttractionId?: number;
@@ -25,11 +29,25 @@ export function AddTourForm({
     () => (lockAttractionId != null ? String(lockAttractionId) : ''),
   );
   const [classId, setClassId] = useState('');
+  const [tourManagementCompanyId, setTourManagementCompanyId] = useState('');
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerInputKey, setBannerInputKey] = useState(0);
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string;
     attractionId?: string;
     classId?: string;
   }>({});
+
+  useEffect(() => {
+    if (!bannerFile) {
+      setBannerPreview(null);
+      return;
+    }
+    const u = URL.createObjectURL(bannerFile);
+    setBannerPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [bannerFile]);
 
   const inputCls =
     'w-full bg-surface border border-border rounded px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-ems-accent';
@@ -89,6 +107,23 @@ export function AddTourForm({
           }}
         />
       </FormField>
+      <FormField label="Tour management company" optional>
+        <Select2
+          options={managementCompanyOptions}
+          value={tourManagementCompanyId}
+          placeholder="Select talent agency…"
+          allowClear
+          onChange={(v) => {
+            setTourManagementCompanyId(v);
+          }}
+        />
+        {managementCompanyOptions.length === 0 && (
+          <p className="text-[11px] text-text-muted mt-1">
+            No companies with type{' '}
+            <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
+          </p>
+        )}
+      </FormField>
       <FormField label="Tour Name" required error={fieldErrors.name}>
         <input
           className={inputCls}
@@ -106,10 +141,62 @@ export function AddTourForm({
           autoFocus
         />
       </FormField>
+      <FormField label="Tour banner image" optional>
+        <p className="text-[11px] text-text-muted mb-2">
+          JPEG, PNG, WebP, or GIF — max 5 MB. Used on tour and engagement tiles.
+        </p>
+        <div className="space-y-2">
+          <input
+            key={bannerInputKey}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            disabled={submitting}
+            className="block w-full text-xs text-text-secondary file:mr-3 file:rounded file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text-primary hover:file:bg-hover"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setBannerFile(f);
+            }}
+          />
+          {(bannerPreview || bannerFile) && (
+            <div className="flex items-start gap-3">
+              {bannerPreview && (
+                <img
+                  src={bannerPreview}
+                  alt=""
+                  className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+                />
+              )}
+              {bannerFile && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => {
+                    setBannerFile(null);
+                    setBannerInputKey((k) => k + 1);
+                  }}
+                  className="text-xs text-ems-accent hover:underline disabled:opacity-50"
+                >
+                  Clear image
+                </button>
+              )}
+            </div>
+          )}
+          {!bannerFile && (
+            <p className="text-[11px] text-text-muted flex items-center gap-1">
+              <ImageIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              No file selected
+            </p>
+          )}
+        </div>
+      </FormField>
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <button
           type="button"
-          onClick={onCancel}
+          onClick={() => {
+            setBannerFile(null);
+            setBannerInputKey((k) => k + 1);
+            onCancel();
+          }}
           className="text-text-secondary px-4 py-1.5 text-sm"
           disabled={submitting}
         >
@@ -138,20 +225,26 @@ export function AddTourForm({
               return;
             }
             setFieldErrors({});
-            onSave({
-              tourName: tn,
-              attractionId: lockAttractionId ?? Number(attractionId),
-              classId: Number(classId),
-              ascap: false,
-              bmi: false,
-              sesac: false,
-              gmr: false,
-              tourManagementCompanyId: null,
-              audienceGender: null,
-              audienceAgeRange: null,
-              tourInsuranceLanguage: null,
-              venueTypePreferenceId: null,
-            });
+            onSave(
+              {
+                tourName: tn,
+                attractionId: lockAttractionId ?? Number(attractionId),
+                classId: Number(classId),
+                ascap: false,
+                bmi: false,
+                sesac: false,
+                gmr: false,
+                tourManagementCompanyId:
+                  tourManagementCompanyId && Number.isFinite(Number(tourManagementCompanyId))
+                    ? Number(tourManagementCompanyId)
+                    : null,
+                audienceGender: null,
+                audienceAgeRange: null,
+                tourInsuranceLanguage: null,
+                venueTypePreferenceId: null,
+              },
+              bannerFile,
+            );
           }}
           className="px-4 py-1.5 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"
         >

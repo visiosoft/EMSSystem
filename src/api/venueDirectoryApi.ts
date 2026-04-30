@@ -24,6 +24,9 @@ export function fetchAllVenues(
     complexCompanyId?: number;
     venueTypeId?: number;
     dmaId?: number;
+    /** venue | type | dma | capacity | complex */
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
   } = {},
 ) {
   const params = new URLSearchParams({
@@ -42,6 +45,10 @@ export function fetchAllVenues(
   }
   if (opts.dmaId != null && opts.dmaId > 0) {
     params.set('dmaId', String(opts.dmaId));
+  }
+  if (opts.sortBy?.trim()) {
+    params.set('sortBy', opts.sortBy.trim());
+    if (opts.sortDir) params.set('sortDir', opts.sortDir);
   }
   return apiFetch<ApiPaginatedResponse<ApiAllVenueRow>>(
     `/venue-directory/venues?${params.toString()}`,

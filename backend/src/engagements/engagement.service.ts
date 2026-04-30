@@ -10,6 +10,7 @@ import { Address } from '../entities/address.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Dma } from '../entities/dma.entity';
+import { Link } from '../entities/link.entity';
 import { Engagement } from '../entities/engagement.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
@@ -47,6 +48,10 @@ export interface EngagementListRow {
   city: string | null;
   stateProvince: string | null;
   dmaMarketName: string | null;
+  /** dbo.Tour.BannerLinkID → dbo.Link.LinkURL for tile imagery */
+  tourBannerImageUrl: string | null;
+  /** dbo.VenueComplexMember → complex company names (comma-separated) for primary venue */
+  entertainmentComplexNames: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -103,6 +108,9 @@ export interface EngagementListFilters {
   dmaMarketName?: string;
   venueLabel?: string;
   timing?: 'all' | 'upcoming' | 'past';
+  /** Whitelist: attraction, tour, venue, market, date */
+  sortBy?: string;
+  sortDir?: string;
 }
 
 function pickRaw(r: Record<string, unknown>, key: string): unknown {
@@ -283,10 +291,19 @@ export class EngagementService {
    *             → EngagementVenue (primary) → Venue → Company → Address + DMA
    */
   private buildEngagementQuery(whereId?: number) {
+    const entertainmentComplexSubquery = `(
+          SELECT STRING_AGG(LTRIM(RTRIM(ccx.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccx.CompanyName)))
+          FROM dbo.EngagementVenue evx
+          INNER JOIN dbo.VenueComplexMember vcmx ON vcmx.VenueCompanyID = evx.VenueCompanyID
+          INNER JOIN dbo.Company ccx ON ccx.CompanyID = vcmx.ComplexCompanyID
+          WHERE evx.EngagementID = e.engagementId AND evx.IsPrimary = 1
+        )`;
+
     const qb = this.engagementRepo
       .createQueryBuilder('e')
       .innerJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
+      .leftJoin(Link, 'tourBanner', 'tourBanner.linkId = t.bannerLinkId')
       .leftJoin(
         EngagementVenue,
         'ev',
@@ -310,7 +327,9 @@ export class EngagementService {
         'addr.city              AS city',
         'addr.stateProvince     AS stateProvince',
         'dma.marketName         AS dmaMarketName',
+        'tourBanner.linkUrl     AS tourBannerImageUrl',
       ])
+      .addSelect(entertainmentComplexSubquery, 'entertainmentComplexNames')
       .addSelect(
         this.openingPerformanceDateSubquery(),
         'openingPerformanceDate',
@@ -322,8 +341,6 @@ export class EngagementService {
 
     if (whereId !== undefined) {
       qb.where('e.engagementId = :id', { id: whereId });
-    } else {
-      qb.orderBy('e.engagementId', 'DESC');
     }
     return qb;
   }
@@ -412,6 +429,18 @@ export class EngagementService {
         g('stateProvince') != null ? String(g('stateProvince')) : null,
       dmaMarketName:
         g('dmaMarketName') != null ? String(g('dmaMarketName')) : null,
+      tourBannerImageUrl: (() => {
+        const u = g('tourBannerImageUrl');
+        if (u == null || u === '') return null;
+        const s = String(u).trim();
+        return s || null;
+      })(),
+      entertainmentComplexNames: (() => {
+        const x = g('entertainmentComplexNames');
+        if (x == null || x === '') return null;
+        const s = String(x).trim();
+        return s || null;
+      })(),
       displayTitle: buildEngagementDisplayTitle(
         attractionName,
         tourName,
@@ -424,7 +453,9 @@ export class EngagementService {
   // ─── CRUD ─────────────────────────────────────────────────────────────────
 
   async list(): Promise<EngagementListRow[]> {
-    const raw = await this.buildEngagementQuery().getRawMany();
+    const raw = await this.buildEngagementQuery()
+      .orderBy('e.engagementId', 'DESC')
+      .getRawMany();
     return (raw as Record<string, unknown>[]).map((r) => this.mapRaw(r));
   }
 
@@ -459,7 +490,13 @@ export class EngagementService {
     if (q) {
       const like = `%${q}%`;
       qb.andWhere(
-        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) OR LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like))`,
+        `(LOWER(CAST(e.engagementId AS VARCHAR(20))) LIKE LOWER(:like) OR LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like) OR LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(ISNULL(vc.companyName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(v.venueName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(dma.marketName, '')) LIKE LOWER(:like) OR LOWER(ISNULL(e.engagementStatus, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.city, '')) LIKE LOWER(:like) OR LOWER(ISNULL(addr.stateProvince, '')) LIKE LOWER(:like) OR LOWER(ISNULL(tourBanner.linkUrl, '')) LIKE LOWER(:like) OR LOWER(ISNULL((
+          SELECT STRING_AGG(LTRIM(RTRIM(ccq.CompanyName)), N', ') WITHIN GROUP (ORDER BY LTRIM(RTRIM(ccq.CompanyName)))
+          FROM dbo.EngagementVenue evq
+          INNER JOIN dbo.VenueComplexMember vcmq ON vcmq.VenueCompanyID = evq.VenueCompanyID
+          INNER JOIN dbo.Company ccq ON ccq.CompanyID = vcmq.ComplexCompanyID
+          WHERE evq.EngagementID = e.engagementId AND evq.IsPrimary = 1
+        ), '')) LIKE LOWER(:like))`,
         { like },
       );
     }
@@ -504,6 +541,38 @@ export class EngagementService {
     }
   }
 
+  private applyEngagementListSort(
+    qb: SelectQueryBuilder<Engagement>,
+    sortByRaw?: string,
+    sortDirRaw?: string,
+  ): void {
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    if (sortBy === 'attraction') {
+      qb.orderBy('a.attractionName', sortDir).addOrderBy('e.engagementId', 'DESC');
+    } else if (sortBy === 'tour') {
+      qb.orderBy('t.tourName', sortDir).addOrderBy('e.engagementId', 'DESC');
+    } else if (sortBy === 'venue') {
+      qb.orderBy('vc.companyName', sortDir)
+        .addOrderBy('v.venueName', sortDir)
+        .addOrderBy('e.engagementId', 'DESC');
+    } else if (sortBy === 'market') {
+      qb.orderBy('dma.marketName', sortDir).addOrderBy('e.engagementId', 'DESC');
+    } else if (sortBy === 'date') {
+      // Must use SELECT list aliases, not raw subqueries in ORDER BY: with skip/take and
+      // joins, TypeORM builds a DISTINCT pagination wrapper and only preserves order keys
+      // that resolve to selected columns. Expressions containing "." were misparsed as
+      // alias.property (see createOrderByCombinedWithSelectExpression).
+      qb.orderBy('openingPerformanceDate', sortDir)
+        .addOrderBy('openingPerformanceTime', sortDir)
+        .addOrderBy('e.engagementId', 'DESC');
+    } else {
+      qb.orderBy('e.engagementId', 'DESC');
+    }
+  }
+
   async listPaginated(
     offset: number,
     limit: number,
@@ -514,6 +583,7 @@ export class EngagementService {
 
     const qb = this.buildEngagementQuery();
     this.applyEngagementListFilters(qb, filters);
+    this.applyEngagementListSort(qb, filters.sortBy, filters.sortDir);
     const total = await qb.clone().getCount();
     const raw = await qb.skip(off).take(safeLimit).getRawMany();
     return {

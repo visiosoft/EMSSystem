@@ -27,6 +27,10 @@ export interface ApiEngagementListRow {
   city: string | null;
   stateProvince: string | null;
   dmaMarketName: string | null;
+  /** Tour banner image URL from dbo.Link (Tour.BannerLinkID) */
+  tourBannerImageUrl: string | null;
+  /** Entertainment complex company names for primary venue (comma-separated) */
+  entertainmentComplexNames: string | null;
   displayTitle: string;
   appCreated: boolean;
 }
@@ -153,6 +157,9 @@ export type EngagementPagedQueryOpts = {
   dma?: string;
   venue?: string;
   timing?: 'all' | 'upcoming' | 'past';
+  /** Server whitelist: attraction, tour, venue, market, date */
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
 };
 
 export function engagementsPagedQueryKey(
@@ -171,6 +178,8 @@ export function engagementsPagedQueryKey(
     opts.dma ?? '',
     opts.venue ?? '',
     opts.timing ?? 'all',
+    opts.sortBy ?? '',
+    opts.sortDir ?? '',
   ] as const;
 }
 
@@ -186,6 +195,10 @@ export function fetchEngagementsPaged(
   if (opts?.dma?.trim()) params.set('dma', opts.dma.trim());
   if (opts?.venue?.trim()) params.set('venue', opts.venue.trim());
   if (opts?.timing && opts.timing !== 'all') params.set('timing', opts.timing);
+  if (opts?.sortBy?.trim()) {
+    params.set('sortBy', opts.sortBy.trim());
+    if (opts.sortDir) params.set('sortDir', opts.sortDir);
+  }
   return apiFetch<ApiEngagementsPageResponse>(`/engagements/paged?${params}`);
 }
 
