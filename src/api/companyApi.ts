@@ -91,6 +91,8 @@ export type ApiVenueProfileResponse =
       venueRelationshipIae: string;
       venueTypeId: number | null;
       venueTypeName: string | null;
+      entertainmentComplexCompanyIds: number[];
+      entertainmentComplexes: { companyId: number; companyName: string }[];
       seatingTypeId: number | null;
       seatingTypeName: string | null;
       ticketingSystem: string | null;
@@ -247,12 +249,35 @@ export function fetchCompanies(offset = 0, limit = 25, opts?: CompanyListQueryOp
 /** One-shot cap for venue/company pickers (avoids loading unbounded rows). */
 export const COMPANIES_PICKER_LIMIT = 5000;
 
+/** Must match dbo.CompanyType.CompanyName for entertainment-complex companies (Companies screen filter). */
+export const ENTERTAINMENT_COMPLEX_COMPANY_TYPE = 'Entertainment Complex';
+
 export function companiesPickerQueryKey() {
   return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const;
 }
 
 export async function fetchCompaniesPickerRows(): Promise<ApiCompanyListRow[]> {
   const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT);
+  return res.data ?? [];
+}
+
+/** Server-filtered list: only companies of type Entertainment Complex (for venue complex pickers). */
+export function entertainmentComplexCompaniesQueryKey() {
+  return [
+    'companies',
+    'picker',
+    'entertainment-complex',
+    0,
+    COMPANIES_PICKER_LIMIT,
+  ] as const;
+}
+
+export async function fetchEntertainmentComplexCompanyRows(): Promise<
+  ApiCompanyListRow[]
+> {
+  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
+    companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE,
+  });
   return res.data ?? [];
 }
 
@@ -360,6 +385,7 @@ export function updateVenueProfile(
     insurancePolicyCopyRequirements: string | null;
     venueRelationshipIae: string;
     venueTypeId: number | null;
+    entertainmentComplexCompanyIds: number[];
     seatingTypeId: number | null;
     ticketingSystem: string | null;
     venueWebsite: string | null;

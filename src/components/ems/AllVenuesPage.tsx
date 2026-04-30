@@ -1,7 +1,4 @@
-/**
- * All Venues — list + board from dbo.Venue + Venue-type dbo.Company.
- * “Complex” = dbo.Company.CompanyName (same as venue profile “Complex name”).
- */
+/** All Venues — list + board from dbo.Venue plus optional complex membership. */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -21,14 +18,31 @@ import {
   type ApiAllVenueRow,
 } from '@/api/venueDirectoryApi';
 import {
-  companiesPickerQueryKey,
-  fetchCompaniesPickerRows,
+  entertainmentComplexCompaniesQueryKey,
+  fetchEntertainmentComplexCompanyRows,
   fetchDmaMarkets,
   fetchLookups,
-  type ApiCompanyListRow,
 } from '@/api/companyApi';
 
 type ViewMode = 'list' | 'board';
+
+function entertainmentComplexChips(names: string | null) {
+  if (!names?.trim()) return <span className="text-text-muted">—</span>;
+  const parts = names.split(', ').map((s) => s.trim()).filter(Boolean);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {parts.map((label) => (
+        <span
+          key={label}
+          className="inline-block max-w-[11rem] truncate rounded border border-border bg-elevated/40 px-1.5 py-0.5 text-xs text-text-primary"
+          title={label}
+        >
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function useDebouncedValue<T>(value: T, ms: number): T {
   const [d, setD] = useState(value);
@@ -37,15 +51,6 @@ function useDebouncedValue<T>(value: T, ms: number): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return d;
-}
-
-function complexOptions(companyRows: ApiCompanyListRow[]) {
-  return companyRows
-    .filter(
-      (c) => c.companyTypeName?.trim().toLowerCase() === 'venue',
-    )
-    .map((c) => ({ value: String(c.companyId), label: c.companyName }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 }
 
 export function AllVenuesPage() {
@@ -64,9 +69,9 @@ export function AllVenuesPage() {
     staleTime: 30 * 60_000,
   });
 
-  const companiesQ = useQuery({
-    queryKey: companiesPickerQueryKey(),
-    queryFn: fetchCompaniesPickerRows,
+  const entertainmentComplexCompaniesQ = useQuery({
+    queryKey: entertainmentComplexCompaniesQueryKey(),
+    queryFn: fetchEntertainmentComplexCompanyRows,
     staleTime: 30 * 60_000,
   });
 
@@ -77,8 +82,11 @@ export function AllVenuesPage() {
   });
 
   const complexOpts = useMemo(
-    () => (companiesQ.data ? complexOptions(companiesQ.data) : []),
-    [companiesQ.data],
+    () =>
+      (entertainmentComplexCompaniesQ.data ?? [])
+        .map((c) => ({ value: String(c.companyId), label: c.companyName }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    [entertainmentComplexCompaniesQ.data],
   );
   const venueTypeOpts = useMemo(() => {
     const vt = lookupsQ.data?.venueTypes ?? [];
@@ -135,7 +143,9 @@ export function AllVenuesPage() {
   const { rangeStart, rangeEnd } = getPageRange(page, total, pageSize);
   const loading = listQ.isPending || listQ.isFetching;
   const filtersLoading =
-    lookupsQ.isPending || companiesQ.isPending || dmasQ.isPending;
+    lookupsQ.isPending ||
+    entertainmentComplexCompaniesQ.isPending ||
+    dmasQ.isPending;
 
   return (
     <div className="space-y-4">
@@ -154,7 +164,7 @@ export function AllVenuesPage() {
             />
           </div>
           <div>
-            <label className="text-text-muted text-xs block mb-1">Venue Complex</label>
+            <label className="text-text-muted text-xs block mb-1">Entertainment Complex</label>
             <div className={filtersLoading ? 'opacity-60 pointer-events-none' : ''}>
               <Select2
                 options={complexOpts}
@@ -162,7 +172,7 @@ export function AllVenuesPage() {
                 onChange={setComplexId}
                 allowClear
                 placeholder="Choose an option"
-                searchPlaceholder="Search complexes..."
+                searchPlaceholder="Search entertainment complexes..."
               />
             </div>
           </div>
@@ -239,7 +249,7 @@ export function AllVenuesPage() {
               <thead>
                 <tr className="text-ems-accent text-xs font-semibold border-b border-border bg-elevated/30">
                   <th className="text-left py-2.5 px-3">Venue Name</th>
-                  <th className="text-left py-2.5 px-3">Complex</th>
+                  <th className="text-left py-2.5 px-3">Entertainment Complex</th>
                   <th className="text-left py-2.5 px-3">Venue Type</th>
                   <th className="text-left py-2.5 px-3">Capacity</th>
                   <th className="text-left py-2.5 px-3">DMA</th>
@@ -262,7 +272,9 @@ export function AllVenuesPage() {
                       className="border-b border-border/50 hover:bg-elevated/40"
                     >
                       <td className="py-2.5 px-3 text-text-primary">{r.venueName || '—'}</td>
-                      <td className="py-2.5 px-3 text-text-primary">{r.complexName || '—'}</td>
+                      <td className="py-2.5 px-3 text-text-primary align-top">
+                        {entertainmentComplexChips(r.entertainmentComplexNames)}
+                      </td>
                       <td className="py-2.5 px-3 text-text-primary">
                         {r.venueTypeName || '—'}
                       </td>
@@ -299,7 +311,9 @@ export function AllVenuesPage() {
                   <div className="text-sm font-medium text-text-primary line-clamp-2">
                     {r.venueName}
                   </div>
-                  <div className="text-xs text-text-muted mt-1">{r.complexName || '—'}</div>
+                  <div className="text-xs text-text-muted mt-1">
+                    {entertainmentComplexChips(r.entertainmentComplexNames)}
+                  </div>
                   <dl className="mt-3 space-y-1.5 text-xs text-text-primary">
                     <div className="flex justify-between gap-2">
                       <dt className="text-text-muted">Venue Type</dt>

@@ -21,6 +21,7 @@ function apiDetail(error: unknown): string {
 
 const fkLike =
   /foreign key|FOREIGN KEY|conflicted with the FOREIGN KEY|REFERENCE constraint|violates .*constraint/i;
+const duplicateLike = /duplicate key|PRIMARY KEY|UNIQUE KEY|PK_/i;
 
 /**
  * Text for toasts and inline UI. Uses the API’s `message` only — **never** `detail`
@@ -76,6 +77,21 @@ export function friendlyApiError(
     (!msg || /^(Bad Request|Internal Server Error|Conflict)$/i.test(msg))
   ) {
     return "The server couldn’t save this because a database rule was violated (for example a missing or invalid link). Check tour, talent agent, and project fields, then try again.";
+  }
+  if (
+    /VenueComplexMember/i.test(detail) &&
+    duplicateLike.test(detail)
+  ) {
+    return 'This entertainment complex link already exists for the venue. Refresh and try again.';
+  }
+  if (
+    (/database query failed/i.test(raw) && duplicateLike.test(detail)) ||
+    duplicateLike.test(msg)
+  ) {
+    return 'This record already exists, so it could not be saved again.';
+  }
+  if (/database query failed/i.test(raw)) {
+    return 'We couldn’t complete this save because of a database error. Please try again.';
   }
   if (/internal server error/i.test(raw)) {
     return 'Something unexpected happened. Please try again in a moment.';

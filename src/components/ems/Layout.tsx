@@ -91,7 +91,6 @@ const NAV_SECTIONS = [
     items: [
       { key: 'companies', label: 'Companies', icon: '⬡' },
       { key: 'all-venues', label: 'All Venues', icon: '⬡' },
-      { key: 'entertainment-complexes', label: 'Entertainment Complexes', icon: '⬡' },
       { key: 'attraction-tours', label: 'Attraction Tours', icon: '⬡' },
       { key: 'calendar', label: 'Calendar', icon: '⬡' },
     ],

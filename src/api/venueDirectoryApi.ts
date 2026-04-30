@@ -3,7 +3,8 @@ import type { ApiPaginatedResponse } from './companyApi';
 
 export interface ApiAllVenueRow {
   companyId: number;
-  complexName: string;
+  /** Comma-separated names from dbo.VenueComplexMember when multiple complexes apply. */
+  entertainmentComplexNames: string | null;
   venueName: string;
   seatingCapacity: number;
   venueTypeId: number | null;
@@ -12,21 +13,7 @@ export interface ApiAllVenueRow {
   dmaMarketName: string | null;
 }
 
-export interface ApiEntertainmentComplexRow {
-  complexName: string;
-  venueCount: number;
-  totalSeatingCapacity: number;
-  dmaId: number | null;
-  dmaMarketName: string | null;
-  city: string | null;
-  stateProvince: string | null;
-}
-
 export const allVenuesQueryKey = ['venue-directory', 'venues'] as const;
-export const entertainmentComplexesQueryKey = [
-  'venue-directory',
-  'entertainment-complexes',
-] as const;
 
 export function fetchAllVenues(
   offset: number,
@@ -58,24 +45,5 @@ export function fetchAllVenues(
   }
   return apiFetch<ApiPaginatedResponse<ApiAllVenueRow>>(
     `/venue-directory/venues?${params.toString()}`,
-  );
-}
-
-export function fetchEntertainmentComplexes(
-  offset: number,
-  limit: number,
-  opts: { q?: string; dmaId?: number } = {},
-) {
-  const params = new URLSearchParams({
-    offset: String(offset),
-    limit: String(limit),
-  });
-  const q = opts.q?.trim();
-  if (q) params.set('q', q);
-  if (opts.dmaId != null && opts.dmaId > 0) {
-    params.set('dmaId', String(opts.dmaId));
-  }
-  return apiFetch<ApiPaginatedResponse<ApiEntertainmentComplexRow>>(
-    `/venue-directory/entertainment-complexes?${params.toString()}`,
   );
 }

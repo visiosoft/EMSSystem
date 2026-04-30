@@ -19,6 +19,8 @@ import { Tour } from '../entities/tour.entity';
 import { Class } from '../entities/class.entity';
 import { VenueType } from '../entities/venue-type.entity';
 import { Venue } from '../entities/venue.entity';
+import { VenueComplex } from '../entities/venue-complex.entity';
+import { VenueComplexMember } from '../entities/venue-complex-member.entity';
 import { Brand } from '../entities/brand.entity';
 import { VenueBrand } from '../entities/venue-brand.entity';
 import { Tax } from '../entities/tax.entity';
@@ -47,6 +49,8 @@ const entities = [
   Role,
   Department,
   Venue,
+  VenueComplex,
+  VenueComplexMember,
   Brand,
   VenueBrand,
   Tax,
