@@ -131,21 +131,58 @@ export class LookupsService {
   }
 
   /**
-   * All rows from dbo.DMA (DMAID is unique per postal code / row).
-   * Do not use `select(['DISTINCT ...'])` — TypeORM generates invalid SQL Server syntax
-   * (`SELECT col1, DISTINCT col2`). Use `.distinct(true)` after `.select()` if DISTINCT is ever required.
+   * One row per (MarketName, PostalCode): duplicate DMA rows are collapsed using MIN(DMAID).
+   * Raw table can repeat the same label with different DMAIDs; pickers must not list repeats.
    */
-  async findDmaMarkets(): Promise<
-    { dmaid: number; marketName: string; postalCode: string }[]
-  > {
-    const rows = await this.dmaRepo
+  private buildDmaMarketsGroupedSubquery(query: string) {
+    const qb = this.dmaRepo
       .createQueryBuilder('d')
-      .select('d.dmaid', 'dmaid')
+      .select('MIN(d.dmaid)', 'dmaid')
       .addSelect('d.marketName', 'marketName')
       .addSelect('d.postalCode', 'postalCode')
-      .orderBy('d.marketName', 'ASC')
-      .addOrderBy('d.dmaid', 'ASC')
-      .getRawMany<Record<string, unknown>>();
+      .groupBy('d.marketName')
+      .addGroupBy('d.postalCode');
+
+    const trimmed = query.trim();
+    if (!trimmed) return qb;
+
+    const sq = `%${trimmed}%`;
+    /**
+     * DMAID matching must not use substring/prefix on CAST(dmaid): e.g. "76363" matched IDs 763630001,
+     * 176363, etc., surfacing unrelated postal/market rows after GROUP BY.
+     */
+    const digitsOnly = /^\d+$/.test(trimmed);
+
+    if (digitsOnly) {
+      const dmaIdExact = Number.parseInt(trimmed, 10);
+      const idExactUsable =
+        Number.isFinite(dmaIdExact) &&
+        dmaIdExact >= 0 &&
+        dmaIdExact <= 2147483647 &&
+        String(dmaIdExact) === trimmed;
+
+      if (idExactUsable) {
+        qb.where(
+          "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq) OR d.dmaid = :dmaIdExact)",
+          { sq, dmaIdExact },
+        );
+      } else {
+        qb.where(
+          "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
+          { sq },
+        );
+      }
+    } else {
+      qb.where(
+        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
+        { sq },
+      );
+    }
+
+    return qb;
+  }
+
+  private mapDmaMarketRows(rows: Record<string, unknown>[]) {
     return rows.map((r) => ({
       dmaid: Number(r.dmaid ?? r.DMAID),
       marketName: String(r.marketName ?? r.MarketName ?? ''),
@@ -153,34 +190,44 @@ export class LookupsService {
     }));
   }
 
+  /**
+   * All logical DMA markets (one per name + postal), MIN(DMAID) per group.
+   */
+  async findDmaMarkets(): Promise<
+    { dmaid: number; marketName: string; postalCode: string }[]
+  > {
+    const inner = this.buildDmaMarketsGroupedSubquery('');
+    const rows = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('t.dmaid', 'dmaid')
+      .addSelect('t.marketName', 'marketName')
+      .addSelect('t.postalCode', 'postalCode')
+      .from(`(${inner.getQuery()})`, 't')
+      .setParameters(inner.getParameters())
+      .orderBy('t.marketName', 'ASC')
+      .addOrderBy('t.dmaid', 'ASC')
+      .getRawMany<Record<string, unknown>>();
+    return this.mapDmaMarketRows(rows);
+  }
+
   /** Search DMA markets by query string (case-insensitive partial match). */
   async searchDmaMarkets(
     query: string,
     limit = 50,
   ): Promise<{ dmaid: number; marketName: string; postalCode: string }[]> {
-    const qb = this.dmaRepo
-      .createQueryBuilder('d')
-      .select('d.dmaid', 'dmaid')
-      .addSelect('d.marketName', 'marketName')
-      .addSelect('d.postalCode', 'postalCode')
-      .orderBy('d.marketName', 'ASC')
-      .addOrderBy('d.dmaid', 'ASC')
-      .take(limit);
-
-    if (query.trim()) {
-      const sq = `%${query.trim()}%`;
-      qb.where(
-        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
-        { sq },
-      );
-    }
-
-    const rows = await qb.getRawMany<Record<string, unknown>>();
-    return rows.map((r) => ({
-      dmaid: Number(r.dmaid ?? r.DMAID),
-      marketName: String(r.marketName ?? r.MarketName ?? ''),
-      postalCode: String(r.postalCode ?? r.PostalCode ?? ''),
-    }));
+    const inner = this.buildDmaMarketsGroupedSubquery(query);
+    const rows = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('t.dmaid', 'dmaid')
+      .addSelect('t.marketName', 'marketName')
+      .addSelect('t.postalCode', 'postalCode')
+      .from(`(${inner.getQuery()})`, 't')
+      .setParameters(inner.getParameters())
+      .orderBy('t.marketName', 'ASC')
+      .addOrderBy('t.dmaid', 'ASC')
+      .take(limit)
+      .getRawMany<Record<string, unknown>>();
+    return this.mapDmaMarketRows(rows);
   }
 
   /** Paginated DMA markets with optional search filter. */
@@ -192,34 +239,32 @@ export class LookupsService {
     data: { dmaid: number; marketName: string; postalCode: string }[];
     total: number;
   }> {
-    const qb = this.dmaRepo
-      .createQueryBuilder('d')
-      .select('d.dmaid', 'dmaid')
-      .addSelect('d.marketName', 'marketName')
-      .addSelect('d.postalCode', 'postalCode')
-      .orderBy('d.marketName', 'ASC')
-      .addOrderBy('d.dmaid', 'ASC');
+    const inner = this.buildDmaMarketsGroupedSubquery(query);
 
-    if (query.trim()) {
-      const sq = `%${query.trim()}%`;
-      qb.where(
-        "(LOWER(d.marketName) LIKE LOWER(:sq) OR LOWER(ISNULL(d.postalCode, '')) LIKE LOWER(:sq))",
-        { sq },
-      );
-    }
+    const countRow = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('COUNT(*)', 'cnt')
+      .from(`(${inner.getQuery()})`, 'dedup')
+      .setParameters(inner.getParameters())
+      .getRawOne<{ cnt: string | number }>();
 
-    const total = await qb.getCount();
-    const rows = await qb
+    const total = Number(countRow?.cnt ?? 0);
+
+    const rows = await this.dmaRepo.manager
+      .createQueryBuilder()
+      .select('t.dmaid', 'dmaid')
+      .addSelect('t.marketName', 'marketName')
+      .addSelect('t.postalCode', 'postalCode')
+      .from(`(${inner.getQuery()})`, 't')
+      .setParameters(inner.getParameters())
+      .orderBy('t.marketName', 'ASC')
+      .addOrderBy('t.dmaid', 'ASC')
       .offset(offset)
       .limit(limit)
       .getRawMany<Record<string, unknown>>();
 
     return {
-      data: rows.map((r) => ({
-        dmaid: Number(r.dmaid ?? r.DMAID),
-        marketName: String(r.marketName ?? r.MarketName ?? ''),
-        postalCode: String(r.postalCode ?? r.PostalCode ?? ''),
-      })),
+      data: this.mapDmaMarketRows(rows),
       total,
     };
   }

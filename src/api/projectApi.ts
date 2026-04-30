@@ -228,7 +228,13 @@ export function fetchVenueStatusMeta() {
   return apiFetch<VenueStatusMeta>('/projects/meta/venue-statuses');
 }
 
-export type ProjectListQueryOpts = { q?: string; projectStage?: string };
+export type ProjectListQueryOpts = {
+  q?: string;
+  projectStage?: string;
+  /** Server whitelist: attraction, tour, tourmgmt, createdby, created */
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+};
 
 /** React Query key for paginated `GET /projects`. */
 export function projectsApiQueryKey(
@@ -236,8 +242,10 @@ export function projectsApiQueryKey(
   limit: number,
   q = '',
   projectStage = 'All',
+  sortBy = '',
+  sortDir = '',
 ) {
-  return ['projects', 'api', offset, limit, q, projectStage] as const;
+  return ['projects', 'api', offset, limit, q, projectStage, sortBy, sortDir] as const;
 }
 
 export function fetchProjects(offset = 0, limit = 25, opts?: ProjectListQueryOpts) {
@@ -246,6 +254,9 @@ export function fetchProjects(offset = 0, limit = 25, opts?: ProjectListQueryOpt
   if (trimmed) params.set('q', trimmed);
   const st = opts?.projectStage?.trim();
   if (st && st !== 'All') params.set('projectStage', st);
+  const sb = opts?.sortBy?.trim();
+  if (sb) params.set('sortBy', sb);
+  if (opts?.sortDir) params.set('sortDir', opts.sortDir);
   return apiFetch<ApiPaginatedResponse<ApiProjectListRow>>(`/projects?${params}`);
 }
 

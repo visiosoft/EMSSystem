@@ -78,6 +78,10 @@ export class Tour {
   @Column({ name: 'TechRiderLinkID', type: 'int', nullable: true })
   techRiderLinkId: number | null;
 
+  /** dbo.Link row for tour banner / tile art (join on LinkID). */
+  @Column({ name: 'BannerLinkID', type: 'int', nullable: true })
+  bannerLinkId: number | null;
+
   @Column({ name: 'VenueTypePreferenceID', type: 'int', nullable: true })
   venueTypePreferenceId: number | null;
 

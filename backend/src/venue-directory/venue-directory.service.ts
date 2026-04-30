@@ -32,6 +32,28 @@ export class VenueDirectoryService {
     });
   }
 
+  private applyAllVenuesSort(
+    qb: SelectQueryBuilder<Venue>,
+    sortByRaw?: string,
+    sortDirRaw?: string,
+  ): void {
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const tie = 'v.venueName ASC';
+    if (sortBy === 'type') {
+      qb.orderBy('vt.venueTypeName', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'dma') {
+      qb.orderBy('d.marketName', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'capacity') {
+      qb.orderBy('v.seatingCapacity', sortDir).addOrderBy(tie);
+    } else if (sortBy === 'complex') {
+      qb.orderBy('entertainmentComplexNames', sortDir).addOrderBy(tie);
+    } else {
+      qb.orderBy('v.venueName', sortDir).addOrderBy('v.companyId', 'ASC');
+    }
+  }
+
   private baseAllVenuesQuery(
     v: { q?: string; complexName?: string; complexCompanyId?: number } & {
       venueTypeId?: number;
@@ -85,6 +107,9 @@ export class VenueDirectoryService {
       complexCompanyId?: number;
       venueTypeId?: number;
       dmaId?: number;
+      /** venue | type | dma | capacity | complex */
+      sortBy?: string;
+      sortDir?: string;
     },
   ): Promise<{ data: AllVenueDirectoryRow[]; total: number }> {
     const safeOffset = Math.max(0, Math.floor(offset) || 0);
@@ -104,8 +129,8 @@ export class VenueDirectoryService {
       .addSelect('v.venueTypeId', 'venueTypeId')
       .addSelect('vt.venueTypeName', 'venueTypeName')
       .addSelect('c.dmaid', 'dmaId')
-      .addSelect('d.marketName', 'dmaMarketName')
-      .orderBy('v.venueName', 'ASC');
+      .addSelect('d.marketName', 'dmaMarketName');
+    this.applyAllVenuesSort(dataQb, filters.sortBy, filters.sortDir);
 
     const countQb = this.baseAllVenuesQuery(filters).select(
       'COUNT(1)',

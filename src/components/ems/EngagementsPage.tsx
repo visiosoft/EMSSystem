@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, AlertCircle, RefreshCw, GripVertical } from 'lucide-react';
+import {
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  List,
+  LayoutGrid,
+  ImageIcon,
+} from 'lucide-react';
 import {
   SearchInput,
   FilterChips,
@@ -41,23 +51,27 @@ interface Props {
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-const ENGAGEMENT_TABLE_COLUMN_ORDER_KEY = 'iae-engagements-table-column-order-v2';
+type EngagementsViewMode = 'list' | 'tiles';
+const ENGAGEMENTS_VIEW_MODE_STORAGE_KEY = 'iae-engagements-view-mode-v1';
 
-type EngagementTableColumnId =
+const ENGAGEMENT_MOVABLE_COLUMN_ORDER_KEY = 'iae-engagements-movable-column-order-v1';
+const LEGACY_ENGAGEMENT_TABLE_COLUMN_ORDER_KEY = 'iae-engagements-table-column-order-v2';
+
+type EngagementMovableColumnId =
   | 'attraction'
   | 'tour'
   | 'venue'
   | 'market'
-  | 'date'
-  | 'status';
+  | 'date';
 
-const DEFAULT_ENGAGEMENT_TABLE_COLUMNS: EngagementTableColumnId[] = [
+type EngagementTableColumnId = EngagementMovableColumnId | 'status';
+
+const DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS: EngagementMovableColumnId[] = [
   'attraction',
   'tour',
   'venue',
   'market',
   'date',
-  'status',
 ];
 
 const ENGAGEMENT_COLUMN_LABELS: Record<EngagementTableColumnId, string> = {
@@ -69,39 +83,115 @@ const ENGAGEMENT_COLUMN_LABELS: Record<EngagementTableColumnId, string> = {
   status: 'Status',
 };
 
-function loadEngagementTableColumnOrder(): EngagementTableColumnId[] {
-  if (typeof window === 'undefined') return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
-  try {
-    const raw = localStorage.getItem(ENGAGEMENT_TABLE_COLUMN_ORDER_KEY);
-    if (!raw) return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
-    const need = new Set<EngagementTableColumnId>(DEFAULT_ENGAGEMENT_TABLE_COLUMNS);
-    const out: EngagementTableColumnId[] = [];
-    for (const x of parsed) {
-      if (typeof x === 'string' && need.has(x as EngagementTableColumnId)) {
-        out.push(x as EngagementTableColumnId);
-        need.delete(x as EngagementTableColumnId);
-      }
-    }
-    for (const id of DEFAULT_ENGAGEMENT_TABLE_COLUMNS) {
-      if (need.has(id)) {
-        out.push(id);
-        need.delete(id);
-      }
-    }
-    return out;
-  } catch {
-    return DEFAULT_ENGAGEMENT_TABLE_COLUMNS;
-  }
-}
+const SORT_API_BY_MOVABLE: Record<EngagementMovableColumnId, string> = {
+  attraction: 'attraction',
+  tour: 'tour',
+  venue: 'venue',
+  market: 'market',
+  date: 'date',
+};
 
-function saveEngagementTableColumnOrder(order: EngagementTableColumnId[]) {
+function loadEngagementMovableColumnOrder(): EngagementMovableColumnId[] {
+  if (typeof window === 'undefined') return DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS;
   try {
-    localStorage.setItem(ENGAGEMENT_TABLE_COLUMN_ORDER_KEY, JSON.stringify(order));
+    const raw = localStorage.getItem(ENGAGEMENT_MOVABLE_COLUMN_ORDER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const need = new Set<EngagementMovableColumnId>(DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS);
+        const out: EngagementMovableColumnId[] = [];
+        for (const x of parsed) {
+          if (typeof x === 'string' && need.has(x as EngagementMovableColumnId)) {
+            out.push(x as EngagementMovableColumnId);
+            need.delete(x as EngagementMovableColumnId);
+          }
+        }
+        for (const id of DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS) {
+          if (need.has(id)) {
+            out.push(id);
+            need.delete(id);
+          }
+        }
+        return out;
+      }
+    }
+    const leg = localStorage.getItem(LEGACY_ENGAGEMENT_TABLE_COLUMN_ORDER_KEY);
+    if (leg) {
+      const parsed = JSON.parse(leg) as unknown;
+      if (Array.isArray(parsed)) {
+        const need = new Set<EngagementMovableColumnId>(DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS);
+        const out: EngagementMovableColumnId[] = [];
+        for (const x of parsed) {
+          if (typeof x === 'string' && x !== 'status' && need.has(x as EngagementMovableColumnId)) {
+            out.push(x as EngagementMovableColumnId);
+            need.delete(x as EngagementMovableColumnId);
+          }
+        }
+        for (const id of DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS) {
+          if (need.has(id)) {
+            out.push(id);
+            need.delete(id);
+          }
+        }
+        return out;
+      }
+    }
   } catch {
     /* ignore */
   }
+  return DEFAULT_ENGAGEMENT_MOVABLE_COLUMNS;
+}
+
+function saveEngagementMovableColumnOrder(order: EngagementMovableColumnId[]) {
+  try {
+    localStorage.setItem(ENGAGEMENT_MOVABLE_COLUMN_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadEngagementsViewMode(): EngagementsViewMode {
+  if (typeof window === 'undefined') return 'list';
+  try {
+    const raw = localStorage.getItem(ENGAGEMENTS_VIEW_MODE_STORAGE_KEY);
+    return raw === 'list' || raw === 'tiles' ? raw : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+function saveEngagementsViewMode(mode: EngagementsViewMode) {
+  try {
+    localStorage.setItem(ENGAGEMENTS_VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function initialsFromName(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (parts.length === 0) return 'TR';
+  return parts.map((p) => p[0]?.toUpperCase() ?? '').join('');
+}
+
+function engagementTileImageUrl(r: ApiEngagementListRow): string | null {
+  const u = r.tourBannerImageUrl?.trim();
+  return u || null;
+}
+
+function EngagementTileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">{label}</p>
+      <p className="text-xs text-text-primary truncate mt-0.5" title={value}>
+        {value}
+      </p>
+    </div>
+  );
 }
 
 function renderEngagementTableCell(
@@ -206,6 +296,35 @@ function EngagementsTableSkeleton({ rowCount = PAGE_SIZE }: { rowCount?: number 
   );
 }
 
+function EngagementsTilesSkeleton({ tileCount = 6 }: { tileCount?: number }) {
+  return (
+    <div
+      className="rounded-lg border border-border bg-card p-4 min-h-[28rem]"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex flex-col items-center justify-center gap-3 py-8 border-b border-border bg-surface/40 mb-4">
+        <Loader2 className="h-9 w-9 text-ems-accent animate-spin shrink-0" aria-hidden />
+        <p className="text-sm font-semibold text-text-primary">Loading engagements</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {Array.from({ length: tileCount }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-border overflow-hidden">
+            <Skeleton className="aspect-[16/9] w-full rounded-none" />
+            <div className="p-3 space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-3 w-40" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
@@ -221,17 +340,37 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [showCreate, setShowCreate] = useState(false);
-  const [columnOrder, setColumnOrder] = useState<EngagementTableColumnId[]>(loadEngagementTableColumnOrder);
+  const [movableColumnOrder, setMovableColumnOrder] = useState<EngagementMovableColumnId[]>(
+    loadEngagementMovableColumnOrder,
+  );
+  const [sortState, setSortState] = useState<{
+    col: EngagementMovableColumnId | null;
+    dir: 'asc' | 'desc';
+  }>({ col: null, dir: 'asc' });
+  const [viewMode, setViewMode] = useState<EngagementsViewMode>(loadEngagementsViewMode);
 
-  const reorderColumns = useCallback((fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    setColumnOrder((prev) => {
+  const visualSlots = useMemo(
+    () => [...movableColumnOrder, 'status'] as const satisfies readonly EngagementTableColumnId[],
+    [movableColumnOrder],
+  );
+
+  const reorderMovableColumns = useCallback((fromM: number, toM: number) => {
+    if (fromM === toM || fromM < 0 || toM < 0) return;
+    setMovableColumnOrder((prev) => {
       const next = [...prev];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      saveEngagementTableColumnOrder(next);
+      const [moved] = next.splice(fromM, 1);
+      next.splice(toM, 0, moved);
+      saveEngagementMovableColumnOrder(next);
       return next;
     });
+  }, []);
+
+  const toggleColumnSort = useCallback((col: EngagementMovableColumnId) => {
+    setSortState((s) => {
+      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
+      return { col, dir: 'asc' };
+    });
+    setPage(1);
   }, []);
 
   useEffect(() => {
@@ -252,6 +391,8 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
     dma: dmaFilter || undefined,
     venue: venueFilter || undefined,
     timing: timingFilter,
+    sortBy: sortState.col ? SORT_API_BY_MOVABLE[sortState.col] : undefined,
+    sortDir: sortState.col ? sortState.dir : undefined,
   };
 
   const engagementsPagedQuery = useQuery({
@@ -398,14 +539,52 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          disabled={loading || !lookupsQuery.data}
-          className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          + Add Engagement
-        </button>
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+          <div className="inline-flex items-center rounded-md border border-border bg-surface p-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('list');
+                saveEngagementsViewMode('list');
+              }}
+              className={[
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                viewMode === 'list'
+                  ? 'bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary',
+              ].join(' ')}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" aria-hidden />
+              List
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('tiles');
+                saveEngagementsViewMode('tiles');
+              }}
+              className={[
+                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                viewMode === 'tiles'
+                  ? 'bg-elevated text-text-primary'
+                  : 'text-text-secondary hover:text-text-primary',
+              ].join(' ')}
+              title="Tile view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+              Tiles
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            disabled={loading || !lookupsQuery.data}
+            className="bg-ems-accent hover:bg-ems-accent/80 text-background px-4 py-1.5 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            + Add Engagement
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -475,53 +654,90 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table or tiles */}
       {loading ? (
-        <EngagementsTableSkeleton rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
+        viewMode === 'tiles' ? (
+          <EngagementsTilesSkeleton tileCount={isAllPageSize(pageSize) ? 6 : Math.min(pageSize, 9)} />
+        ) : (
+          <EngagementsTableSkeleton rowCount={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
+        )
       ) : (
         <>
-          <p className="text-[11px] text-text-muted mb-1.5 px-0.5">
-            Drag column headers to reorder. Your order is saved in this browser.
-          </p>
+          {viewMode === 'list' ? (
           <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
             <table className="w-full table-fixed text-sm min-w-[880px]">
               <colgroup>
-                {columnOrder.map((cid) => (
+                {visualSlots.map((cid) => (
                   <col key={cid} style={{ width: `${100 / 6}%` }} />
                 ))}
               </colgroup>
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  {columnOrder.map((colId, colIndex) => (
-                    <th
-                      key={colId}
-                      scope="col"
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData('text/plain', String(colIndex));
-                        e.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
-                        if (Number.isNaN(from)) return;
-                        reorderColumns(from, colIndex);
-                      }}
-                      className="text-left py-2.5 px-3 select-none cursor-grab active:cursor-grabbing min-w-0"
-                      title="Drag to move column"
-                    >
-                      <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
-                        <GripVertical
-                          className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-70"
-                          aria-hidden
-                        />
-                        <span className="truncate">
-                          {ENGAGEMENT_COLUMN_LABELS[colId]}
-                        </span>
-                      </span>
-                    </th>
-                  ))}
+                  {visualSlots.map((colId, visualIndex) => {
+                    if (colId === 'status') {
+                      return (
+                        <th
+                          key="status"
+                          scope="col"
+                          className="text-left py-2.5 px-3 text-text-muted bg-surface min-w-0"
+                          onDragOver={(e) => e.preventDefault()}
+                        >
+                          {ENGAGEMENT_COLUMN_LABELS.status}
+                        </th>
+                      );
+                    }
+                    const slot = colId;
+                    const sortActive = sortState.col === slot;
+                    return (
+                      <th
+                        key={slot}
+                        scope="col"
+                        draggable
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(visualIndex));
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromVis = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                          if (Number.isNaN(fromVis)) return;
+                          if (fromVis >= movableColumnOrder.length || visualIndex >= movableColumnOrder.length) {
+                            return;
+                          }
+                          reorderMovableColumns(fromVis, visualIndex);
+                        }}
+                        className="text-left py-2.5 px-3 text-text-muted bg-surface select-none min-w-0 cursor-grab active:cursor-grabbing"
+                        title="Drag to reorder columns"
+                      >
+                        <div className="flex items-center gap-1 min-w-0">
+                          <GripVertical
+                            className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-70 pointer-events-none"
+                            aria-hidden
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex min-w-0 flex-1 items-center gap-1 text-left font-medium text-text-muted hover:text-text-primary cursor-pointer"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              toggleColumnSort(slot);
+                            }}
+                          >
+                            <span className="truncate">{ENGAGEMENT_COLUMN_LABELS[slot]}</span>
+                            {sortActive &&
+                              (sortState.dir === 'asc' ? (
+                                <ArrowUp className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                              ) : (
+                                <ArrowDown className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                              ))}
+                          </button>
+                        </div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -540,12 +756,81 @@ export function EngagementsPage({ onNavigate, statusFilter: initFilter, addToast
                     onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
                     className="border-b border-border/50 hover:bg-hover cursor-pointer"
                   >
-                    {columnOrder.map((colId) => renderEngagementTableCell(colId, r))}
+                    {visualSlots.map((colId) => renderEngagementTableCell(colId, r))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          ) : (
+            <div className="space-y-3">
+              {rows.length === 0 && !engagementsPagedQuery.isError ? (
+                <div className="rounded-lg border border-border bg-card py-12 px-3 text-center text-sm text-text-muted">
+                  {serverTotal === 0 && !hasActiveFilters
+                    ? 'No engagements loaded yet.'
+                    : 'No engagements match your search or filters.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {rows.map((r) => {
+                    const thumb = engagementTileImageUrl(r);
+                    const venueLine = r.venueCompanyName ?? r.venueName ?? '—';
+                    return (
+                      <button
+                        type="button"
+                        key={r.engagementId}
+                        onClick={() => onNavigate('engagement-detail', { engagementId: r.engagementId })}
+                        className="rounded-xl border border-border bg-card overflow-hidden text-left transition-colors hover:bg-surface/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ems-accent/50"
+                      >
+                        <div className="relative aspect-[16/9] w-full overflow-hidden border-b border-border/70 bg-elevated">
+                          {thumb ? (
+                            <img
+                              src={thumb}
+                              alt=""
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ems-accent-dim/50 to-ems-purple-dim/50 text-text-secondary">
+                              <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/70 text-sm font-semibold text-text-primary">
+                                {initialsFromName(r.tourName || r.displayTitle || 'Tour')}
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[11px] uppercase tracking-wide">
+                                <ImageIcon className="h-3.5 w-3.5" aria-hidden />
+                                No tour image
+                              </span>
+                            </div>
+                          )}
+                          <span className="absolute right-2 top-2">
+                            <StatusBadge status={r.engagementStatus} />
+                          </span>
+                        </div>
+                        <div className="p-3 space-y-2.5">
+                          <EngagementTileRow label="Attraction" value={r.attractionName ?? '—'} />
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">Tour</p>
+                            <p className="text-sm font-semibold text-text-primary truncate mt-0.5" title={r.tourName}>
+                              {r.tourName ?? '—'}
+                            </p>
+                          </div>
+                          <EngagementTileRow
+                            label="Entertainment complex"
+                            value={r.entertainmentComplexNames ?? '—'}
+                          />
+                          <EngagementTileRow label="Venue" value={venueLine} />
+                          <EngagementTileRow label="Market" value={r.dmaMarketName ?? '—'} />
+                          <EngagementTileRow
+                            label="Opening date"
+                            value={formatFirstShowLine(r.openingPerformanceDate, r.openingPerformanceTime)}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Pagination */}
           {serverTotal > 0 && (

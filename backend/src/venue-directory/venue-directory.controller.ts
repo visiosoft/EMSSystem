@@ -21,6 +21,8 @@ export class VenueDirectoryController {
     @Query('complexCompanyId') complexCompanyIdRaw?: string,
     @Query('venueTypeId') venueTypeIdRaw?: string,
     @Query('dmaId') dmaIdRaw?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
     const complexCompanyId = this.parseOptPosInt(complexCompanyIdRaw);
     const venueTypeId = this.parseOptPosInt(venueTypeIdRaw);
@@ -31,6 +33,8 @@ export class VenueDirectoryController {
       complexCompanyId: complexCompanyId ?? undefined,
       venueTypeId: venueTypeId ?? undefined,
       dmaId: dmaId ?? undefined,
+      sortBy,
+      sortDir,
     });
   }
 

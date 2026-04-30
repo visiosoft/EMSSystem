@@ -72,7 +72,16 @@ export interface ApiPerformanceSalesPage {
 
 export function fetchDailySalesByPerformance(
   asOfDate?: string,
-  options?: { page?: number; pageSize?: number; search?: string; attraction?: string },
+  options?: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    attraction?: string;
+    /** YYYY-MM-DD — only performances on this calendar date */
+    performanceDate?: string;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+  },
 ) {
   const p = new URLSearchParams();
   if (asOfDate) p.set('asOfDate', asOfDate);
@@ -80,6 +89,11 @@ export function fetchDailySalesByPerformance(
   if (options?.pageSize != null) p.set('pageSize', String(options.pageSize));
   if (options?.search) p.set('search', options.search);
   if (options?.attraction) p.set('attraction', options.attraction);
+  if (options?.performanceDate) p.set('performanceDate', options.performanceDate);
+  if (options?.sortBy?.trim()) {
+    p.set('sortBy', options.sortBy.trim());
+    if (options.sortDir) p.set('sortDir', options.sortDir);
+  }
   const qs = p.toString() ? `?${p.toString()}` : '';
   return apiFetch<ApiPerformanceSalesPage>(`/daily-sales/by-performance${qs}`);
 }

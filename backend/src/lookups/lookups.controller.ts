@@ -82,10 +82,9 @@ export class LookupsController {
     @Query('q') query?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.lookupsService.searchDmaMarkets(
-      query?.trim() ?? '',
-      limit ? Number(limit) : 50,
-    );
+    const raw = limit ? Number(limit) : 50;
+    const safeLimit = Number.isFinite(raw) ? Math.min(100, Math.max(1, Math.floor(raw))) : 50;
+    return this.lookupsService.searchDmaMarkets(query?.trim() ?? '', safeLimit);
   }
 
   @Get('dma-markets')
@@ -94,7 +93,7 @@ export class LookupsController {
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') query?: string,
   ) {
-    const safeLimit = Math.min(25, Math.max(1, limit));
+    const safeLimit = Number.isFinite(limit) ? Math.min(500, Math.max(1, Math.floor(limit))) : 25;
     const safeOffset = Math.max(0, offset);
     return this.lookupsService.findDmaMarketsPaginated(
       safeOffset,

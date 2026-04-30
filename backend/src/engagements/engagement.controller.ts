@@ -66,6 +66,8 @@ export class EngagementController {
     @Query('dma') dma?: string,
     @Query('venue') venue?: string,
     @Query('timing') timing?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
     const t =
       timing === 'upcoming' || timing === 'past' ? timing : ('all' as const);
@@ -76,6 +78,8 @@ export class EngagementController {
       dmaMarketName: dma,
       venueLabel: venue,
       timing: t,
+      sortBy,
+      sortDir,
     });
   }
 

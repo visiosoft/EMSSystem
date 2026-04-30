@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Save, ChevronLeft } from 'lucide-react';
+import { Loader2, Save, ChevronLeft, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchInput } from './Primitives';
 import { Select2 } from './Select2';
@@ -139,6 +139,101 @@ function DailySummaryCard({
   );
 }
 
+// ─── Reorderable lead columns (Attraction / Date / Venue) — same pattern as Engagements ─
+
+const DAILY_SALES_LEAD_COLUMN_ORDER_KEY = 'iae-daily-sales-lead-column-order-v1';
+
+type DailySalesLeadColumnId = 'attraction' | 'date' | 'venue';
+
+const DEFAULT_DAILY_SALES_LEAD_COLUMNS: DailySalesLeadColumnId[] = [
+  'attraction',
+  'date',
+  'venue',
+];
+
+const DAILY_SALES_LEAD_COLUMN_LABELS: Record<DailySalesLeadColumnId, string> = {
+  attraction: 'Attraction',
+  date: 'Date',
+  venue: 'Venue',
+};
+
+function loadDailySalesLeadColumnOrder(): DailySalesLeadColumnId[] {
+  if (typeof window === 'undefined') return DEFAULT_DAILY_SALES_LEAD_COLUMNS;
+  try {
+    const raw = localStorage.getItem(DAILY_SALES_LEAD_COLUMN_ORDER_KEY);
+    if (!raw) return DEFAULT_DAILY_SALES_LEAD_COLUMNS;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_DAILY_SALES_LEAD_COLUMNS;
+    const need = new Set<DailySalesLeadColumnId>(DEFAULT_DAILY_SALES_LEAD_COLUMNS);
+    const out: DailySalesLeadColumnId[] = [];
+    for (const x of parsed) {
+      if (typeof x === 'string' && need.has(x as DailySalesLeadColumnId)) {
+        out.push(x as DailySalesLeadColumnId);
+        need.delete(x as DailySalesLeadColumnId);
+      }
+    }
+    for (const id of DEFAULT_DAILY_SALES_LEAD_COLUMNS) {
+      if (need.has(id)) {
+        out.push(id);
+        need.delete(id);
+      }
+    }
+    return out;
+  } catch {
+    return DEFAULT_DAILY_SALES_LEAD_COLUMNS;
+  }
+}
+
+function saveDailySalesLeadColumnOrder(order: DailySalesLeadColumnId[]) {
+  try {
+    localStorage.setItem(DAILY_SALES_LEAD_COLUMN_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderDailySalesLeadCell(
+  col: DailySalesLeadColumnId,
+  row: ApiPerformanceSalesRow,
+  onEngagementClick: (engagementId: number) => void,
+) {
+  switch (col) {
+    case 'attraction':
+      return (
+        <td
+          key={col}
+          className="py-2 px-3 cursor-pointer"
+          onClick={() => onEngagementClick(row.engagementId)}
+        >
+          <div className="text-text-primary font-medium text-sm leading-tight hover:text-ems-accent transition-colors">
+            {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
+          </div>
+          {row.tourName && (
+            <div className="text-xs text-text-muted leading-tight mt-0.5 truncate max-w-[14rem]">{row.tourName}</div>
+          )}
+        </td>
+      );
+    case 'date':
+      return (
+        <td key={col} className="py-2 px-3 text-xs text-text-secondary whitespace-nowrap">
+          <div>{fmtDateFull(row.performanceDate)}</div>
+          <div className="text-text-muted">{fmt12(row.performanceTime)}</div>
+        </td>
+      );
+    case 'venue':
+      return (
+        <td key={col} className="py-2 px-3 text-sm text-text-secondary">
+          <div className="truncate max-w-[11rem]">{row.venueName ?? row.venueCompanyName ?? '—'}</div>
+          {(row.city || row.stateProvince) && (
+            <div className="text-xs text-text-muted">{[row.city, row.stateProvince].filter(Boolean).join(', ')}</div>
+          )}
+        </td>
+      );
+    default:
+      return null;
+  }
+}
+
 // ─── Table Skeleton ───────────────────────────────────────────────────────────
 
 function TableSkeleton({
@@ -174,11 +269,13 @@ function TableSkeleton({
 
 function PerformanceRow({
   row,
+  leadColumnOrder,
   onEngagementClick,
   onSaved,
   addToast,
 }: {
   row: ApiPerformanceSalesRow;
+  leadColumnOrder: DailySalesLeadColumnId[];
   onEngagementClick: (engagementId: number) => void;
   onSaved: () => void;
   addToast: Props['addToast'];
@@ -241,32 +338,9 @@ function PerformanceRow({
 
   return (
     <tr className="border-b border-border/50 hover:bg-hover/30 group">
-      {/* Attraction — click → engagement history */}
-      <td
-        className="py-2 px-3 cursor-pointer"
-        onClick={() => onEngagementClick(row.engagementId)}
-      >
-        <div className="text-text-primary font-medium text-sm leading-tight hover:text-ems-accent transition-colors">
-          {row.attractionName ?? <span className="text-text-muted italic text-xs">Unknown</span>}
-        </div>
-        {row.tourName && (
-          <div className="text-xs text-text-muted leading-tight mt-0.5 truncate max-w-[14rem]">{row.tourName}</div>
-        )}
-      </td>
-
-      {/* Date */}
-      <td className="py-2 px-3 text-xs text-text-secondary whitespace-nowrap">
-        <div>{fmtDateFull(row.performanceDate)}</div>
-        <div className="text-text-muted">{fmt12(row.performanceTime)}</div>
-      </td>
-
-      {/* Venue */}
-      <td className="py-2 px-3 text-sm text-text-secondary">
-        <div className="truncate max-w-[11rem]">{row.venueName ?? row.venueCompanyName ?? '—'}</div>
-        {(row.city || row.stateProvince) && (
-          <div className="text-xs text-text-muted">{[row.city, row.stateProvince].filter(Boolean).join(', ')}</div>
-        )}
-      </td>
+      {leadColumnOrder.map((colId) =>
+        renderDailySalesLeadCell(colId, row, onEngagementClick),
+      )}
 
       {/* Prior day (soft blue) */}
       <td
@@ -430,9 +504,36 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [attractionFilter, setAttractionFilter] = useState('');
+  /** YYYY-MM-DD — empty = all performance dates (within reporting as-of). */
+  const [performanceDateFilter, setPerformanceDateFilter] = useState('');
   const [asOfDate, setAsOfDate] = useState(todayLocalYmd);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
+  const [leadColumnOrder, setLeadColumnOrder] = useState<DailySalesLeadColumnId[]>(loadDailySalesLeadColumnOrder);
+  const [leadSort, setLeadSort] = useState<{
+    col: DailySalesLeadColumnId;
+    dir: 'asc' | 'desc';
+  }>({ col: 'date', dir: 'asc' });
+
+  const reorderLeadColumns = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setLeadColumnOrder((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      saveDailySalesLeadColumnOrder(next);
+      return next;
+    });
+  }, []);
+
+  const toggleLeadSort = useCallback((col: DailySalesLeadColumnId) => {
+    setLeadSort((s) => {
+      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
+      return { col, dir: 'asc' };
+    });
+    setPage(1);
+  }, []);
+
   // Item 7 — engagement click-through state
   const [selectedEngagement, setSelectedEngagement] = useState<{
     engagementId: number;
@@ -445,6 +546,13 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
     return () => window.clearTimeout(t);
   }, [search]);
 
+  const dailySalesSortBy =
+    leadSort.col === 'date'
+      ? undefined
+      : leadSort.col === 'attraction'
+        ? 'attraction'
+        : 'venue';
+
   const salesQuery = useQuery({
     queryKey: [
       'daily-sales-by-perf',
@@ -453,6 +561,9 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
       pageSize,
       searchDebounced,
       attractionFilter,
+      performanceDateFilter,
+      leadSort.col,
+      leadSort.dir,
     ],
     queryFn: () =>
       fetchDailySalesByPerformance(asOfDate, {
@@ -460,6 +571,9 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         pageSize,
         search: searchDebounced || undefined,
         attraction: attractionFilter || undefined,
+        performanceDate: performanceDateFilter.trim() || undefined,
+        sortBy: dailySalesSortBy,
+        sortDir: leadSort.dir,
       }),
     staleTime: 2 * 60 * 1000,
     placeholderData: (prev) => prev,
@@ -499,7 +613,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [searchDebounced, attractionFilter, asOfDate]);
+  }, [searchDebounced, attractionFilter, asOfDate, performanceDateFilter, leadSort.col, leadSort.dir]);
 
   useEffect(() => {
     setPage(1);
@@ -586,7 +700,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
         </div>
       )}
 
-      {/* Search + Attraction */}
+      {/* Search + Attraction + Performance date */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-full min-w-0 sm:flex-1 sm:max-w-md">
           <label className="mb-1.5 block text-xs font-medium text-text-secondary">Search</label>
@@ -600,6 +714,22 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
             onChange={setAttractionFilter}
             disabled={showFullSkeleton}
             placeholder="All attractions"
+          />
+        </div>
+        <div className="w-full min-w-0 sm:w-[11.5rem]">
+          <label
+            htmlFor="daily-sales-perf-date"
+            className="mb-1.5 block text-xs font-medium text-text-secondary"
+          >
+            Performance date
+          </label>
+          <input
+            id="daily-sales-perf-date"
+            type="date"
+            className="h-9 w-full min-w-0 rounded-md border border-border bg-background px-2.5 text-sm text-text-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-ems-accent/30 focus:border-ems-accent disabled:opacity-50"
+            value={performanceDateFilter}
+            onChange={(e) => setPerformanceDateFilter(e.target.value)}
+            disabled={showFullSkeleton}
           />
         </div>
       </div>
@@ -624,24 +754,50 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
               <table className="w-full text-sm" style={{ minWidth: '900px' }}>
               <thead>
                 <tr className="text-xs border-b border-border">
-                  <th
-                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
-                    rowSpan={2}
-                  >
-                    Attraction
-                  </th>
-                  <th
-                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
-                    rowSpan={2}
-                  >
-                    Date
-                  </th>
-                  <th
-                    className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90"
-                    rowSpan={2}
-                  >
-                    Venue
-                  </th>
+                  {leadColumnOrder.map((colId, colIndex) => (
+                    <th
+                      key={colId}
+                      scope="col"
+                      rowSpan={2}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', String(colIndex));
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                        if (Number.isNaN(from)) return;
+                        reorderLeadColumns(from, colIndex);
+                      }}
+                      className="text-left py-2.5 px-3 text-text-muted align-bottom bg-surface/90 select-none cursor-grab active:cursor-grabbing min-w-0"
+                      title="Drag to move column"
+                    >
+                      <span className="inline-flex items-center gap-1 min-w-0 max-w-full">
+                        <GripVertical
+                          className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-70"
+                          aria-hidden
+                        />
+                        <button
+                          type="button"
+                          className="truncate inline-flex items-center gap-1 text-left font-medium text-text-muted hover:text-text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLeadSort(colId);
+                          }}
+                        >
+                          {DAILY_SALES_LEAD_COLUMN_LABELS[colId]}
+                          {leadSort.col === colId &&
+                            (leadSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </span>
+                    </th>
+                  ))}
                   <th
                     colSpan={2}
                     className="text-center py-2.5 px-3 font-semibold bg-ems-blue-dim/80 border-l border-ems-blue/20"
@@ -681,7 +837,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                 {serverTotal === 0 && !salesQuery.isError && (
                   <tr>
                     <td colSpan={8} className="py-12 text-center text-sm text-text-muted">
-                      No performances for this reporting date, or none match your search and filters.
+                      No performances for this reporting date, or none match your search, attraction, or performance date filter.
                     </td>
                   </tr>
                 )}
@@ -689,6 +845,7 @@ export function DailySalesPage({ onNavigate: _onNavigate, addToast }: Props) {
                   <PerformanceRow
                     key={`${r.performanceId}-${r.todayDate}`}
                     row={r}
+                    leadColumnOrder={leadColumnOrder}
                     onEngagementClick={(id) => setSelectedEngagement({
                       engagementId: id,
                       attractionName: r.attractionName,

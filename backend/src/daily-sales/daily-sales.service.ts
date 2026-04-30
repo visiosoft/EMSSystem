@@ -105,7 +105,7 @@ export interface PerformanceSalesPageResult {
     yesterdayTickets: number;
     yesterdayRevenue: number;
   };
-  /** Distinct non-null attraction names in this report (for the filter; not search-filtered). */
+  /** Distinct non-null attraction names for the filter (same performance-date window as the table when set). */
   attractionNames: string[];
 }
 
@@ -202,12 +202,59 @@ export class DailySalesService {
    * One page of performances with PerformanceDate <= asOf, plus totals over the full
    * filter (not just the current page) and options for the attraction filter.
    */
+  private applyByPerformanceSort(
+    qb: SelectQueryBuilder<Performance>,
+    sortByRaw?: string,
+    sortDirRaw?: string,
+  ): void {
+    const sortBy = (sortByRaw ?? '').trim().toLowerCase();
+    const sortDir =
+      (sortDirRaw ?? '').trim().toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const addChronoTie = () => {
+      qb.addOrderBy('p.performanceDate', 'ASC')
+        .addOrderBy('p.performanceTime', 'ASC')
+        .addOrderBy('p.performanceId', 'ASC');
+    };
+    if (sortBy === 'attraction') {
+      qb.orderBy('a.attractionName', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'tour') {
+      qb.orderBy('t.tourName', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'venue') {
+      qb.orderBy('vc.companyName', sortDir).addOrderBy('v.venueName', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'city') {
+      qb.orderBy('addr.city', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'state') {
+      qb.orderBy('addr.stateProvince', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'status' || sortBy === 'engagement') {
+      qb.orderBy('e.engagementStatus', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'todaytickets') {
+      qb.orderBy('ts_today.performanceSalesQuantity', sortDir);
+      addChronoTie();
+    } else if (sortBy === 'todayrevenue') {
+      qb.orderBy('ts_today.performanceSalesRevenue', sortDir);
+      addChronoTie();
+    } else {
+      qb.orderBy('p.performanceDate', sortDir)
+        .addOrderBy('p.performanceTime', sortDir)
+        .addOrderBy('p.performanceId', 'ASC');
+    }
+  }
+
   async findByPerformancePage(
     asOfDateParam: string | undefined,
     pageIn: number,
     pageSizeIn: number,
     searchRaw: string | undefined,
     attractionName: string | undefined,
+    performanceDateRaw?: string,
+    sortByRaw?: string,
+    sortDirRaw?: string,
   ): Promise<PerformanceSalesPageResult> {
     const asOf = await this.resolveAsOfDateString(asOfDateParam);
     const page = Math.max(1, Number.isFinite(pageIn) ? Math.floor(pageIn) : 1);
@@ -216,48 +263,52 @@ export class DailySalesService {
       Math.max(1, Number.isFinite(pageSizeIn) ? Math.floor(pageSizeIn) : 25),
     );
     const search = (searchRaw ?? '').trim() || undefined;
+    const performanceDate = this.normalizeOptionalYmd(performanceDateRaw);
 
     const yesterdayDate = ymdAddDays(asOf, -1);
 
     const baseQb = this.createByPerformanceBaseQb(asOf, {
       search,
       attractionName: attractionName?.trim() || undefined,
+      performanceDate,
     });
 
     // Run in parallel: previously (attraction list → count) were sequential, doubling wait time
     // on large dbo.Performance sets. Count + rollups + page each scan the same join pattern.
     const [attractionNames, total, agg, rawItems] = await Promise.all([
-      this.getDistinctAttractionNames(asOf),
+      this.getDistinctAttractionNames(asOf, performanceDate),
       baseQb.clone().getCount(),
       this.sumSalesForByPerformanceQuery(baseQb.clone(), asOf),
-      baseQb
-        .clone()
-        .select([
-          'p.performanceId                                         AS performanceId',
-          'p.engagementId                                         AS engagementId',
-          'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
-          'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
-          'p.performanceStatus                                    AS performanceStatus',
-          'e.engagementStatus                                     AS engagementStatus',
-          'a.attractionName                                       AS attractionName',
-          't.tourName                                             AS tourName',
-          'vc.companyName                                         AS venueCompanyName',
-          'v.venueName                                            AS venueName',
-          'addr.city                                              AS city',
-          'addr.stateProvince                                   AS stateProvince',
-          'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
-          'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
-          'ts_today.performanceSalesRevenue                        AS todayRevenue',
-          'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
-          'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
-          'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
-        ])
-        .setParameter('asOf', asOf)
-        .orderBy('p.performanceDate', 'ASC')
-        .addOrderBy('p.performanceTime', 'ASC')
-        .skip((page - 1) * pageSize)
-        .take(pageSize)
-        .getRawMany<Record<string, unknown>>(),
+      (async () => {
+        const pageQb = baseQb
+          .clone()
+          .select([
+            'p.performanceId                                         AS performanceId',
+            'p.engagementId                                         AS engagementId',
+            'CONVERT(varchar(10), p.performanceDate, 120)           AS performanceDate',
+            'CONVERT(varchar(8),  p.performanceTime, 108)          AS performanceTime',
+            'p.performanceStatus                                    AS performanceStatus',
+            'e.engagementStatus                                     AS engagementStatus',
+            'a.attractionName                                       AS attractionName',
+            't.tourName                                             AS tourName',
+            'vc.companyName                                         AS venueCompanyName',
+            'v.venueName                                            AS venueName',
+            'addr.city                                              AS city',
+            'addr.stateProvince                                   AS stateProvince',
+            'CONVERT(varchar(10), CAST(:asOf AS date), 120)         AS todayDate',
+            'ts_today.performanceSalesQuantity                      AS todayTicketsSold',
+            'ts_today.performanceSalesRevenue                        AS todayRevenue',
+            'CONVERT(varchar(10), DATEADD(day, -1, CAST(:asOf AS date)), 120) AS yesterdayDate',
+            'ts_yesterday.performanceSalesQuantity                  AS yesterdayTicketsSold',
+            'ts_yesterday.performanceSalesRevenue                    AS yesterdayRevenue',
+          ])
+          .setParameter('asOf', asOf);
+        this.applyByPerformanceSort(pageQb, sortByRaw, sortDirRaw);
+        return pageQb
+          .skip((page - 1) * pageSize)
+          .take(pageSize)
+          .getRawMany<Record<string, unknown>>();
+      })(),
     ]);
 
     const items: PerformanceSalesRow[] = rawItems.map((r) => ({
@@ -311,7 +362,7 @@ export class DailySalesService {
 
   private createByPerformanceBaseQb(
     asOf: string,
-    options: { search?: string; attractionName?: string },
+    options: { search?: string; attractionName?: string; performanceDate?: string },
   ): SelectQueryBuilder<Performance> {
     const qb = this.performanceRepo
       .createQueryBuilder('p')
@@ -341,6 +392,13 @@ export class DailySalesService {
       )
       .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
       .setParameter('asOf', asOf);
+
+    if (options.performanceDate) {
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)',
+        { perfDay: options.performanceDate },
+      );
+    }
 
     if (options.attractionName) {
       qb.andWhere('a.attractionName = :attName', {
@@ -402,15 +460,27 @@ export class DailySalesService {
     return (one as Record<string, unknown>) ?? {};
   }
 
-  private async getDistinctAttractionNames(asOf: string): Promise<string[]> {
-    const raw = await this.performanceRepo
+  private async getDistinctAttractionNames(
+    asOf: string,
+    performanceDate?: string,
+  ): Promise<string[]> {
+    const qb = this.performanceRepo
       .createQueryBuilder('p')
       .innerJoin(Engagement, 'e', 'e.engagementId = p.engagementId')
       .leftJoin(Tour, 't', 't.tourId = e.tourId')
       .leftJoin(Attraction, 'a', 'a.attractionId = t.attractionId')
       .where('CONVERT(date, p.performanceDate) <= CAST(:asOf AS date)')
       .andWhere('a.attractionName IS NOT NULL')
-      .setParameter('asOf', asOf)
+      .setParameter('asOf', asOf);
+
+    if (performanceDate) {
+      qb.andWhere(
+        'CONVERT(date, p.performanceDate) = CAST(:perfDay AS date)',
+        { perfDay: performanceDate },
+      );
+    }
+
+    const raw = await qb
       .select('a.attractionName', 'n')
       .distinct(true)
       .orderBy('a.attractionName', 'ASC')
@@ -421,6 +491,14 @@ export class DailySalesService {
         String(pickRow<unknown>(x as Record<string, unknown>, 'n') ?? ''),
       )
       .filter((s) => s.length > 0);
+  }
+
+  /** Optional performance calendar day filter (YYYY-MM-DD); invalid values ignored. */
+  private normalizeOptionalYmd(raw?: string): string | undefined {
+    const s = (raw ?? '').trim();
+    if (!s) return undefined;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    return undefined;
   }
 
   /** YYYY-MM-DD or fetch from server via GETDATE() for consistency with SQL. */

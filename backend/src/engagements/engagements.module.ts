@@ -4,6 +4,7 @@ import { AttractionToursModule } from '../attraction-tours/attraction-tours.modu
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
 import { Engagement } from '../entities/engagement.entity';
+import { Link } from '../entities/link.entity';
 import { EngagementFinances } from '../entities/engagement-finance.entity';
 import { EngagementVenue } from '../entities/engagement-venue.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
@@ -20,6 +21,7 @@ import { EngagementService } from './engagement.service';
   imports: [
     TypeOrmModule.forFeature([
       Engagement,
+      Link,
       EngagementFinances,
       EngagementVenue,
       Performance,

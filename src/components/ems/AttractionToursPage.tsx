@@ -1,12 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { patchEachInList, removeQueriesByPrefix } from '@/api/cacheHelpers';
 import {
-  upsertInList,
-  removeFromList,
-  patchEachInList,
-  removeQueriesByPrefix,
-} from '@/api/cacheHelpers';
-import { Loader2, Pencil, Trash2, Check, X, LayoutGrid, List, ChevronDown, ChevronRight, ImageIcon } from 'lucide-react';
+  Loader2,
+  Pencil,
+  Trash2,
+  Check,
+  X,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  ChevronRight,
+  ImageIcon,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-react';
 import {
   TabBar,
   Drawer,
@@ -205,7 +213,15 @@ function initialsFromName(name: string): string {
 }
 
 function getThumbnailUrl(entity: Record<string, unknown>): string | null {
-  const keys = ['thumbnailUrl', 'attractionThumbnailUrl', 'tourThumbnailUrl', 'imageUrl', 'posterUrl'];
+  const keys = [
+    'thumbnailUrl',
+    'attractionThumbnailUrl',
+    'tourThumbnailUrl',
+    'tourBannerImageUrl',
+    'latestTourBannerImageUrl',
+    'imageUrl',
+    'posterUrl',
+  ];
   for (const key of keys) {
     const val = entity[key];
     if (typeof val === 'string' && val.trim()) return val.trim();
@@ -626,6 +642,20 @@ function TourDrawer({
     audienceAgeRange?: string;
     insurance?: string;
   }>({});
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [stripBanner, setStripBanner] = useState(false);
+  const [bannerInputKey, setBannerInputKey] = useState(0);
+
+  useEffect(() => {
+    if (!bannerFile) {
+      setBannerPreview(null);
+      return;
+    }
+    const u = URL.createObjectURL(bannerFile);
+    setBannerPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [bannerFile]);
 
   useEffect(() => {
     setTourName(tour.tourName);
@@ -644,6 +674,9 @@ function TourDrawer({
     setBmi(tour.bmi);
     setSesac(tour.sesac);
     setGmr(tour.gmr);
+    setBannerFile(null);
+    setStripBanner(false);
+    setBannerInputKey((k) => k + 1);
     setDirty(false);
     setTourFieldErrors({});
   }, [tour.tourId]);
@@ -722,25 +755,37 @@ function TourDrawer({
     setTourFieldErrors({});
     setSaving(true);
     try {
-      const updated = await updateTour(tour.tourId, {
-        tourName: tourName.trim(),
-        attractionId: Number(attractionId),
-        classId: Number(classId),
-        tourManagementCompanyId: tourManagementCompanyId
-          ? Number(tourManagementCompanyId)
-          : null,
-        venueTypePreferenceId: venueTypePreferenceId
-          ? Number(venueTypePreferenceId)
-          : null,
-        audienceGender: audienceGender.trim() || null,
-        audienceAgeRange: audienceAgeRange.trim() || null,
-        tourInsuranceLanguage: insuranceLanguage.trim() || null,
-        ascap,
-        bmi,
-        sesac,
-        gmr,
-      });
+      const updated = await updateTour(
+        tour.tourId,
+        {
+          tourName: tourName.trim(),
+          attractionId: Number(attractionId),
+          classId: Number(classId),
+          tourManagementCompanyId: tourManagementCompanyId
+            ? Number(tourManagementCompanyId)
+            : null,
+          venueTypePreferenceId: venueTypePreferenceId
+            ? Number(venueTypePreferenceId)
+            : null,
+          audienceGender: audienceGender.trim() || null,
+          audienceAgeRange: audienceAgeRange.trim() || null,
+          tourInsuranceLanguage: insuranceLanguage.trim() || null,
+          ascap,
+          bmi,
+          sesac,
+          gmr,
+        },
+        {
+          bannerFile: bannerFile ?? undefined,
+          removeBanner: Boolean(
+            tour.tourBannerImageUrl && stripBanner && !bannerFile,
+          ),
+        },
+      );
       setDirty(false);
+      setBannerFile(null);
+      setStripBanner(false);
+      setBannerInputKey((k) => k + 1);
       addToast('Tour updated.', 'success');
       onSaved(updated, tour.attractionId);
     } catch (e) {
@@ -767,6 +812,9 @@ function TourDrawer({
     setBmi(tour.bmi);
     setSesac(tour.sesac);
     setGmr(tour.gmr);
+    setBannerFile(null);
+    setStripBanner(false);
+    setBannerInputKey((k) => k + 1);
     setDirty(false);
     setTourFieldErrors({});
   };
@@ -915,6 +963,75 @@ function TourDrawer({
               error={tourFieldErrors.insurance}
             />
 
+            <div className="rounded-md border border-border/80 bg-surface/50 px-3 py-3 space-y-2">
+              <div className="text-xs font-medium text-text-secondary">Tour banner image</div>
+              <p className="text-[11px] text-text-muted">
+                Optional. JPEG, PNG, WebP, or GIF — max 5 MB.
+              </p>
+              <input
+                key={bannerInputKey}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                disabled={saving}
+                className="block w-full text-xs text-text-secondary file:mr-3 file:rounded file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text-primary hover:file:bg-hover"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setBannerFile(f);
+                  if (f) setStripBanner(false);
+                  setTourFieldErrors({});
+                  setDirty(true);
+                }}
+              />
+              {tour.tourBannerImageUrl && !bannerPreview && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <img
+                    src={tour.tourBannerImageUrl}
+                    alt=""
+                    className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+                  />
+                  <label className="inline-flex items-center gap-2 text-xs text-text-secondary cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={stripBanner}
+                      disabled={saving}
+                      onChange={(e) => {
+                        setStripBanner(e.target.checked);
+                        if (e.target.checked) {
+                          setBannerFile(null);
+                          setBannerInputKey((k) => k + 1);
+                        }
+                        setTourFieldErrors({});
+                        setDirty(true);
+                      }}
+                      className="h-3.5 w-3.5 rounded border-border"
+                    />
+                    Remove current image
+                  </label>
+                </div>
+              )}
+              {bannerPreview && (
+                <div className="flex items-start gap-3">
+                  <img
+                    src={bannerPreview}
+                    alt=""
+                    className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+                  />
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setBannerFile(null);
+                      setBannerInputKey((k) => k + 1);
+                      setDirty(true);
+                    }}
+                    className="text-xs text-ems-accent hover:underline disabled:opacity-50"
+                  >
+                    Clear new upload
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* Save bar */}
             {dirty && (
               <div className="sticky bottom-0 -mx-4 px-4 py-3 bg-card/95 backdrop-blur-sm border-t border-border flex items-center justify-between gap-3 z-10">
@@ -974,15 +1091,6 @@ function clearAttractionToursServerSearchCaches(qc: QueryClient) {
   removeQueriesByPrefix(qc, toursServerSearchKeyPrefix);
 }
 
-/**
- * Sort comparators used when splicing into the cached lists so the surgical
- * update keeps the same order the list was originally rendered in.
- */
-const compareAttractions = (a: ApiAttractionListRow, b: ApiAttractionListRow) =>
-  a.attractionName.localeCompare(b.attractionName, undefined, {
-    sensitivity: 'base',
-  });
-
 const compareTours = (a: ApiTourListRow, b: ApiTourListRow) =>
   a.tourName.localeCompare(b.tourName, undefined, { sensitivity: 'base' });
 
@@ -998,6 +1106,14 @@ export function AttractionToursPage({ addToast }: Props) {
   const attractionSearchRef = useRef<HTMLDivElement>(null);
   const tourSearchRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
+  const [attractionSort, setAttractionSort] = useState<{
+    col: 'name' | 'tours';
+    dir: 'asc' | 'desc';
+  }>({ col: 'name', dir: 'asc' });
+  const [tourSort, setTourSort] = useState<{
+    col: 'tour' | 'attraction' | 'class' | 'management';
+    dir: 'asc' | 'desc';
+  }>({ col: 'tour', dir: 'asc' });
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [attractionsViewMode, setAttractionsViewMode] = useState<AttractionsViewMode>(loadAttractionsViewMode);
   const [expandedAttractionTileId, setExpandedAttractionTileId] = useState<number | null>(null);
@@ -1047,16 +1163,35 @@ export function AttractionToursPage({ addToast }: Props) {
   }, [pageTab]);
 
   const attractionsQuery = useQuery({
-    queryKey: attractionsListQueryKey,
-    queryFn: async () => fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined),
+    queryKey: [
+      ...attractionsListQueryKey,
+      attractionSort.col,
+      attractionSort.dir,
+    ] as const,
+    queryFn: async () =>
+      fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined, {
+        sortBy: attractionSort.col === 'tours' ? 'tours' : 'name',
+        sortDir: attractionSort.dir,
+      }),
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
   const toursQuery = useQuery({
-    queryKey: toursListQueryKey,
-    queryFn: async () => fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined),
+    queryKey: [...toursListQueryKey, tourSort.col, tourSort.dir] as const,
+    queryFn: async () =>
+      fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, undefined, {
+        sortBy:
+          tourSort.col === 'tour'
+            ? 'tour'
+            : tourSort.col === 'attraction'
+              ? 'attraction'
+              : tourSort.col === 'class'
+                ? 'class'
+                : 'management',
+        sortDir: tourSort.dir,
+      }),
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -1132,9 +1267,17 @@ export function AttractionToursPage({ addToast }: Props) {
     attractionSearch.trim() && filteredAttractions.length === 0,
   );
   const serverAttractionsSearchQuery = useQuery({
-    queryKey: [...attractionsServerSearchKeyPrefix, attractionSearch] as const,
+    queryKey: [
+      ...attractionsServerSearchKeyPrefix,
+      attractionSearch,
+      attractionSort.col,
+      attractionSort.dir,
+    ] as const,
     queryFn: () =>
-      fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, attractionSearch),
+      fetchAttractions(0, ATTRACTIONS_TOURS_LIST_LIMIT, attractionSearch, {
+        sortBy: attractionSort.col === 'tours' ? 'tours' : 'name',
+        sortDir: attractionSort.dir,
+      }),
     enabled: needServerAttractionSearch,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -1151,8 +1294,24 @@ export function AttractionToursPage({ addToast }: Props) {
     tourSearch.trim() && filteredTours.length === 0,
   );
   const serverToursSearchQuery = useQuery({
-    queryKey: [...toursServerSearchKeyPrefix, tourSearch] as const,
-    queryFn: () => fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, tourSearch),
+    queryKey: [
+      ...toursServerSearchKeyPrefix,
+      tourSearch,
+      tourSort.col,
+      tourSort.dir,
+    ] as const,
+    queryFn: () =>
+      fetchTours(0, ATTRACTIONS_TOURS_LIST_LIMIT, tourSearch, {
+        sortBy:
+          tourSort.col === 'tour'
+            ? 'tour'
+            : tourSort.col === 'attraction'
+              ? 'attraction'
+              : tourSort.col === 'class'
+                ? 'class'
+                : 'management',
+        sortDir: tourSort.dir,
+      }),
     enabled: needServerTourSearch,
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
@@ -1172,56 +1331,21 @@ export function AttractionToursPage({ addToast }: Props) {
    * `ApiAttractionListRow` / `ApiTourListRow` objects, we can splice them in
    * place with `setQueryData` and leave the staleness window untouched.
    */
-  const upsertAttractionInCache = useCallback(
-    (row: ApiAttractionListRow) => {
-      upsertInList<ApiAttractionListRow>(
-        qc,
-        attractionsListQueryKey,
-        row,
-        (a) => a.attractionId === row.attractionId,
-        compareAttractions,
-      );
-      // If the attraction was renamed, propagate the new name into every tour row that references it.
-      patchEachInList<ApiTourListRow>(qc, toursListQueryKey, (t) =>
-        t.attractionId === row.attractionId && t.attractionName !== row.attractionName
-          ? { ...t, attractionName: row.attractionName }
-          : t,
-      );
-      clearAttractionToursServerSearchCaches(qc);
-    },
-    [qc],
-  );
-
-  const bumpAttractionTourCount = useCallback(
-    (attractionId: number, delta: number) => {
-      patchEachInList<ApiAttractionListRow>(qc, attractionsListQueryKey, (a) =>
-        a.attractionId === attractionId
-          ? { ...a, activeTourCount: Math.max(0, a.activeTourCount + delta) }
-          : a,
-      );
-    },
-    [qc],
-  );
+  const upsertAttractionInCache = useCallback((_row: ApiAttractionListRow) => {
+    void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
+    void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
+    clearAttractionToursServerSearchCaches(qc);
+  }, [qc]);
 
   const upsertTourInCache = useCallback(
-    (row: ApiTourListRow, prevAttractionId: number | null) => {
-      upsertInList<ApiTourListRow>(
-        qc,
-        toursListQueryKey,
-        row,
-        (t) => t.tourId === row.tourId,
-        compareTours,
-      );
-      // Keep attraction.activeTourCount in sync when the linked attraction changes.
-      if (prevAttractionId == null) {
-        bumpAttractionTourCount(row.attractionId, +1);
-      } else if (prevAttractionId !== row.attractionId) {
-        bumpAttractionTourCount(prevAttractionId, -1);
-        bumpAttractionTourCount(row.attractionId, +1);
+    (_row: ApiTourListRow, prevAttractionId: number | null) => {
+      void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
+      if (prevAttractionId == null || prevAttractionId !== _row.attractionId) {
+        void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
       }
       clearAttractionToursServerSearchCaches(qc);
     },
-    [qc, bumpAttractionTourCount],
+    [qc],
   );
 
   const createAttrMut = useMutation({
@@ -1248,17 +1372,8 @@ export function AttractionToursPage({ addToast }: Props) {
   const deleteAttrMut = useMutation({
     mutationFn: deleteAttraction,
     onSuccess: (_, attractionId) => {
-      removeFromList<ApiAttractionListRow>(
-        qc,
-        attractionsListQueryKey,
-        (a) => a.attractionId === attractionId,
-      );
-      // Backend cascade: deleting an attraction deletes its tours. Mirror that in the cache.
-      removeFromList<ApiTourListRow>(
-        qc,
-        toursListQueryKey,
-        (t) => t.attractionId === attractionId,
-      );
+      void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
+      void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteAttraction(null);
       setSelectedAttractionId((cur) => (cur === attractionId ? null : cur));
@@ -1268,7 +1383,13 @@ export function AttractionToursPage({ addToast }: Props) {
   });
 
   const createTourMut = useMutation({
-    mutationFn: createTour,
+    mutationFn: ({
+      body,
+      bannerFile,
+    }: {
+      body: import('@/api/attractionToursApi').CreateTourPayload;
+      bannerFile?: File | null;
+    }) => createTour(body, bannerFile ? { bannerFile } : undefined),
     onSuccess: (row) => {
       upsertTourInCache(row, null);
       setShowAddTour(false);
@@ -1282,11 +1403,19 @@ export function AttractionToursPage({ addToast }: Props) {
       id,
       body,
       prevAttractionId,
+      bannerFile,
+      removeBanner,
     }: {
       id: number;
       body: Parameters<typeof updateTour>[1];
       prevAttractionId: number;
-    }) => updateTour(id, body).then((row) => ({ row, prevAttractionId })),
+      bannerFile?: File | null;
+      removeBanner?: boolean;
+    }) =>
+      updateTour(id, body, {
+        ...(bannerFile ? { bannerFile } : {}),
+        ...(removeBanner ? { removeBanner: true } : {}),
+      }).then((row) => ({ row, prevAttractionId })),
     onSuccess: ({ row, prevAttractionId }) => {
       upsertTourInCache(row, prevAttractionId);
       setEditTour(null);
@@ -1298,28 +1427,8 @@ export function AttractionToursPage({ addToast }: Props) {
   const deleteTourMut = useMutation({
     mutationFn: deleteTour,
     onSuccess: (_, tourId) => {
-      /**
-       * Capture the attraction id BEFORE removing the row so we can decrement
-       * that attraction's activeTourCount. Any other row / search cache gets
-       * recalculated on demand.
-       */
-      let attractionIdOfRemoved: number | null = null;
-      qc.setQueryData<ApiPaginatedResponse<ApiTourListRow> | undefined>(
-        toursListQueryKey,
-        (old) => {
-          if (!old) return old;
-          const t = old.data.find((x) => x.tourId === tourId);
-          if (t) attractionIdOfRemoved = t.attractionId;
-          return {
-            ...old,
-            data: old.data.filter((x) => x.tourId !== tourId),
-            total: Math.max(0, old.total - 1),
-          };
-        },
-      );
-      if (attractionIdOfRemoved != null) {
-        bumpAttractionTourCount(attractionIdOfRemoved, -1);
-      }
+      void qc.invalidateQueries({ queryKey: ['tours'], exact: false });
+      void qc.invalidateQueries({ queryKey: ['attractions'], exact: false });
       clearAttractionToursServerSearchCaches(qc);
       setPendingDeleteTour(null);
       setSelectedTourId((cur) => (cur === tourId ? null : cur));
@@ -1358,9 +1467,26 @@ export function AttractionToursPage({ addToast }: Props) {
     (toursQuery.isFetching && !toursQuery.isPending) ||
     (lookupsQuery.isFetching && !lookupsQuery.isPending);
 
+  const toggleAttractionSort = useCallback((col: 'name' | 'tours') => {
+    setAttractionSort((s) =>
+      s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' },
+    );
+    setPage(1);
+  }, []);
+
+  const toggleTourSort = useCallback(
+    (col: 'tour' | 'attraction' | 'class' | 'management') => {
+      setTourSort((s) =>
+        s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' },
+      );
+      setPage(1);
+    },
+    [],
+  );
+
   useEffect(() => {
     setPage(1);
-  }, [attractionSearch, tourSearch, pageTab]);
+  }, [attractionSearch, tourSearch, pageTab, attractionSort, tourSort]);
 
   useEffect(() => {
     setPage(1);
@@ -1765,8 +1891,36 @@ export function AttractionToursPage({ addToast }: Props) {
                   <table className="w-full text-sm min-w-[520px]">
                     <thead>
                       <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                        <th className="text-left py-2.5 px-3">Attraction Name</th>
-                        <th className="text-left py-2.5 px-3">Active Tours</th>
+                        <th className="text-left py-2.5 px-3">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                            onClick={() => toggleAttractionSort('name')}
+                          >
+                            Attraction Name
+                            {attractionSort.col === 'name' &&
+                              (attractionSort.dir === 'asc' ? (
+                                <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                              ) : (
+                                <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                              ))}
+                          </button>
+                        </th>
+                        <th className="text-left py-2.5 px-3">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                            onClick={() => toggleAttractionSort('tours')}
+                          >
+                            Active Tours
+                            {attractionSort.col === 'tours' &&
+                              (attractionSort.dir === 'asc' ? (
+                                <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                              ) : (
+                                <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                              ))}
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1801,7 +1955,7 @@ export function AttractionToursPage({ addToast }: Props) {
                         : 'No attractions match your search.'}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
                       {(paginated as ApiAttractionListRow[]).map((a) => {
                         const isExpanded = expandedAttractionTileId === a.attractionId;
                         const toursForAttraction = toursByAttractionId.get(a.attractionId) ?? [];
@@ -1935,10 +2089,66 @@ export function AttractionToursPage({ addToast }: Props) {
                 <table className="w-full text-sm min-w-[800px]">
                   <thead>
                     <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                      <th className="text-left py-2.5 px-3">Tour Name</th>
-                      <th className="text-left py-2.5 px-3">Attraction</th>
-                      <th className="text-left py-2.5 px-3">Class</th>
-                      <th className="text-left py-2.5 px-3">Tour Management Company</th>
+                      <th className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                          onClick={() => toggleTourSort('tour')}
+                        >
+                          Tour Name
+                          {tourSort.col === 'tour' &&
+                            (tourSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                      <th className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                          onClick={() => toggleTourSort('attraction')}
+                        >
+                          Attraction
+                          {tourSort.col === 'attraction' &&
+                            (tourSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                      <th className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                          onClick={() => toggleTourSort('class')}
+                        >
+                          Class
+                          {tourSort.col === 'class' &&
+                            (tourSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                      <th className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
+                          onClick={() => toggleTourSort('management')}
+                        >
+                          Tour Management Company
+                          {tourSort.col === 'management' &&
+                            (tourSort.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
                       <th className="w-10" />
                     </tr>
                   </thead>
@@ -2066,11 +2276,14 @@ export function AttractionToursPage({ addToast }: Props) {
       {showAddTour && classes.length > 0 && attractionsForPicker.length > 0 && (
         <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={600} allowContentOverflow>
           <AddTourForm
+            variant="attraction-tours"
             attractions={attractionsForPicker}
             classes={classes}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
-            onSave={(body) => void createTourMut.mutateAsync(body)}
+            onSave={(body, bannerFile) =>
+              void createTourMut.mutateAsync({ body, bannerFile: bannerFile ?? undefined })
+            }
           />
         </Modal>
       )}
@@ -2085,11 +2298,13 @@ export function AttractionToursPage({ addToast }: Props) {
             initial={editTour}
             submitting={updateTourMut.isPending}
             onCancel={() => setEditTour(null)}
-            onSave={(body) =>
+            onSave={(body, opts) =>
               void updateTourMut.mutateAsync({
                 id: editTour.tourId,
                 body,
                 prevAttractionId: editTour.attractionId,
+                bannerFile: opts?.bannerFile,
+                removeBanner: opts?.removeBanner,
               })
             }
           />
@@ -2177,7 +2392,10 @@ function TourFormDb({
   venueTypes: ApiVenueType[];
   initial?: ApiTourListRow;
   submitting: boolean;
-  onSave: (body: import('@/api/attractionToursApi').CreateTourPayload | import('@/api/attractionToursApi').UpdateTourPayload) => void;
+  onSave: (
+    body: import('@/api/attractionToursApi').CreateTourPayload | import('@/api/attractionToursApi').UpdateTourPayload,
+    opts?: { bannerFile?: File | null; removeBanner?: boolean },
+  ) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.tourName ?? '');
@@ -2201,6 +2419,26 @@ function TourFormDb({
     initial?.venueTypePreferenceId != null ? String(initial.venueTypePreferenceId) : '',
   );
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [stripBanner, setStripBanner] = useState(false);
+  const [bannerInputKey, setBannerInputKey] = useState(0);
+
+  useEffect(() => {
+    if (!bannerFile) {
+      setBannerPreview(null);
+      return;
+    }
+    const u = URL.createObjectURL(bannerFile);
+    setBannerPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [bannerFile]);
+
+  useEffect(() => {
+    setBannerFile(null);
+    setStripBanner(false);
+    setBannerInputKey((k) => k + 1);
+  }, [initial?.tourId]);
 
   const clearError = useCallback((key: string) => {
     setFieldErrors((e) => clearFormFieldError(e, key));
@@ -2274,7 +2512,12 @@ function TourFormDb({
       return;
     }
     setFieldErrors({});
-    onSave(buildPayload());
+    onSave(buildPayload(), {
+      bannerFile: bannerFile ?? undefined,
+      removeBanner: Boolean(
+        initial?.tourBannerImageUrl && stripBanner && !bannerFile,
+      ),
+    });
   };
 
   return (
@@ -2290,6 +2533,72 @@ function TourFormDb({
           maxLength={200}
           placeholder="e.g. World Tour 2025"
         />
+      </FormField>
+      <FormField label="Tour banner image" optional>
+        <p className="text-[11px] text-text-muted mb-2">
+          JPEG, PNG, WebP, or GIF — max 5 MB. Replaces the current banner when you save.
+        </p>
+        <div className="space-y-2">
+          <input
+            key={bannerInputKey}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            disabled={submitting}
+            className="block w-full text-xs text-text-secondary file:mr-3 file:rounded file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text-primary hover:file:bg-hover"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setBannerFile(f);
+              if (f) setStripBanner(false);
+              setFieldErrors({});
+            }}
+          />
+          {initial?.tourBannerImageUrl && !bannerPreview && (
+            <div className="flex flex-wrap items-center gap-3">
+              <img
+                src={initial.tourBannerImageUrl}
+                alt=""
+                className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+              />
+              <label className="inline-flex items-center gap-2 text-xs text-text-secondary cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={stripBanner}
+                  disabled={submitting}
+                  onChange={(e) => {
+                    setStripBanner(e.target.checked);
+                    if (e.target.checked) {
+                      setBannerFile(null);
+                      setBannerInputKey((k) => k + 1);
+                    }
+                    setFieldErrors({});
+                  }}
+                  className="h-3.5 w-3.5 rounded border-border"
+                />
+                Remove current image
+              </label>
+            </div>
+          )}
+          {bannerPreview && (
+            <div className="flex items-start gap-3">
+              <img
+                src={bannerPreview}
+                alt=""
+                className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+              />
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  setBannerFile(null);
+                  setBannerInputKey((k) => k + 1);
+                }}
+                className="text-xs text-ems-accent hover:underline disabled:opacity-50"
+              >
+                Clear new upload
+              </button>
+            </div>
+          )}
+        </div>
       </FormField>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FormField label="Attraction" required error={fieldErrors.attraction}>

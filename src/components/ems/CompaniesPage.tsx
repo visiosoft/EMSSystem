@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 import {
   Avatar,
   TabBar,
@@ -27,12 +28,12 @@ import {
   createCompanyContact,
   deleteCompany,
   deleteContactAssignment,
-  companiesApiQueryKey,
-  companiesServerSearchQueryKeyPrefix,
+  companiesListQueryKey,
   COMPANIES_PICKER_LIMIT,
   type ApiPaginatedResponse,
   type ApiCompanyContact,
   fetchCompanies,
+  fetchCompany,
   fetchCompanyContacts,
   fetchCompanyEngagements,
   fetchDmaByPostal,
@@ -2153,6 +2154,18 @@ export function CompaniesPage({ addToast }: Props) {
     null,
   );
 
+  type CompanySortCol = 'name' | 'type' | 'city' | 'dma';
+  const SORT_API_BY_COL: Record<CompanySortCol, string> = {
+    name: 'name',
+    type: 'type',
+    city: 'city',
+    dma: 'dma',
+  };
+  const [sortState, setSortState] = useState<{
+    col: CompanySortCol | null;
+    dir: 'asc' | 'desc';
+  }>({ col: 'name', dir: 'asc' });
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
@@ -2163,130 +2176,78 @@ export function CompaniesPage({ addToast }: Props) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const companiesQuery = useQuery({
-    queryKey: companiesApiQueryKey,
-    queryFn: async () => {
-      const res: ApiPaginatedResponse<ApiCompanyListRow> = await fetchCompanies(
-        0,
-        COMPANIES_PICKER_LIMIT,
-        {},
-      );
-      return res.data;
-    },
+  const companyTypeParam = typeFilter !== 'All' ? typeFilter : undefined;
+  const listOpts = useMemo(
+    () => ({
+      q: activeSearch.trim() || undefined,
+      companyType: companyTypeParam,
+      sortBy: sortState.col ? SORT_API_BY_COL[sortState.col] : undefined,
+      sortDir: sortState.col ? sortState.dir : undefined,
+    }),
+    [activeSearch, companyTypeParam, sortState.col, sortState.dir],
+  );
+
+  const { offset, limit } = getPageParams(page, pageSize);
+
+  const companiesListQuery = useQuery({
+    queryKey: companiesListQueryKey(offset, limit, listOpts),
+    queryFn: () => fetchCompanies(offset, limit, listOpts),
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
+    placeholderData: (prev) => prev,
   });
 
-  const companies = useMemo(
-    () => (companiesQuery.data ?? []).map(mapApiCompanyToCompany),
-    [companiesQuery.data],
-  );
+  const searchSuggestionsQuery = useQuery({
+    queryKey: ['companies', 'suggestions', searchInput.trim(), companyTypeParam] as const,
+    queryFn: () =>
+      fetchCompanies(0, 20, {
+        q: searchInput.trim(),
+        companyType: companyTypeParam,
+        sortBy: 'name',
+        sortDir: 'asc',
+      }),
+    enabled: showSuggestions && searchInput.trim().length >= 1,
+    staleTime: 60 * 1000,
+  });
 
   const searchSuggestions = useMemo(() => {
     const q = searchInput.trim().toLowerCase();
-    if (!q || q.length < 1) return [];
-    return (companiesQuery.data ?? [])
+    if (!q) return [];
+    return (searchSuggestionsQuery.data?.data ?? [])
       .map((c) => mapApiCompanyToCompany(c).name)
       .filter((name) => name.toLowerCase().includes(q))
       .slice(0, 8);
-  }, [searchInput, companiesQuery.data]);
+  }, [searchInput, searchSuggestionsQuery.data]);
 
   const commitSearch = useCallback(() => {
     setActiveSearch(searchInput.trim());
     setShowSuggestions(false);
   }, [searchInput]);
 
-  /**
-   * When no text search: filter the in-memory list by type only.
-   * When the user has committed a name search: always use the API — the in-memory
-   * list can miss matches (substring false positives) or omit companies outside
-   * the loaded set, which previously skipped the server search entirely.
-   */
-  const cacheFiltered = useMemo(() => {
-    const rows = companies.filter((c) => {
-      if (typeFilter !== 'All' && c.type !== typeFilter) return false;
-      return true;
+  const displayList = useMemo(
+    () => (companiesListQuery.data?.data ?? []).map(mapApiCompanyToCompany),
+    [companiesListQuery.data],
+  );
+  const serverTotal = companiesListQuery.data?.total ?? 0;
+
+  const toggleColumnSort = useCallback((col: CompanySortCol) => {
+    setSortState((s) => {
+      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
+      return { col, dir: 'asc' };
     });
-    return [...rows].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    );
-  }, [companies, typeFilter]);
+    setPage(1);
+  }, []);
 
-  const hasActiveSearch = activeSearch.trim().length > 0;
-  const companyTypeParam =
-    typeFilter !== 'All' ? typeFilter : undefined;
-  const serverSearchQuery = useQuery({
-    queryKey: [
-      ...companiesServerSearchQueryKeyPrefix,
-      activeSearch,
-      typeFilter,
-    ] as const,
-    queryFn: () =>
-      fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
-        q: activeSearch.trim(),
-        companyType: companyTypeParam,
-      }),
-    enabled: hasActiveSearch,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
+  const upsertCompanyInCache = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
+    void qc.invalidateQueries({ queryKey: ['companies', 'suggestions'], exact: false });
+  }, [qc]);
 
-  const displayList = useMemo((): Company[] => {
-    if (hasActiveSearch) {
-      const data = serverSearchQuery.data?.data ?? [];
-      return data.map(mapApiCompanyToCompany);
-    }
-    return cacheFiltered;
-  }, [hasActiveSearch, serverSearchQuery.data, cacheFiltered]);
-
-  const { offset, limit } = getPageParams(page, pageSize);
-  const pagedRows = useMemo(
-    () => displayList.slice(offset, offset + limit),
-    [displayList, offset, limit],
-  );
-  const serverTotal = displayList.length;
-
-  /**
-   * Surgical cache patches — the user requirement is: cache only refreshes every
-   * 30 minutes, but any mutation must reflect in both DB and cached list
-   * IMMEDIATELY, without a full list refetch. The backend create/update endpoints
-   * return the full `ApiCompanyListRow`, so we can splice the row in place with
-   * `setQueryData` and leave `staleTime` untouched.
-   *
-   * Server-search caches (keyed by `q`+`companyType`) are dropped, since
-   * recomputing which variants still contain a given row is fragile — they'll
-   * re-fetch on demand next time the user searches.
-   */
-  const upsertCompanyInCache = useCallback(
-    (row: ApiCompanyListRow) => {
-      upsertInList<ApiCompanyListRow>(
-        qc,
-        companiesApiQueryKey,
-        row,
-        (r) => r.companyId === row.companyId,
-        (a, b) =>
-          a.companyName.localeCompare(b.companyName, undefined, {
-            sensitivity: 'base',
-          }),
-      );
-      removeQueriesByPrefix(qc, companiesServerSearchQueryKeyPrefix);
-    },
-    [qc],
-  );
-
-  const removeCompanyFromCache = useCallback(
-    (companyId: number) => {
-      removeFromList<ApiCompanyListRow>(
-        qc,
-        companiesApiQueryKey,
-        (r) => r.companyId === companyId,
-      );
-      removeQueriesByPrefix(qc, companiesServerSearchQueryKeyPrefix);
-    },
-    [qc],
-  );
+  const removeCompanyFromCache = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['companies', 'list'], exact: false });
+    void qc.invalidateQueries({ queryKey: ['companies', 'suggestions'], exact: false });
+  }, [qc]);
 
   const lookupsQuery = useQuery({
     queryKey: ['lookups'],
@@ -2310,15 +2271,23 @@ export function CompaniesPage({ addToast }: Props) {
     if (lookupTypes.length > 0) {
       return ['All', ...lookupTypes.map((t) => t.companyTypeName)];
     }
-    const set = new Set(companies.map((c) => c.type).filter(Boolean));
-    return ['All', ...Array.from(set).sort()];
-  }, [lookupsQuery.data?.companyTypes, companies]);
+    return ['All'];
+  }, [lookupsQuery.data?.companyTypes]);
 
-  // Prefer the row the user is looking at (table / server search) over a possibly stale main list row.
+  const companyDetailQuery = useQuery({
+    queryKey: ['companies', 'detail', selectedCompanyId],
+    queryFn: () => fetchCompany(Number(selectedCompanyId)),
+    enabled:
+      !!selectedCompanyId &&
+      !displayList.some((c) => c.id === selectedCompanyId),
+    staleTime: 60 * 1000,
+  });
+
   const selectedCompany = selectedCompanyId
     ? displayList.find((c) => c.id === selectedCompanyId) ??
-      companies.find((c) => c.id === selectedCompanyId) ??
-      null
+      (companyDetailQuery.data
+        ? mapApiCompanyToCompany(companyDetailQuery.data)
+        : null)
     : null;
 
   const isVenueCompany =
@@ -2350,7 +2319,7 @@ export function CompaniesPage({ addToast }: Props) {
 
   useEffect(() => {
     setPage(1);
-  }, [activeSearch, typeFilter]);
+  }, [activeSearch, typeFilter, sortState.col, sortState.dir]);
 
   useEffect(() => {
     setPage(1);
@@ -2359,9 +2328,8 @@ export function CompaniesPage({ addToast }: Props) {
   const pageCount = getTotalPages(serverTotal, pageSize);
   const { rangeStart, rangeEnd } = getPageRange(page, serverTotal, pageSize);
   const isLoadingCompanies =
-    companiesQuery.isPending ||
-    (hasActiveSearch &&
-      (serverSearchQuery.isPending || serverSearchQuery.isFetching));
+    companiesListQuery.isPending ||
+    (companiesListQuery.isFetching && !companiesListQuery.data);
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
@@ -2536,9 +2504,9 @@ export function CompaniesPage({ addToast }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {companiesQuery.isError && (
+      {companiesListQuery.isError && (
         <div className="text-sm text-ems-coral border border-ems-coral/30 rounded-md px-3 py-2 bg-ems-coral-dim">
-          Could not load companies: {(companiesQuery.error as Error).message}. Is
+          Could not load companies: {(companiesListQuery.error as Error).message}. Is
           the API running at <code className="text-xs">/api</code> (see Vite proxy)?
         </div>
       )}
@@ -2648,26 +2616,49 @@ export function CompaniesPage({ addToast }: Props) {
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
-                  <th className="text-left py-2.5 px-3">Company Name</th>
-                  <th className="text-left py-2.5 px-3">Type</th>
-                  <th className="text-left py-2.5 px-3">City, State</th>
-                  <th className="text-left py-2.5 px-3">DMA</th>
+                  {(
+                    [
+                      { col: 'name' as const, label: 'Company Name' },
+                      { col: 'type' as const, label: 'Type' },
+                      { col: 'city' as const, label: 'City, State' },
+                      { col: 'dma' as const, label: 'DMA' },
+                    ] as const
+                  ).map(({ col, label }) => {
+                    const sortActive = sortState.col === col;
+                    return (
+                      <th key={col} className="text-left py-2.5 px-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium text-text-muted hover:text-text-primary"
+                          onClick={() => toggleColumnSort(col)}
+                        >
+                          {label}
+                          {sortActive &&
+                            (sortState.dir === 'asc' ? (
+                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-ems-accent" aria-hidden />
+                            ))}
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {pagedRows.length === 0 && !companiesQuery.isError && (
+                {displayList.length === 0 && !companiesListQuery.isError && (
                   <tr>
                     <td
                       colSpan={4}
                       className="py-12 px-3 text-center text-sm text-text-muted"
                     >
-                      {!activeSearch && typeFilter === 'All'
+                      {serverTotal === 0 && !activeSearch.trim() && typeFilter === 'All'
                         ? 'No companies returned from the database.'
                         : 'No companies match your search or filters.'}
                     </td>
                   </tr>
                 )}
-                {pagedRows.map((c) => (
+                {displayList.map((c) => (
                   <tr
                     key={c.id}
                     onClick={() => {
@@ -2785,7 +2776,7 @@ export function CompaniesPage({ addToast }: Props) {
                 companyTypes={lookupsQuery.data.companyTypes}
                 addToast={addToast}
                 onSaved={(row) => {
-                  upsertCompanyInCache(row);
+                  upsertCompanyInCache();
                 }}
               />
             )}
@@ -2972,7 +2963,7 @@ export function CompaniesPage({ addToast }: Props) {
             onSubmit={async (payload) => {
               try {
                 const created = await createCompany(payload as CreateCompanyPayload);
-                upsertCompanyInCache(created);
+                upsertCompanyInCache();
                 setShowAddModal(false);
                 addToast('Company saved. You can find it in the list.', 'success');
               } catch (e) {

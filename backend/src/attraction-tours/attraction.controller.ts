@@ -23,8 +23,10 @@ export class AttractionController {
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
     @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
     @Query('q') q?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDir') sortDir?: string,
   ) {
-    return this.attractionService.listPaginated(offset, limit, q);
+    return this.attractionService.listPaginated(offset, limit, q, sortBy, sortDir);
   }
 
   @Post()

@@ -465,10 +465,10 @@ export function CompanyVenueProfilePanel({
     useState('');
   const [venueRelationshipIae, setVenueRelationshipIae] = useState('Standard');
   const [venueTypeId, setVenueTypeId] = useState<string>('');
-  const [entertainmentComplexCompanyIds, setEntertainmentComplexCompanyIds] = useState<
-    number[]
-  >([]);
-  const entertainmentComplexCompanyIdsRef = useRef<number[]>([]);
+  const [entertainmentComplexCompanyId, setEntertainmentComplexCompanyId] = useState<
+    number | null
+  >(null);
+  const entertainmentComplexCompanyIdRef = useRef<number | null>(null);
   const [seatingTypeId, setSeatingTypeId] = useState<string>('');
   const [loadDockAddressLine1, setLoadDockAddressLine1] = useState('');
   const [loadDockAddressLine2, setLoadDockAddressLine2] = useState('');
@@ -633,16 +633,31 @@ export function CompanyVenueProfilePanel({
     return m;
   }, [vq.data, entertainmentComplexPickerQ.data]);
 
-  const entertainmentComplexAddOptions = useMemo(() => {
+  /** Single-select list: all entertainment-complex companies except this venue. */
+  const entertainmentComplexSelectOptions = useMemo(() => {
     const rows = entertainmentComplexPickerQ.data ?? [];
-    return rows
-      .filter(
-        (r) =>
-          r.companyId !== companyId && !entertainmentComplexCompanyIds.includes(r.companyId),
-      )
+    const opts = rows
+      .filter((r) => r.companyId !== companyId)
       .map((r) => ({ value: String(r.companyId), label: r.companyName }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-  }, [entertainmentComplexPickerQ.data, companyId, entertainmentComplexCompanyIds]);
+    const sel = entertainmentComplexCompanyId;
+    if (
+      sel != null &&
+      Number.isInteger(sel) &&
+      sel > 0 &&
+      !opts.some((o) => o.value === String(sel))
+    ) {
+      const label = entertainmentComplexNameById.get(sel) ?? `#${sel}`;
+      opts.push({ value: String(sel), label });
+      opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    }
+    return opts;
+  }, [
+    entertainmentComplexPickerQ.data,
+    companyId,
+    entertainmentComplexCompanyId,
+    entertainmentComplexNameById,
+  ]);
 
   const venueTypeOptions = useMemo(
     () =>
@@ -682,11 +697,12 @@ export function CompanyVenueProfilePanel({
     setInsurancePolicyCopyRequirements(full.insurancePolicyCopyRequirements ?? '');
     setVenueRelationshipIae(full.venueRelationshipIae);
     setVenueTypeId(full.venueTypeId != null ? String(full.venueTypeId) : '');
-    const loadedComplexIds = Array.isArray(full.entertainmentComplexCompanyIds)
-      ? [...full.entertainmentComplexCompanyIds]
+    const ids = Array.isArray(full.entertainmentComplexCompanyIds)
+      ? full.entertainmentComplexCompanyIds.filter((id) => Number.isInteger(id) && id > 0)
       : [];
-    entertainmentComplexCompanyIdsRef.current = loadedComplexIds;
-    setEntertainmentComplexCompanyIds(loadedComplexIds);
+    const single = ids[0] ?? null;
+    entertainmentComplexCompanyIdRef.current = single;
+    setEntertainmentComplexCompanyId(single);
     setSeatingTypeId(full.seatingTypeId != null ? String(full.seatingTypeId) : '');
     setLoadDockAddressLine1(full.loadDockAddress?.addressLine1 ?? '');
     setLoadDockAddressLine2(full.loadDockAddress?.addressLine2 ?? '');
@@ -697,8 +713,8 @@ export function CompanyVenueProfilePanel({
   }, [vq.data]);
 
   useEffect(() => {
-    entertainmentComplexCompanyIdsRef.current = entertainmentComplexCompanyIds;
-  }, [entertainmentComplexCompanyIds]);
+    entertainmentComplexCompanyIdRef.current = entertainmentComplexCompanyId;
+  }, [entertainmentComplexCompanyId]);
 
   useEffect(() => {
     const d = detailsQ.data;
@@ -840,9 +856,10 @@ export function CompanyVenueProfilePanel({
         salesTaxRate: taxRateToFormValue(full.salesTaxRate),
         insuranceLanguage: full.insuranceLanguage ?? '',
         venueTypeId: full.venueTypeId != null ? String(full.venueTypeId) : '',
-        entertainmentComplexCompanyIds: [
-          ...(full.entertainmentComplexCompanyIds ?? []),
-        ].sort((a, b) => a - b),
+        entertainmentComplexCompanyId:
+          (full.entertainmentComplexCompanyIds ?? []).find(
+            (id) => Number.isInteger(id) && id > 0,
+          ) ?? null,
       }),
       loadDock: JSON.stringify(loadDock),
       finance: JSON.stringify([
@@ -945,9 +962,7 @@ export function CompanyVenueProfilePanel({
         salesTaxRate: taxRateToFormValue(salesTaxRate),
         insuranceLanguage: insuranceLanguage ?? '',
         venueTypeId: venueTypeId || '',
-        entertainmentComplexCompanyIds: [...entertainmentComplexCompanyIds].sort(
-          (a, b) => a - b,
-        ),
+        entertainmentComplexCompanyId,
       }) !== sectionBaseline.core
     );
   }, [
@@ -957,7 +972,7 @@ export function CompanyVenueProfilePanel({
     salesTaxRate,
     insuranceLanguage,
     venueTypeId,
-    entertainmentComplexCompanyIds,
+    entertainmentComplexCompanyId,
   ]);
 
   const isLoadDockDirty = useMemo(() => {
@@ -1191,6 +1206,7 @@ export function CompanyVenueProfilePanel({
       case 'core':
         return Promise.all([
           inv('venue-profile'),
+          inv('venue-details'),
           qc.invalidateQueries({ queryKey: allVenuesQueryKey }),
         ]);
       case 'loadDock':
@@ -1260,9 +1276,11 @@ export function CompanyVenueProfilePanel({
         salesTaxRate: trimTaxRatePayload(salesTaxRate),
         insuranceLanguage: insuranceLanguage.trim() || null,
         venueTypeId: venueTypeId ? Number(venueTypeId) : null,
-        entertainmentComplexCompanyIds: [...entertainmentComplexCompanyIdsRef.current].sort(
-          (a, b) => a - b,
-        ),
+        entertainmentComplexCompanyIds:
+          entertainmentComplexCompanyIdRef.current != null &&
+          Number.isFinite(entertainmentComplexCompanyIdRef.current)
+            ? [entertainmentComplexCompanyIdRef.current]
+            : [],
       });
       await refetchAfterSectionSave('core');
       addToast('General venue information saved.', 'success');
@@ -1572,58 +1590,32 @@ export function CompanyVenueProfilePanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField label="Entertainment Complex">
             <div className="space-y-2">
+              <p className="text-[11px] text-text-muted leading-snug">
+                One entertainment complex per venue. Clear the selection for a standalone venue.
+              </p>
               <Select2
                 className="w-full"
-                options={[
-                  { value: '', label: 'Add entertainment complex…' },
-                  ...(entertainmentComplexPickerQ.isLoading
-                    ? [{ value: '', label: 'Loading…' }]
-                    : entertainmentComplexAddOptions),
-                ]}
-                value=""
+                allowClear
+                disabled={entertainmentComplexPickerQ.isLoading}
+                options={entertainmentComplexSelectOptions}
+                value={
+                  entertainmentComplexCompanyId != null
+                    ? String(entertainmentComplexCompanyId)
+                    : ''
+                }
                 onChange={(v) => {
-                  if (!v) return;
+                  if (!v) {
+                    entertainmentComplexCompanyIdRef.current = null;
+                    setEntertainmentComplexCompanyId(null);
+                    return;
+                  }
                   const id = Number(v);
-                  if (!Number.isFinite(id) || entertainmentComplexCompanyIds.includes(id)) return;
-                  setEntertainmentComplexCompanyIds((prev) => {
-                    const next = [...prev, id].sort((a, b) => a - b);
-                    entertainmentComplexCompanyIdsRef.current = next;
-                    return next;
-                  });
+                  if (!Number.isFinite(id) || id <= 0) return;
+                  entertainmentComplexCompanyIdRef.current = id;
+                  setEntertainmentComplexCompanyId(id);
                 }}
-                placeholder="Add entertainment complex…"
+                placeholder="No entertainment complex"
               />
-              {entertainmentComplexCompanyIds.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {entertainmentComplexCompanyIds.map((id) => {
-                    const name = entertainmentComplexNameById.get(id) ?? `#${id}`;
-                    return (
-                      <span
-                        key={id}
-                        className="inline-flex items-center gap-1 text-xs text-text-primary border border-border rounded px-2 py-0.5 bg-surface/50"
-                      >
-                        {name}
-                        <button
-                          type="button"
-                          className="p-0.5 rounded hover:bg-surface-hover"
-                          onClick={() =>
-                            setEntertainmentComplexCompanyIds((prev) => {
-                              const next = prev.filter((x) => x !== id);
-                              entertainmentComplexCompanyIdsRef.current = next;
-                              return next;
-                            })
-                          }
-                          aria-label={`Remove ${name}`}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-text-muted">No complexes linked (standalone venue).</p>
-              )}
             </div>
           </FormField>
           <FormField label="DMA">
