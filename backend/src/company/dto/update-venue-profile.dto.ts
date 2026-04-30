@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsInt,
   IsNotEmpty,
@@ -93,6 +94,17 @@ export class UpdateVenueProfileDto {
   @IsInt()
   @Min(1)
   seatingTypeId?: number | null;
+
+  /**
+   * Optional entertainment complex companies (dbo.Company rows with type Entertainment Complex).
+   * Persisted as multiple dbo.VenueComplexMember rows (one per complex company).
+   * Empty array clears all links for this venue.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  entertainmentComplexCompanyIds?: number[];
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null && v !== undefined)

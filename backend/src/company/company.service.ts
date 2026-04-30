@@ -12,6 +12,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
   EntityManager,
+  In,
   IsNull,
   QueryFailedError,
   Repository,
@@ -40,6 +41,8 @@ import { CompanyService as CompanyServiceEntity } from '../entities/company-serv
 import { VenueServiceProvider } from '../entities/venue-service-provider.entity';
 import { NonResidentWithholding } from '../entities/non-resident-withholding.entity';
 import { Link } from '../entities/link.entity';
+import { VenueComplex } from '../entities/venue-complex.entity';
+import { VenueComplexMember } from '../entities/venue-complex-member.entity';
 import { buildEngagementDisplayTitle } from '../engagements/engagement-display.util';
 import { normalizeEngagementStatus } from '../engagements/engagement-status.util';
 import { CreateCompanyContactDto } from './dto/create-company-contact.dto';
@@ -54,6 +57,9 @@ import {
   type ResolvedVenueTicketingWebsiteColumns,
 } from './venue-ticketing-columns.resolver';
 import { isValidPhoneNumber } from 'libphonenumber-js';
+
+/** dbo.CompanyType.CompanyName for companies that may be linked as an entertainment complex (EMS + validation). */
+const ENTERTAINMENT_COMPLEX_COMPANY_TYPE = 'entertainment complex';
 
 function assertOptionalE164Phone(
   value: string | null | undefined,
@@ -180,6 +186,10 @@ export class CompanyService {
     private readonly contactRepo: Repository<Contact>,
     @InjectRepository(Venue)
     private readonly venueRepo: Repository<Venue>,
+    @InjectRepository(VenueComplex)
+    private readonly venueComplexRepo: Repository<VenueComplex>,
+    @InjectRepository(VenueComplexMember)
+    private readonly venueComplexMemberRepo: Repository<VenueComplexMember>,
     @InjectRepository(VenueBrand)
     private readonly venueBrandRepo: Repository<VenueBrand>,
     @InjectRepository(Brand)
@@ -356,22 +366,20 @@ export class CompanyService {
     }
   }
 
-  private mapRawVenueContactRow(
-    raw: Record<string, unknown>,
-  ): {
+  private mapContactInfoToVenueRoleRow(ci: ContactInfo): {
     contactInfoId: number;
     fullName: string;
     email: string;
     phone: string | null;
     cellPhone: string | null;
   } {
-    const firstName = String(raw.firstName ?? '').trim();
-    const lastName = String(raw.lastName ?? '').trim();
-    const email = String(raw.email ?? '').trim();
-    const phone = raw.workPhone != null ? String(raw.workPhone).trim() : null;
-    const cellPhone = raw.cellPhone != null ? String(raw.cellPhone).trim() : null;
+    const firstName = String(ci.firstName ?? '').trim();
+    const lastName = String(ci.lastName ?? '').trim();
+    const email = String(ci.email ?? '').trim();
+    const phone = ci.workPhone != null ? String(ci.workPhone).trim() : null;
+    const cellPhone = ci.cellPhone != null ? String(ci.cellPhone).trim() : null;
     return {
-      contactInfoId: Number(raw.contactInfoId),
+      contactInfoId: ci.contactInfoId,
       fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
       email,
       phone,
@@ -395,6 +403,7 @@ export class CompanyService {
       companyId,
       roleName,
       departmentName,
+      [],
       em,
     );
     return list[0] ?? null;
@@ -405,6 +414,7 @@ export class CompanyService {
     companyId: number,
     roleName: string,
     departmentName: string,
+    inheritedCompanyIds: number[] = [],
     em?: EntityManager,
   ): Promise<
     Array<{
@@ -416,28 +426,66 @@ export class CompanyService {
     }>
   > {
     const repo = em ? em.getRepository(ContactAssignment) : this.assignmentRepo;
-    const raws = await repo
-      .createQueryBuilder('ca')
-      .innerJoin('ca.contact', 'ct')
-      .innerJoin('ct.contactInfo', 'ci')
-      .innerJoin('ca.role', 'r')
-      .innerJoin('ca.department', 'd')
-      .where('ca.companyId = :cid', { cid: companyId })
-      .andWhere('LOWER(r.roleName) = LOWER(:rn)', { rn: roleName.trim() })
-      .andWhere('LOWER(d.departmentName) = LOWER(:dn)', {
-        dn: departmentName.trim(),
-      })
-      .orderBy('ca.contactAssignmentId', 'ASC')
-      .select([
-        'ci.contactInfoId AS contactInfoId',
-        'ci.firstName AS firstName',
-        'ci.lastName AS lastName',
-        'ci.email AS email',
-        'ci.workPhone AS workPhone',
-        'ci.cellPhone AS cellPhone',
-      ])
-      .getRawMany<Record<string, unknown>>();
-    return raws.map((x) => this.mapRawVenueContactRow(x));
+    const companyIds = Array.from(
+      new Set(
+        [companyId, ...inheritedCompanyIds]
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    );
+    if (companyIds.length === 0) {
+      return [];
+    }
+    const rn = roleName.trim();
+    const dn = departmentName.trim();
+    /**
+     * One query per companyId (venue + each linked complex). Uses getMany() so
+     * MSSQL never has to alias raw scalar columns (avoids driver/raw-alias bugs);
+     * also avoids `IN (:...many)` and empty `IN ()`.
+     */
+    const mergedRows: Array<{
+      contactAssignmentId: number;
+      row: {
+        contactInfoId: number;
+        fullName: string;
+        email: string;
+        phone: string | null;
+        cellPhone: string | null;
+      };
+    }> = [];
+    for (const cid of companyIds) {
+      const assignments = await repo
+        .createQueryBuilder('ca')
+        .innerJoinAndSelect('ca.contact', 'ct')
+        .innerJoinAndSelect('ct.contactInfo', 'ci')
+        .innerJoinAndSelect('ca.role', 'r')
+        .innerJoinAndSelect('ca.department', 'd')
+        .where('ca.companyId = :cid', { cid })
+        .andWhere('LOWER(r.roleName) = LOWER(:rn)', { rn })
+        .andWhere('LOWER(d.departmentName) = LOWER(:dn)', { dn })
+        .orderBy('ca.contactAssignmentId', 'ASC')
+        .getMany();
+      for (const ca of assignments) {
+        const ci = ca.contact?.contactInfo;
+        if (!ci) continue;
+        mergedRows.push({
+          contactAssignmentId: ca.contactAssignmentId,
+          row: this.mapContactInfoToVenueRoleRow(ci),
+        });
+      }
+    }
+    mergedRows.sort((a, b) => a.contactAssignmentId - b.contactAssignmentId);
+    const mapped = mergedRows.map((x) => x.row);
+    const dedupedByContactInfo = new Map<number, (typeof mapped)[number]>();
+    for (const row of mapped) {
+      // A contact can be assigned both at Venue and Complex company level.
+      // We return one row per person (contact identity) so inherited contacts
+      // do not duplicate entries in the venue profile UI.
+      if (!dedupedByContactInfo.has(row.contactInfoId)) {
+        dedupedByContactInfo.set(row.contactInfoId, row);
+      }
+    }
+    return [...dedupedByContactInfo.values()];
   }
 
   /**
@@ -661,55 +709,68 @@ export class CompanyService {
       ? await this.linkRepo.findOne({ where: { linkId: withholding.iaeWaiverInstructionsId } })
       : null;
 
+    const inheritedComplexCompanyIds =
+      await this.getVenueComplexCompanyIds(companyId);
+
     const financeDirectors = await this.getVenueContactsByRoleDept(
       companyId,
       'Finance Director',
       'Finance',
+      inheritedComplexCompanyIds,
     );
     const settlementManagers = await this.getVenueContactsByRoleDept(
       companyId,
       'Settlement Manager',
       'Finance',
+      inheritedComplexCompanyIds,
     );
     const marketingDirectors = await this.getVenueContactsByRoleDept(
       companyId,
       'Marketing Director',
       'Marketing',
+      inheritedComplexCompanyIds,
     );
     const technicalDirectors = await this.getVenueContactsByRoleDept(
       companyId,
       'Technical Director',
       'Technical',
+      inheritedComplexCompanyIds,
     );
     const ticketingManagers = await this.getVenueContactsByRoleDept(
       companyId,
       'Ticketing Manager',
       'Ticketing',
+      inheritedComplexCompanyIds,
     );
     const bookingDirectors = await this.getVenueContactsByRoleDept(
       companyId,
       'Booking Director',
       'Booking',
+      inheritedComplexCompanyIds,
     );
     const rentalManagers = await this.getVenueContactsByRoleDept(
       companyId,
       'Rental Manager',
       'Booking',
+      inheritedComplexCompanyIds,
     );
     const calendarManagers = await this.getVenueContactsByRoleDept(
       companyId,
       'Calendar Manager',
       'Booking',
+      inheritedComplexCompanyIds,
     );
     const contractManagers = await this.getVenueContactsByRoleDept(
       companyId,
       'Contract Manager',
       'Booking',
+      inheritedComplexCompanyIds,
     );
     const stagehandProviderContacts = await this.getVenueContactsByRoleDept(
       companyId,
       'Stagehand Provider',
       'Technical',
+      inheritedComplexCompanyIds,
     );
 
     return {
@@ -734,7 +795,7 @@ export class CompanyService {
       nonResidentWithholding: withholding
         ? {
             withholdingId: withholding.withholdingId,
-            withholdingTaxRate: withholding.withholdingTaxRate,
+            withholdingTaxRate: String(withholding.withholdingTaxRate ?? ''),
             dmaid: withholding.dmaid,
             taxAgencyId: withholding.taxAgencyId,
             withholdingLink: withholdingLink
@@ -774,7 +835,20 @@ export class CompanyService {
     return this.dataSource.transaction(async (em) => {
       // 1) Venue profile (dbo.Venue + load dock address)
       if (dto.venueProfile) {
-        await this.updateVenueProfile(companyId, dto.venueProfile);
+        const {
+          entertainmentComplexCompanyIds,
+          ...venueProfilePatch
+        } = dto.venueProfile;
+        if (Object.keys(venueProfilePatch).length > 0) {
+          await this.updateVenueProfile(companyId, venueProfilePatch);
+        }
+        if (dto.venueProfile.entertainmentComplexCompanyIds !== undefined) {
+          await this.updateVenueComplexMembership(
+            em,
+            companyId,
+            entertainmentComplexCompanyIds,
+          );
+        }
       }
 
       // 2) Venue-side FK for withholding (only when the client sends this field; avoids an extra
@@ -1525,19 +1599,43 @@ export class CompanyService {
     if (!venue) {
       return { missing: true as const };
     }
+    const entertainmentComplexCompanyIds =
+      await this.getVenueComplexCompanyIds(companyId);
+    const entertainmentComplexCompanies =
+      entertainmentComplexCompanyIds.length > 0
+        ? await this.findCompaniesByIdsChunked(
+            this.companyRepo,
+            entertainmentComplexCompanyIds,
+          )
+        : [];
+    const byId = new Map(
+      entertainmentComplexCompanies.map((row) => [row.companyId, row]),
+    );
+    const entertainmentComplexes = entertainmentComplexCompanyIds.map((id) => {
+      const c = byId.get(id);
+      return {
+        companyId: id,
+        companyName: (c?.companyName ?? '').trim(),
+      };
+    });
     const tw = await this.loadVenueTicketingWebsiteColumns(companyId);
     return {
       missing: false as const,
       companyId: venue.companyId,
       venueName: venue.venueName,
       seatingCapacity: venue.seatingCapacity,
-      salesTaxRate: venue.salesTaxRate,
+      salesTaxRate:
+        venue.salesTaxRate != null && venue.salesTaxRate !== ''
+          ? String(venue.salesTaxRate)
+          : null,
       taxInCart: venue.taxInCart,
       insuranceLanguage: venue.insuranceLanguage,
       insurancePolicyCopyRequirements: venue.insurancePolicyCopyRequirements,
       venueRelationshipIae: venue.venueRelationshipIae,
       venueTypeId: venue.venueTypeId,
       venueTypeName: venue.venueType?.venueTypeName ?? null,
+      entertainmentComplexCompanyIds,
+      entertainmentComplexes,
       seatingTypeId: venue.seatingTypeId,
       seatingTypeName: venue.seatingType?.seatingName ?? null,
       ticketingSystem: tw.ticketingSystem,
@@ -1554,6 +1652,170 @@ export class CompanyService {
           }
         : null,
     };
+  }
+
+  /** MSSQL limits ~2100 parameters per request; `In([...])` uses one param per id. */
+  private async findCompaniesByIdsChunked(
+    repo: Repository<Company>,
+    companyIds: number[],
+    chunkSize = 500,
+  ): Promise<Company[]> {
+    const unique = Array.from(
+      new Set(companyIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)),
+    );
+    if (unique.length === 0) {
+      return [];
+    }
+    const out: Company[] = [];
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const slice = unique.slice(i, i + chunkSize);
+      const rows = await repo.find({
+        where: { companyId: In(slice) },
+        relations: { companyType: true },
+      });
+      out.push(...rows);
+    }
+    return out;
+  }
+
+  private async getVenueComplexCompanyIds(
+    venueCompanyId: number,
+    em?: EntityManager,
+  ): Promise<number[]> {
+    const repo = em
+      ? em.getRepository(VenueComplexMember)
+      : this.venueComplexMemberRepo;
+    const rows = await repo.find({ where: { venueCompanyId } });
+    return Array.from(
+      new Set(
+        rows
+          .map((r) => Number(r.complexCompanyId))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ).sort((a, b) => a - b);
+  }
+
+  /**
+   * Stores venue ↔ entertainment complex links using dbo.VenueComplexMember (one row per pair).
+   * dbo.VenueComplex is ensured for each complex company id so the relationship matches the DB model.
+   * Only dbo.Company rows whose type name is "Entertainment Complex" may be linked (EMS contract).
+   */
+  private async updateVenueComplexMembership(
+    em: EntityManager,
+    venueCompanyId: number,
+    nextComplexCompanyIds: number[] | undefined,
+  ): Promise<void> {
+    if (nextComplexCompanyIds === undefined) {
+      return;
+    }
+
+    const memberRepo = em.getRepository(VenueComplexMember);
+    const complexRepo = em.getRepository(VenueComplex);
+
+    const next = Array.from(
+      new Set(
+        nextComplexCompanyIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ).sort((a, b) => a - b);
+
+    if (next.includes(venueCompanyId)) {
+      throw new BadRequestException({
+        message: 'A venue cannot be linked to itself as an entertainment complex.',
+      });
+    }
+
+    for (const complexId of next) {
+      const complexCompany = await em.findOne(Company, {
+        where: { companyId: complexId },
+        relations: { companyType: true },
+      });
+      if (!complexCompany) {
+        throw new BadRequestException({
+          message:
+            'One of the selected entertainment complexes was not found. Refresh and try again.',
+        });
+      }
+      const kind = this.normalizeCompanyTypeName(
+        complexCompany.companyType?.companyTypeName,
+      );
+      if (kind !== ENTERTAINMENT_COMPLEX_COMPANY_TYPE) {
+        throw new BadRequestException({
+          message: `Only companies with type "${ENTERTAINMENT_COMPLEX_COMPANY_TYPE}" may be linked as an entertainment complex (company #${complexId}).`,
+        });
+      }
+      const complexRow = await complexRepo.findOne({ where: { companyId: complexId } });
+      if (!complexRow) {
+        await complexRepo.save(
+          complexRepo.create({
+            companyId: complexId,
+            complexName: complexCompany.companyName.trim().slice(0, 200),
+          }),
+        );
+      }
+    }
+
+    // Serialize writes per venue row to avoid duplicate inserts when concurrent
+    // saves race with delete+insert operations.
+    await em.query(
+      `SELECT [ComplexCompanyID]
+       FROM [dbo].[VenueComplexMember] WITH (UPDLOCK, HOLDLOCK)
+       WHERE [VenueCompanyID] = @0`,
+      [venueCompanyId],
+    );
+
+    const existingRows = await memberRepo.find({ where: { venueCompanyId } });
+    const existingComplexIds = Array.from(
+      new Set(existingRows.map((r) => r.complexCompanyId)),
+    );
+    const nextSet = new Set(next);
+
+    for (const previousComplexId of existingComplexIds) {
+      if (nextSet.has(previousComplexId)) {
+        continue;
+      }
+      const remaining = await memberRepo.count({
+        where: { complexCompanyId: previousComplexId },
+      });
+      if (remaining <= 1) {
+        throw new BadRequestException({
+          message:
+            'This Entertainment Complex must keep at least one venue. Reassign another venue to the complex before removing this link.',
+        });
+      }
+    }
+
+    const same =
+      existingComplexIds.length === next.length &&
+      existingComplexIds.every((id) => nextSet.has(id));
+    if (same) {
+      return;
+    }
+
+    const toRemove = existingComplexIds.filter((id) => !nextSet.has(id));
+    const existingSet = new Set(existingComplexIds);
+    const toAdd = next.filter((id) => !existingSet.has(id));
+
+    if (toRemove.length > 0) {
+      await memberRepo.delete(
+        toRemove.map((complexCompanyId) => ({ venueCompanyId, complexCompanyId })),
+      );
+    }
+    if (toAdd.length > 0) {
+      try {
+        await memberRepo.insert(
+          toAdd.map((complexCompanyId) => ({ venueCompanyId, complexCompanyId })),
+        );
+      } catch (e: unknown) {
+        if (this.isSqlServerDuplicateKeyError(e)) {
+          // Another concurrent request inserted the same tuple first.
+          // Treat as idempotent and continue.
+        } else {
+          throw e;
+        }
+      }
+    }
   }
 
   async provisionVenueProfile(
@@ -1627,6 +1889,15 @@ export class CompanyService {
       }
     }
     await this.venueRepo.save(venue);
+    if (dto.entertainmentComplexCompanyIds !== undefined) {
+      await this.dataSource.transaction(async (em) => {
+        await this.updateVenueComplexMembership(
+          em,
+          companyId,
+          dto.entertainmentComplexCompanyIds,
+        );
+      });
+    }
     if (dto.ticketingSystem !== undefined || dto.venueWebsite !== undefined) {
       await this.updateVenueTicketingWebsiteColumns(companyId, {
         ticketingSystem: dto.ticketingSystem,
@@ -1637,6 +1908,27 @@ export class CompanyService {
 
   private normalizeCompanyTypeName(name: string | null | undefined): string {
     return (name ?? '').trim().toLowerCase();
+  }
+
+  private isSqlServerDuplicateKeyError(error: unknown): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+    const driver = (error as QueryFailedError).driverError as
+      | { number?: unknown; code?: unknown; message?: unknown }
+      | undefined;
+    const numberCode = Number(driver?.number);
+    if (numberCode === 2601 || numberCode === 2627) {
+      return true;
+    }
+    const code = String(driver?.code ?? '').toUpperCase();
+    if (code === 'EREQUEST') {
+      const msg = String(driver?.message ?? error.message ?? '');
+      if (/duplicate key|PRIMARY KEY|UNIQUE KEY/i.test(msg)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

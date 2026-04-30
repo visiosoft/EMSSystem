@@ -34,25 +34,6 @@ export class VenueDirectoryController {
     });
   }
 
-  /**
-   * One row per distinct `dbo.Company.CompanyName` (trimmed) for Venue companies, with counts and
-   * summed seating — models an “entertainment complex” when many venue companies share that name.
-   */
-  @Get('entertainment-complexes')
-  listEntertainmentComplexes(
-    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
-    @Query('limit', new DefaultValuePipe(25), ParseIntPipe) limit: number,
-    @Query('q') q?: string,
-    @Query('dmaId') dmaIdRaw?: string,
-  ) {
-    const dmaId = this.parseOptPosInt(dmaIdRaw);
-    return this.venueDirectoryService.listEntertainmentComplexes(
-      offset,
-      limit,
-      { q, dmaId: dmaId ?? undefined },
-    );
-  }
-
   private parseOptPosInt(
     raw: string | undefined,
   ): number | null | undefined {

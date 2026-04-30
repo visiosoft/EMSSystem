@@ -10,7 +10,6 @@ import { EngagementDetailPage } from '@/components/ems/EngagementDetailPage';
 import { SettingsPage } from '@/components/ems/SettingsPage';
 import { DailySalesPage } from '@/components/ems/DailySalesPage';
 import { AllVenuesPage } from '@/components/ems/AllVenuesPage';
-import { EntertainmentComplexesPage } from '@/components/ems/EntertainmentComplexesPage';
 import { USERS } from '@/data/constants';
 import type { ToastItem } from '@/components/ems/Primitives';
 
@@ -43,7 +42,6 @@ const Index = () => {
     const map: Record<string, string[]> = {
       companies:          ['Companies'],
       'all-venues':        ['All Venues'],
-      'entertainment-complexes': ['Entertainment Complexes'],
       'attraction-tours': ['Attraction Tours'],
       calendar:           ['Calendar'],
       projects:           ['Projects'],
@@ -70,8 +68,6 @@ const Index = () => {
           {currentView === 'companies' && <CompaniesPage addToast={addToast} />}
 
           {currentView === 'all-venues' && <AllVenuesPage />}
-
-          {currentView === 'entertainment-complexes' && <EntertainmentComplexesPage />}
 
           {currentView === 'attraction-tours' && <AttractionToursPage addToast={addToast} />}
 
