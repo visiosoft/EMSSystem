@@ -1955,7 +1955,7 @@ export function AttractionToursPage({ addToast }: Props) {
                         : 'No attractions match your search.'}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
                       {(paginated as ApiAttractionListRow[]).map((a) => {
                         const isExpanded = expandedAttractionTileId === a.attractionId;
                         const toursForAttraction = toursByAttractionId.get(a.attractionId) ?? [];
@@ -2276,9 +2276,9 @@ export function AttractionToursPage({ addToast }: Props) {
       {showAddTour && classes.length > 0 && attractionsForPicker.length > 0 && (
         <Modal title="Add Tour" onClose={() => setShowAddTour(false)} width={600} allowContentOverflow>
           <AddTourForm
+            variant="attraction-tours"
             attractions={attractionsForPicker}
             classes={classes}
-            managementCompanyOptions={managementCompanyOptions}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
             onSave={(body, bannerFile) =>

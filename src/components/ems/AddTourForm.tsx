@@ -4,8 +4,12 @@ import { FormField } from './Primitives';
 import { Select2 } from './Select2';
 import type { ApiAttractionListRow, ApiClass, CreateTourPayload } from '@/api/attractionToursApi';
 
-/** Simplified 3-field creation form — full details can be added later via Edit. */
+/** Where the form is embedded — controls which optional blocks are shown. */
+export type AddTourFormVariant = 'project-wizard' | 'attraction-tours';
+
+/** Simplified creation form — full details can be added later from the Tour entry. */
 export function AddTourForm({
+  variant,
   attractions,
   classes,
   managementCompanyOptions,
@@ -14,10 +18,11 @@ export function AddTourForm({
   onCancel,
   lockAttractionId,
 }: {
+  variant: AddTourFormVariant;
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
-  /** Talent agencies only — same filter as the full tour form on Attraction Tours. */
-  managementCompanyOptions: { value: string; label: string }[];
+  /** Talent agencies only — required data when `variant` is `project-wizard`. */
+  managementCompanyOptions?: { value: string; label: string }[];
   submitting: boolean;
   onSave: (body: CreateTourPayload, bannerFile?: File | null) => void;
   onCancel: () => void;
@@ -30,6 +35,10 @@ export function AddTourForm({
   );
   const [classId, setClassId] = useState('');
   const [tourManagementCompanyId, setTourManagementCompanyId] = useState('');
+  const [ascap, setAscap] = useState(false);
+  const [bmi, setBmi] = useState(false);
+  const [sesac, setSesac] = useState(false);
+  const [gmr, setGmr] = useState(false);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [bannerInputKey, setBannerInputKey] = useState(0);
@@ -64,10 +73,15 @@ export function AddTourForm({
   const lockedAttraction =
     lockAttractionId != null ? attractions.find((a) => a.attractionId === lockAttractionId) : null;
 
+  const showTourManagement = variant === 'project-wizard';
+  const showBannerUpload = variant === 'attraction-tours';
+  const talentAgencyOptions = managementCompanyOptions ?? [];
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-text-muted">
-        Enter the essentials now — all other details can be filled in later from the Tour entry.
+        Fields marked with <span className="text-ems-coral">*</span> are required for every new tour. Optional
+        details can be added later from the full tour entry.
       </p>
       {lockAttractionId != null ? (
         <FormField label="Attraction" required>
@@ -107,23 +121,25 @@ export function AddTourForm({
           }}
         />
       </FormField>
-      <FormField label="Tour management company" optional>
-        <Select2
-          options={managementCompanyOptions}
-          value={tourManagementCompanyId}
-          placeholder="Select talent agency…"
-          allowClear
-          onChange={(v) => {
-            setTourManagementCompanyId(v);
-          }}
-        />
-        {managementCompanyOptions.length === 0 && (
-          <p className="text-[11px] text-text-muted mt-1">
-            No companies with type{' '}
-            <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
-          </p>
-        )}
-      </FormField>
+      {showTourManagement && (
+        <FormField label="Tour management company" optional>
+          <Select2
+            options={talentAgencyOptions}
+            value={tourManagementCompanyId}
+            placeholder="Select talent agency…"
+            allowClear
+            onChange={(v) => {
+              setTourManagementCompanyId(v);
+            }}
+          />
+          {talentAgencyOptions.length === 0 && (
+            <p className="text-[11px] text-text-muted mt-1">
+              No companies with type{' '}
+              <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
+            </p>
+          )}
+        </FormField>
+      )}
       <FormField label="Tour Name" required error={fieldErrors.name}>
         <input
           className={inputCls}
@@ -141,60 +157,101 @@ export function AddTourForm({
           autoFocus
         />
       </FormField>
-      <FormField label="Tour banner image" optional>
+      <FormField label="Performing rights (ASCAP, BMI, SESAC, GMR)" required>
         <p className="text-[11px] text-text-muted mb-2">
-          JPEG, PNG, WebP, or GIF — max 5 MB. Used on tour and engagement tiles.
+          Each flag is stored on the tour — turn on any PRO memberships that apply.
         </p>
-        <div className="space-y-2">
-          <input
-            key={bannerInputKey}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            disabled={submitting}
-            className="block w-full text-xs text-text-secondary file:mr-3 file:rounded file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text-primary hover:file:bg-hover"
-            onChange={(e) => {
-              const f = e.target.files?.[0] ?? null;
-              setBannerFile(f);
-            }}
-          />
-          {(bannerPreview || bannerFile) && (
-            <div className="flex items-start gap-3">
-              {bannerPreview && (
-                <img
-                  src={bannerPreview}
-                  alt=""
-                  className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
-                />
-              )}
-              {bannerFile && (
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => {
-                    setBannerFile(null);
-                    setBannerInputKey((k) => k + 1);
-                  }}
-                  className="text-xs text-ems-accent hover:underline disabled:opacity-50"
-                >
-                  Clear image
-                </button>
-              )}
-            </div>
-          )}
-          {!bannerFile && (
-            <p className="text-[11px] text-text-muted flex items-center gap-1">
-              <ImageIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              No file selected
-            </p>
-          )}
+        <div
+          className="flex flex-wrap gap-x-6 gap-y-2.5 rounded-md border border-border/80 bg-surface/50 px-3 py-3"
+          role="group"
+          aria-label="Performing rights licensing"
+        >
+          {(
+            [
+              ['add-tour-ascap', 'ASCAP', ascap, setAscap] as const,
+              ['add-tour-bmi', 'BMI', bmi, setBmi] as const,
+              ['add-tour-sesac', 'SESAC', sesac, setSesac] as const,
+              ['add-tour-gmr', 'GMR', gmr, setGmr] as const,
+            ] as const
+          ).map(([id, label, checked, setChecked]) => (
+            <label
+              key={id}
+              htmlFor={id}
+              className="inline-flex items-center gap-2 cursor-pointer text-sm text-text-primary select-none"
+            >
+              <input
+                id={id}
+                type="checkbox"
+                checked={checked}
+                disabled={submitting}
+                onChange={(e) => setChecked(e.target.checked)}
+                className="h-4 w-4 rounded border-border bg-background text-ems-accent focus:ring-ems-accent focus:ring-offset-0"
+              />
+              {label}
+            </label>
+          ))}
         </div>
       </FormField>
+      {showBannerUpload && (
+        <FormField label="Tour banner image" optional>
+          <p className="text-[11px] text-text-muted mb-2">
+            JPEG, PNG, WebP, or GIF — max 5 MB. Used on tour and engagement tiles.
+          </p>
+          <div className="space-y-2">
+            <input
+              key={bannerInputKey}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              disabled={submitting}
+              className="block w-full text-xs text-text-secondary file:mr-3 file:rounded file:border-0 file:bg-elevated file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text-primary hover:file:bg-hover"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setBannerFile(f);
+              }}
+            />
+            {(bannerPreview || bannerFile) && (
+              <div className="flex items-start gap-3">
+                {bannerPreview && (
+                  <img
+                    src={bannerPreview}
+                    alt=""
+                    className="h-16 w-28 rounded-md border border-border object-cover bg-elevated"
+                  />
+                )}
+                {bannerFile && (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => {
+                      setBannerFile(null);
+                      setBannerInputKey((k) => k + 1);
+                    }}
+                    className="text-xs text-ems-accent hover:underline disabled:opacity-50"
+                  >
+                    Clear image
+                  </button>
+                )}
+              </div>
+            )}
+            {!bannerFile && (
+              <p className="text-[11px] text-text-muted flex items-center gap-1">
+                <ImageIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                No file selected
+              </p>
+            )}
+          </div>
+        </FormField>
+      )}
       <div className="flex gap-2 justify-end pt-2 border-t border-border">
         <button
           type="button"
           onClick={() => {
             setBannerFile(null);
             setBannerInputKey((k) => k + 1);
+            setAscap(false);
+            setBmi(false);
+            setSesac(false);
+            setGmr(false);
             onCancel();
           }}
           className="text-text-secondary px-4 py-1.5 text-sm"
@@ -230,12 +287,14 @@ export function AddTourForm({
                 tourName: tn,
                 attractionId: lockAttractionId ?? Number(attractionId),
                 classId: Number(classId),
-                ascap: false,
-                bmi: false,
-                sesac: false,
-                gmr: false,
+                ascap,
+                bmi,
+                sesac,
+                gmr,
                 tourManagementCompanyId:
-                  tourManagementCompanyId && Number.isFinite(Number(tourManagementCompanyId))
+                  showTourManagement &&
+                  tourManagementCompanyId &&
+                  Number.isFinite(Number(tourManagementCompanyId))
                     ? Number(tourManagementCompanyId)
                     : null,
                 audienceGender: null,
@@ -243,7 +302,7 @@ export function AddTourForm({
                 tourInsuranceLanguage: null,
                 venueTypePreferenceId: null,
               },
-              bannerFile,
+              showBannerUpload ? bannerFile : undefined,
             );
           }}
           className="px-4 py-1.5 rounded-md text-sm font-medium bg-ems-accent text-background hover:bg-ems-accent/80 disabled:opacity-50 disabled:cursor-not-allowed"

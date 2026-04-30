@@ -1781,6 +1781,7 @@ function CreateProjectForm({
         allowContentOverflow
       >
         <AddTourForm
+          variant="project-wizard"
           attractions={attractions}
           classes={classes}
           managementCompanyOptions={managementCompanyOptions}
