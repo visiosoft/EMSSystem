@@ -8,6 +8,10 @@ export class EngagementProjectPerformanceOption {
   @Column({ name: 'EngagementProjectID', type: 'int' })
   engagementProjectId: number;
 
+  /** FK → EngagementProjectVenue — ties this date option to a specific venue proposal. */
+  @Column({ name: 'EngagementProjectVenueID', type: 'int', nullable: true })
+  engagementProjectVenueId: number | null;
+
   @Column({ name: 'ProposedDate', type: 'date' })
   proposedDate: string;
 

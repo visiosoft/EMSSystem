@@ -58,6 +58,8 @@ export class VenueDirectoryService {
     v: { q?: string; complexName?: string; complexCompanyId?: number } & {
       venueTypeId?: number;
       dmaId?: number;
+      /** Any DMA row in these markets (by MarketName) matches the venue company’s DMA. */
+      dmaIds?: number[];
     },
   ): SelectQueryBuilder<Venue> {
     const qb = this.venueRepo
@@ -95,6 +97,18 @@ export class VenueDirectoryService {
     if (v.dmaId != null && Number.isFinite(v.dmaId)) {
       qb.andWhere('c.dmaid = :dmaF', { dmaF: v.dmaId });
     }
+    if (Array.isArray(v.dmaIds) && v.dmaIds.length > 0) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM dbo.DMA ds
+          INNER JOIN dbo.DMA dv ON LOWER(LTRIM(RTRIM(dv.MarketName))) = LOWER(LTRIM(RTRIM(ds.MarketName)))
+          WHERE ds.DMAID IN (:...dmaIds)
+            AND dv.DMAID = c.dmaid
+        )`,
+        { dmaIds: v.dmaIds },
+      );
+    }
     return qb;
   }
 
@@ -107,6 +121,7 @@ export class VenueDirectoryService {
       complexCompanyId?: number;
       venueTypeId?: number;
       dmaId?: number;
+      dmaIds?: number[];
       /** venue | type | dma | capacity | complex */
       sortBy?: string;
       sortDir?: string;

@@ -99,26 +99,16 @@ export function Modal({
   const titleId = useId();
   const bodyScrollElementRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 min-h-0">
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden
-      />
+      {/* Backdrop: visual only — do not close on outside click (use Cancel or ✕). */}
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         className="relative z-[1] flex w-full min-h-0 max-h-[min(90dvh,calc(100svh-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-elevated shadow-xl box-border animate-fade-in"
         style={{ maxWidth: `min(${width}px, 100%)`, width: `min(${width}px, 100%)` }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-elevated px-4 py-3 sm:px-5"

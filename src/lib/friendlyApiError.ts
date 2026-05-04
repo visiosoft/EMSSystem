@@ -96,6 +96,20 @@ export function friendlyApiError(
   if (/internal server error/i.test(raw)) {
     return 'Something unexpected happened. Please try again in a moment.';
   }
+  /** Legacy / leaked venue-contact setup errors (must not show dbo.* to users). */
+  const roleMissing = raw.match(/Role ['"]([^'"]+)['"] is missing in dbo\.Role/i);
+  if (roleMissing) {
+    const role = roleMissing[1]?.trim() || 'That job role';
+    return `${role} is not configured in this application yet. Ask an administrator to add this role before saving venue contacts.`;
+  }
+  const deptMissing = raw.match(/Department ['"]([^'"]+)['"] is missing in dbo\.Department/i);
+  if (deptMissing) {
+    const dept = deptMissing[1]?.trim() || 'That department';
+    return `${dept} is not configured in this application yet. Ask an administrator to add this department before saving venue contacts.`;
+  }
+  if (/\bdbo\./i.test(raw)) {
+    return 'Something required for this action is not set up in the system yet. Ask an administrator or contact support.';
+  }
   if (
     /Select a Non-Resident Withholding rule before editing|Choose a withholding record for this venue before saving/i.test(
       raw,

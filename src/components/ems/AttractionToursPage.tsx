@@ -175,6 +175,13 @@ interface Props {
 type AttractionsViewMode = 'list' | 'tiles';
 const ATTRACTIONS_VIEW_MODE_STORAGE_KEY = 'iae-attractions-view-mode-v1';
 
+/**
+ * Tile view only. Large = original 1 / 2 / 3-column grid, full-width cards.
+ * Medium/Small = extra columns (5 / 6 on xl) so each tile is ~66% / ~50% of a large tile’s width without empty gutters.
+ */
+type AttractionsTileSize = 'large' | 'medium' | 'small';
+const ATTRACTIONS_TILE_SIZE_STORAGE_KEY = 'iae-attractions-tile-size-v1';
+
 function licenseSummary(t: ApiTourListRow): string {
   const parts: string[] = [];
   if (t.ascap) parts.push('ASCAP');
@@ -197,6 +204,24 @@ function loadAttractionsViewMode(): AttractionsViewMode {
 function saveAttractionsViewMode(mode: AttractionsViewMode) {
   try {
     localStorage.setItem(ATTRACTIONS_VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadAttractionsTileSize(): AttractionsTileSize {
+  if (typeof window === 'undefined') return 'large';
+  try {
+    const raw = localStorage.getItem(ATTRACTIONS_TILE_SIZE_STORAGE_KEY);
+    return raw === 'large' || raw === 'medium' || raw === 'small' ? raw : 'large';
+  } catch {
+    return 'large';
+  }
+}
+
+function saveAttractionsTileSize(size: AttractionsTileSize) {
+  try {
+    localStorage.setItem(ATTRACTIONS_TILE_SIZE_STORAGE_KEY, size);
   } catch {
     /* ignore */
   }
@@ -249,7 +274,7 @@ function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
       </div>
       <div className="text-[11px] text-text-secondary">
         <span className="text-text-muted">Tour Management Company </span>
-        {t.tourManagementCompanyName ?? '—'}
+        {t.talentAgencyCompanyName ?? '—'}
       </div>
     </div>
   );
@@ -610,17 +635,17 @@ function TourDrawer({
   onTabChange: (tab: string) => void;
 }) {
   const contactsQuery = useQuery({
-    queryKey: ['tour-management-company-contacts', tour.tourManagementCompanyId],
-    queryFn: () => fetchCompanyContacts(tour.tourManagementCompanyId!),
-    enabled: !!tour.tourManagementCompanyId,
+    queryKey: ['tour-management-company-contacts', tour.talentAgencyCompanyId],
+    queryFn: () => fetchCompanyContacts(tour.talentAgencyCompanyId!),
+    enabled: !!tour.talentAgencyCompanyId,
   });
 
   // Editable state
   const [tourName, setTourName] = useState(tour.tourName);
   const [attractionId, setAttractionId] = useState(String(tour.attractionId));
   const [classId, setClassId] = useState(String(tour.classId));
-  const [tourManagementCompanyId, setTourManagementCompanyId] = useState(
-    tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+  const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState(
+    tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
   );
   const [venueTypePreferenceId, setVenueTypePreferenceId] = useState(
     tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
@@ -661,8 +686,8 @@ function TourDrawer({
     setTourName(tour.tourName);
     setAttractionId(String(tour.attractionId));
     setClassId(String(tour.classId));
-    setTourManagementCompanyId(
-      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+    setTalentAgencyCompanyId(
+      tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
     );
     setVenueTypePreferenceId(
       tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
@@ -711,14 +736,14 @@ function TourDrawer({
       buildTourManagementSelectOptions(
         managementCompanyOptions,
         companies,
-        tour.tourManagementCompanyId,
-        tour.tourManagementCompanyName,
+        tour.talentAgencyCompanyId,
+        tour.talentAgencyCompanyName,
       ),
     [
       managementCompanyOptions,
       companies,
-      tour.tourManagementCompanyId,
-      tour.tourManagementCompanyName,
+      tour.talentAgencyCompanyId,
+      tour.talentAgencyCompanyName,
     ],
   );
   const venueTypeOpts = [
@@ -761,8 +786,8 @@ function TourDrawer({
           tourName: tourName.trim(),
           attractionId: Number(attractionId),
           classId: Number(classId),
-          tourManagementCompanyId: tourManagementCompanyId
-            ? Number(tourManagementCompanyId)
+          talentAgencyCompanyId: talentAgencyCompanyId
+            ? Number(talentAgencyCompanyId)
             : null,
           venueTypePreferenceId: venueTypePreferenceId
             ? Number(venueTypePreferenceId)
@@ -799,8 +824,8 @@ function TourDrawer({
     setTourName(tour.tourName);
     setAttractionId(String(tour.attractionId));
     setClassId(String(tour.classId));
-    setTourManagementCompanyId(
-      tour.tourManagementCompanyId != null ? String(tour.tourManagementCompanyId) : '',
+    setTalentAgencyCompanyId(
+      tour.talentAgencyCompanyId != null ? String(tour.talentAgencyCompanyId) : '',
     );
     setVenueTypePreferenceId(
       tour.venueTypePreferenceId != null ? String(tour.venueTypePreferenceId) : '',
@@ -881,8 +906,8 @@ function TourDrawer({
               />
               <InlineSelectField
                 label="Tour Management Company"
-                value={tourManagementCompanyId}
-                onChange={mark(setTourManagementCompanyId)}
+                value={talentAgencyCompanyId}
+                onChange={mark(setTalentAgencyCompanyId)}
                 options={mgmtOptions}
                 allowClear
               />
@@ -1052,7 +1077,7 @@ function TourDrawer({
 
         {activeTab === 'Contacts' && (
           <div>
-            {!tour.tourManagementCompanyId ? (
+            {!tour.talentAgencyCompanyId ? (
               <p className="text-text-secondary">No Tour Management Company assigned to this tour.</p>
             ) : contactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
@@ -1116,6 +1141,7 @@ export function AttractionToursPage({ addToast }: Props) {
   }>({ col: 'tour', dir: 'asc' });
   const [pageSize, setPageSize] = useState<PageSizeOption>(PAGE_SIZE);
   const [attractionsViewMode, setAttractionsViewMode] = useState<AttractionsViewMode>(loadAttractionsViewMode);
+  const [attractionsTileSize, setAttractionsTileSize] = useState<AttractionsTileSize>(loadAttractionsTileSize);
   const [expandedAttractionTileId, setExpandedAttractionTileId] = useState<number | null>(null);
 
   const [selectedAttractionId, setSelectedAttractionId] = useState<number | null>(null);
@@ -1239,7 +1265,7 @@ export function AttractionToursPage({ addToast }: Props) {
         t.tourName.toLowerCase().includes(q) ||
         t.attractionName.toLowerCase().includes(q) ||
         t.className.toLowerCase().includes(q) ||
-        (t.tourManagementCompanyName && t.tourManagementCompanyName.toLowerCase().includes(q)),
+        (t.talentAgencyCompanyName && t.talentAgencyCompanyName.toLowerCase().includes(q)),
     );
     return [...new Set(matches.map((t) => t.tourName))].slice(0, 8);
   }, [tourInput, tours]);
@@ -1259,7 +1285,7 @@ export function AttractionToursPage({ addToast }: Props) {
         t.tourName.toLowerCase().includes(q) ||
         t.attractionName.toLowerCase().includes(q) ||
         t.className.toLowerCase().includes(q) ||
-        (t.tourManagementCompanyName && t.tourManagementCompanyName.toLowerCase().includes(q)),
+        (t.talentAgencyCompanyName && t.talentAgencyCompanyName.toLowerCase().includes(q)),
     );
   }, [tours, tourSearch]);
 
@@ -1449,6 +1475,13 @@ export function AttractionToursPage({ addToast }: Props) {
   );
   const pageCount = getTotalPages(serverTotal, pageSize);
   const { rangeStart, rangeEnd } = getPageRange(page, serverTotal, pageSize);
+
+  const attractionTilesGridClass =
+    attractionsTileSize === 'large'
+      ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start'
+      : attractionsTileSize === 'medium'
+        ? 'grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3 items-start'
+        : 'grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3 items-start';
 
   /** Initial load: lookups + both full lists, or a targeted server search on the active tab. */
   const loading =
@@ -1837,42 +1870,79 @@ export function AttractionToursPage({ addToast }: Props) {
           </div>
         )}
         {pageTab === 'Attractions' && (
-          <div className="sm:ml-auto inline-flex items-center rounded-md border border-border bg-surface p-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setAttractionsViewMode('list');
-                saveAttractionsViewMode('list');
-                setExpandedAttractionTileId(null);
-              }}
-              className={[
-                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
-                attractionsViewMode === 'list'
-                  ? 'bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:text-text-primary',
-              ].join(' ')}
-              title="List view"
-            >
-              <List className="h-3.5 w-3.5" aria-hidden />
-              List
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAttractionsViewMode('tiles');
-                saveAttractionsViewMode('tiles');
-              }}
-              className={[
-                'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
-                attractionsViewMode === 'tiles'
-                  ? 'bg-elevated text-text-primary'
-                  : 'text-text-secondary hover:text-text-primary',
-              ].join(' ')}
-              title="Tile view"
-            >
-              <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-              Tiles
-            </button>
+          <div className="sm:ml-auto flex flex-wrap items-center gap-2 justify-end">
+            <div className="inline-flex items-center rounded-md border border-border bg-surface p-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setAttractionsViewMode('list');
+                  saveAttractionsViewMode('list');
+                  setExpandedAttractionTileId(null);
+                }}
+                className={[
+                  'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                  attractionsViewMode === 'list'
+                    ? 'bg-elevated text-text-primary'
+                    : 'text-text-secondary hover:text-text-primary',
+                ].join(' ')}
+                title="List view"
+              >
+                <List className="h-3.5 w-3.5" aria-hidden />
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttractionsViewMode('tiles');
+                  saveAttractionsViewMode('tiles');
+                }}
+                className={[
+                  'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                  attractionsViewMode === 'tiles'
+                    ? 'bg-elevated text-text-primary'
+                    : 'text-text-secondary hover:text-text-primary',
+                ].join(' ')}
+                title="Tile view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                Tiles
+              </button>
+            </div>
+            {attractionsViewMode === 'tiles' && (
+              <div
+                className="inline-flex items-center rounded-md border border-border bg-surface p-0.5"
+                role="group"
+                aria-label="Attraction tile size"
+              >
+                {(
+                  [
+                    { id: 'large' as const, label: 'L', title: 'Large — 3 columns on wide screens (original)' },
+                    { id: 'medium' as const, label: 'M', title: 'Medium — ~66% of large tile width, more columns' },
+                    { id: 'small' as const, label: 'S', title: 'Small — ~50% of large tile width, more columns' },
+                  ] as const
+                ).map(({ id, label, title }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    title={title}
+                    aria-label={title}
+                    aria-pressed={attractionsTileSize === id}
+                    onClick={() => {
+                      setAttractionsTileSize(id);
+                      saveAttractionsTileSize(id);
+                    }}
+                    className={[
+                      'min-w-[1.75rem] px-2 py-1 text-xs font-semibold rounded transition-colors',
+                      attractionsTileSize === id
+                        ? 'bg-elevated text-text-primary'
+                        : 'text-text-secondary hover:text-text-primary',
+                    ].join(' ')}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1955,13 +2025,16 @@ export function AttractionToursPage({ addToast }: Props) {
                         : 'No attractions match your search.'}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
+                    <div className={attractionTilesGridClass}>
                       {(paginated as ApiAttractionListRow[]).map((a) => {
                         const isExpanded = expandedAttractionTileId === a.attractionId;
                         const toursForAttraction = toursByAttractionId.get(a.attractionId) ?? [];
                         const thumb = getThumbnailUrl(a as unknown as Record<string, unknown>);
                         return (
-                          <div key={a.attractionId} className="rounded-xl border border-border bg-card overflow-hidden">
+                          <div
+                            key={a.attractionId}
+                            className="rounded-xl border border-border bg-card overflow-hidden w-full min-w-0"
+                          >
                             <button
                               type="button"
                               onClick={() =>
@@ -2174,7 +2247,7 @@ export function AttractionToursPage({ addToast }: Props) {
                         <td className="py-2.5 px-3">
                           <span className="text-xs bg-elevated px-1.5 py-0.5 rounded text-text-secondary">{t.className}</span>
                         </td>
-                        <td className="py-2.5 px-3 text-text-secondary text-sm">{t.tourManagementCompanyName ?? '—'}</td>
+                        <td className="py-2.5 px-3 text-text-secondary text-sm">{t.talentAgencyCompanyName ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2404,7 +2477,7 @@ function TourFormDb({
   );
   const [classId, setClassId] = useState(String(initial?.classId ?? classes[0]?.classId ?? ''));
   const [talentAgentCompanyId, setTalentAgentCompanyId] = useState(
-    initial?.tourManagementCompanyId != null ? String(initial.tourManagementCompanyId) : '',
+    initial?.talentAgencyCompanyId != null ? String(initial.talentAgencyCompanyId) : '',
   );
   /** Not persisted — skipped on save. */
   const [uiStatus, setUiStatus] = useState('');
@@ -2457,14 +2530,14 @@ function TourFormDb({
       buildTourManagementSelectOptions(
         managementCompanyOptions,
         companies,
-        initial?.tourManagementCompanyId,
-        initial?.tourManagementCompanyName,
+        initial?.talentAgencyCompanyId,
+        initial?.talentAgencyCompanyName,
       ),
     [
       managementCompanyOptions,
       companies,
-      initial?.tourManagementCompanyId,
-      initial?.tourManagementCompanyName,
+      initial?.talentAgencyCompanyId,
+      initial?.talentAgencyCompanyName,
     ],
   );
   const statusOptions = [{ value: '', label: '—' }, ...TOUR_STATUS_OPTIONS];
@@ -2478,7 +2551,7 @@ function TourFormDb({
     bmi,
     sesac,
     gmr,
-    tourManagementCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
+    talentAgencyCompanyId: talentAgentCompanyId ? Number(talentAgentCompanyId) : null,
     audienceGender: audienceGender.trim() || null,
     audienceAgeRange: audienceAgeRange.trim() || null,
     tourInsuranceLanguage: tourInsuranceLanguage.trim() || null,

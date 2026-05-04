@@ -4,6 +4,7 @@
  *
  * Database tables involved:
  *   EngagementProject                  (header)
+ *   EngagementProjectDMA               (selected dbo.DMA rows per project)
  *   EngagementProjectVenue             (candidate venue per project)
  *   EngagementProjectPerformanceOption (proposed date/time per project-level)
  *
@@ -20,7 +21,11 @@ import type { ApiPaginatedResponse } from './companyApi';
 // ---------------------------------------------------------------------------
 
 /** Client-defined allowed values for `dbo.EngagementProject.ProjectStage`. */
-export const PROJECT_STAGE_VALUES = ['Confirmed', 'Pending', 'Inactive'] as const;
+export const PROJECT_STAGE_VALUES = [
+  'Under Construction',
+  'Pending',
+  'Inactive',
+] as const;
 export type ProjectStage = (typeof PROJECT_STAGE_VALUES)[number];
 
 export interface ProjectStageMeta {
@@ -31,6 +36,12 @@ export interface ProjectStageMeta {
 /** Allowed `dbo.EngagementProjectVenue.VenueStatus` from CHECK / env / existing rows. */
 export interface VenueStatusMeta {
   venueStatuses: string[];
+  source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+}
+
+/** Allowed `dbo.EngagementProjectPerformanceOption.OptionStatus` from CHECK / env / existing rows. */
+export interface OptionStatusMeta {
+  optionStatuses: string[];
   source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
 }
 
@@ -71,6 +82,8 @@ export interface ApiPerformanceOption {
   performanceOptionId: number;
   /** FK → EngagementProject */
   engagementProjectId: number;
+  /** FK → EngagementProjectVenue when set */
+  engagementProjectVenueId?: number | null;
   /** DATE (ISO "YYYY-MM-DD") — NOT NULL in DB */
   proposedDate: string;
   /** TIME ("HH:MM") — nullable in DB */
@@ -156,9 +169,9 @@ export interface ApiProjectListRow {
   attractionId?: number | null;
   tourName: string | null;
   attractionName: string | null;
-  /** From Tour.TourManagementCompanyID → Company (tour is configured in Attraction–Tours) */
-  tourManagementCompanyId?: number | null;
-  tourManagementCompanyName?: string | null;
+  /** From Tour.TalentAgencyCompanyID → Company */
+  talentAgencyCompanyId?: number | null;
+  talentAgencyCompanyName?: string | null;
   /** EngagementProject.ProjectStage — NOT NULL (may be legacy values not in `PROJECT_STAGE_VALUES`) */
   projectStage: string;
   /** ISO datetime */
@@ -166,13 +179,15 @@ export interface ApiProjectListRow {
   /** nullable in DB */
   createdBy: string | null;
 
+  /** dbo.EngagementProjectDMA — DMAID values for this project */
+  dmaIds?: number[];
+
   // -------------------------------------------------------------------------
   // FRONTEND-ONLY – not in EngagementProject table
   // -------------------------------------------------------------------------
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 }
@@ -184,33 +199,41 @@ export interface ApiProjectDetail extends ApiProjectListRow {
 export interface CreateProjectPayload {
   /** REQUIRED – FK → Tour.TourID */
   tourId: number;
+  /** Sent by the wizard; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
+  talentAgencyCompanyId: number;
   /** REQUIRED */
   projectStage: ProjectStage;
   /** nullable */
   createdBy?: string | null;
 
+  /** Persisted to dbo.EngagementProjectDMA (deduped on save; at least one required). */
+  dmaIds: number[];
+
   // FRONTEND-ONLY (optional in payload)
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 
-  /** Optionally create venue proposals in the same request */
-  venues?: CreateProjectVenuePayload[];
+  /** Venues and per-venue proposed dates (required for create-project wizard). */
+  venues: CreateProjectVenuePayload[];
 }
 
 export interface UpdateProjectPayload {
   projectStage?: ProjectStage;
   createdBy?: string | null;
   tourId?: number;
+  /** When provided, must match a Talent Agency company (tour row is the source of truth). */
+  talentAgencyCompanyId?: number;
+
+  /** Replaces all project–DMA rows when provided (empty array clears). */
+  dmaIds?: number[];
 
   // FRONTEND-ONLY
   name?: string | null;
   bookerId?: string | null;
   agentContactId?: string | null;
-  dmaIds?: number[];
   targetOnSale?: string | null;
   notes?: string | null;
 }
@@ -219,13 +242,17 @@ export interface UpdateProjectPayload {
 // API functions
 // ---------------------------------------------------------------------------
 
-/** Fixed list: `Confirmed`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
+/** Fixed list: `Under Construction`, `Pending`, `Inactive` (see `PROJECT_STAGE_VALUES`). */
 export function fetchProjectStageMeta() {
   return apiFetch<ProjectStageMeta>('/projects/meta/project-stages');
 }
 
 export function fetchVenueStatusMeta() {
   return apiFetch<VenueStatusMeta>('/projects/meta/venue-statuses');
+}
+
+export function fetchOptionStatusMeta() {
+  return apiFetch<OptionStatusMeta>('/projects/meta/option-statuses');
 }
 
 export type ProjectListQueryOpts = {

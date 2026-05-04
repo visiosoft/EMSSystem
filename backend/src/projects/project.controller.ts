@@ -36,6 +36,11 @@ export class ProjectController {
     return this.projectService.getVenueStatusMeta();
   }
 
+  @Get('meta/option-statuses')
+  optionStatusesMeta() {
+    return this.projectService.getOptionStatusMeta();
+  }
+
   // ─── Project CRUD ─────────────────────────────────────────────────────────
 
   @Get()

@@ -85,7 +85,7 @@ export class UpdateTourDto {
   @ValidateIf((_, v) => v != null)
   @IsInt()
   @Min(1)
-  tourManagementCompanyId?: number | null;
+  talentAgencyCompanyId?: number | null;
 
   @IsOptional()
   @IsString()

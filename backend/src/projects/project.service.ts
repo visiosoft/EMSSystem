@@ -6,12 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, DataSource, QueryFailedError, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { EngagementProject } from '../entities/engagement-project.entity';
+import { EngagementProjectDma } from '../entities/engagement-project-dma.entity';
 import { EngagementProjectVenue } from '../entities/engagement-project-venue.entity';
 import { EngagementProjectPerformanceOption } from '../entities/engagement-project-performance-option.entity';
 import { Attraction } from '../entities/attraction.entity';
 import { Company } from '../entities/company.entity';
+import { Dma } from '../entities/dma.entity';
 import { Tour } from '../entities/tour.entity';
 import { Venue } from '../entities/venue.entity';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -38,6 +40,15 @@ export class ProjectService {
     };
   } | null = null;
 
+  private static readonly OPTION_STATUS_LIST_TTL_MS = 60_000;
+  private optionStatusListCache: {
+    at: number;
+    result: {
+      values: string[];
+      source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+    };
+  } | null = null;
+
   constructor(
     @InjectRepository(EngagementProject)
     private readonly projectRepo: Repository<EngagementProject>,
@@ -45,6 +56,8 @@ export class ProjectService {
     private readonly projectVenueRepo: Repository<EngagementProjectVenue>,
     @InjectRepository(EngagementProjectPerformanceOption)
     private readonly optionRepo: Repository<EngagementProjectPerformanceOption>,
+    @InjectRepository(EngagementProjectDma)
+    private readonly projectDmaRepo: Repository<EngagementProjectDma>,
     @InjectRepository(Tour)
     private readonly tourRepo: Repository<Tour>,
     @InjectRepository(Attraction)
@@ -80,8 +93,8 @@ export class ProjectService {
   }
 
   /**
-   * Project stages are fixed in this application: Confirmed, Pending, Inactive
-   * (client requirement; DTOs also validate with @IsIn).
+   * Project stages are fixed in this application: Under Construction, Pending, Inactive
+   * (aligned with dbo.EngagementProject.ProjectStage CHECK; DTOs validate with @IsIn).
    */
   async getProjectStageMeta(): Promise<{
     projectStages: string[];
@@ -225,6 +238,133 @@ export class ProjectService {
     }
   }
 
+  private parseOptionStatusEnvAllowlist(): string[] {
+    const raw = process.env.OPTION_STATUS_ALLOWLIST?.trim();
+    if (!raw) return [];
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  private async loadOptionStatusFromCheck(): Promise<string[] | null> {
+    const rows: { definition: string }[] = await this.dataSource.query(
+      `
+      SELECT cc.definition AS [definition]
+      FROM sys.check_constraints AS cc
+      INNER JOIN sys.objects AS t ON cc.parent_object_id = t.object_id
+      WHERE t.object_id = OBJECT_ID('dbo.EngagementProjectPerformanceOption', 'U')
+        AND cc.is_disabled = 0
+        AND cc.definition LIKE N'%OptionStatus%'
+    `,
+    );
+    if (!rows?.length) return null;
+    const collected = new Set<string>();
+    for (const r of rows) {
+      for (const v of parseStringLiteralsFromCheckDefinition(r.definition)) {
+        if (v.length) collected.add(v);
+      }
+    }
+    if (collected.size === 0) return null;
+    return [...collected].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
+  }
+
+  private async loadOptionStatusFromExistingRows(): Promise<string[] | null> {
+    const rows: Record<string, string>[] = await this.dataSource.query(
+      `
+      SELECT DISTINCT LTRIM(RTRIM(CAST([OptionStatus] AS NVARCHAR(200)))) AS [s]
+      FROM [dbo].[EngagementProjectPerformanceOption]
+      WHERE [OptionStatus] IS NOT NULL
+        AND LEN(LTRIM(RTRIM(CAST([OptionStatus] AS NVARCHAR(200))))) > 0
+    `,
+    );
+    if (!rows?.length) return null;
+    const collected = new Set<string>();
+    for (const r of rows) {
+      const v = r['s'] ?? r['S'];
+      if (v != null) collected.add(String(v).trim());
+    }
+    if (collected.size === 0) return null;
+    return [...collected].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
+  }
+
+  private async resolveOptionStatusAllowlist(): Promise<{
+    values: string[];
+    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+  }> {
+    const fromEnv = this.parseOptionStatusEnvAllowlist();
+    if (fromEnv.length > 0) {
+      return { values: fromEnv, source: 'environment' };
+    }
+    try {
+      const fromCheck = await this.loadOptionStatusFromCheck();
+      if (fromCheck && fromCheck.length > 0) {
+        return { values: fromCheck, source: 'check_constraint' };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not read CHECK for dbo.EngagementProjectPerformanceOption.OptionStatus: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+    }
+    try {
+      const fromRows = await this.loadOptionStatusFromExistingRows();
+      if (fromRows && fromRows.length > 0) {
+        this.logger.log(
+          `Option status list taken from existing dbo.EngagementProjectPerformanceOption rows (${fromRows.length} distinct value(s)).`,
+        );
+        return { values: fromRows, source: 'existing_rows' };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not read distinct OptionStatus: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    this.logger.warn(
+      'No option status allowlist: set OPTION_STATUS_ALLOWLIST on the API, or ensure the CHECK for OptionStatus can be read, or have at least one performance option row.',
+    );
+    return { values: [], source: 'empty' };
+  }
+
+  /**
+   * Allowed `OptionStatus` values for dbo.EngagementProjectPerformanceOption — from SQL Server CHECK,
+   * env `OPTION_STATUS_ALLOWLIST` (comma-separated), or existing rows.
+   */
+  async getOptionStatusMeta(): Promise<{
+    optionStatuses: string[];
+    source: 'environment' | 'check_constraint' | 'existing_rows' | 'empty';
+  }> {
+    const now = Date.now();
+    if (
+      this.optionStatusListCache &&
+      now - this.optionStatusListCache.at <
+        ProjectService.OPTION_STATUS_LIST_TTL_MS
+    ) {
+      const r = this.optionStatusListCache.result;
+      return { optionStatuses: r.values, source: r.source };
+    }
+    const r = await this.resolveOptionStatusAllowlist();
+    this.optionStatusListCache = { at: now, result: r };
+    return { optionStatuses: r.values, source: r.source };
+  }
+
+  private async assertValidOptionStatus(status: string): Promise<void> {
+    const { optionStatuses } = await this.getOptionStatusMeta();
+    if (optionStatuses.length === 0) {
+      return;
+    }
+    if (!optionStatuses.includes(status)) {
+      throw new BadRequestException({
+        message: `Invalid performance option status "${status}". Allowed values: ${optionStatuses.join(', ')}.`,
+      });
+    }
+  }
+
   private async assertTourExists(tourId: number): Promise<Tour> {
     const tour = await this.tourRepo.findOne({ where: { tourId } });
     if (!tour) {
@@ -233,6 +373,22 @@ export class ProjectService {
       });
     }
     return tour;
+  }
+
+  private async assertCompanyIsTalentAgency(companyId: number): Promise<void> {
+    const co = await this.companyRepo.findOne({
+      where: { companyId },
+      relations: { companyType: true },
+    });
+    if (!co) {
+      throw new BadRequestException({ message: 'Company not found.' });
+    }
+    const typeName = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
+    if (typeName !== 'talent agency') {
+      throw new BadRequestException({
+        message: 'Talent agency must be a company of type Talent Agency.',
+      });
+    }
   }
 
   private async assertVenueCompany(venueCompanyId: number): Promise<void> {
@@ -264,6 +420,53 @@ export class ProjectService {
       });
     }
     return project;
+  }
+
+  /** Distinct positive DMA IDs, sorted ascending (for stable inserts / responses). */
+  private normalizeDmaIds(ids: number[] | undefined): number[] {
+    if (!ids?.length) return [];
+    const seen = new Set<number>();
+    for (const n of ids) {
+      if (typeof n === 'number' && Number.isInteger(n) && n >= 1) seen.add(n);
+    }
+    return [...seen].sort((a, b) => a - b);
+  }
+
+  private async assertDmasExist(
+    manager: EntityManager,
+    dmaIds: number[],
+  ): Promise<void> {
+    if (dmaIds.length === 0) return;
+    const dmaRepo = manager.getRepository(Dma);
+    const cnt = await dmaRepo
+      .createQueryBuilder('d')
+      .where('d.dmaid IN (:...ids)', { ids: dmaIds })
+      .getCount();
+    if (cnt !== dmaIds.length) {
+      throw new BadRequestException({
+        message:
+          'One or more selected markets (DMA) are not in the database. Refresh the list and try again.',
+      });
+    }
+  }
+
+  private async insertProjectDmasInTransaction(
+    manager: EntityManager,
+    projectId: number,
+    dmaIds: number[] | undefined,
+  ): Promise<void> {
+    const normalized = this.normalizeDmaIds(dmaIds);
+    if (normalized.length === 0) return;
+    await this.assertDmasExist(manager, normalized);
+    for (const dmaid of normalized) {
+      await manager.save(
+        EngagementProjectDma,
+        manager.create(EngagementProjectDma, {
+          engagementProjectId: projectId,
+          dmaid,
+        }),
+      );
+    }
   }
 
   private async assertVenueInProject(
@@ -353,9 +556,11 @@ export class ProjectService {
   private async buildProjectResponse(project: EngagementProject) {
     const tour = await this.tourRepo.findOne({
       where: { tourId: project.tourId },
-      relations: { attraction: true, tourManagementCompany: true },
+      relations: { attraction: true, talentAgencyCompany: true },
     });
     const attraction = tour?.attraction ?? null;
+    const effectiveMgmtId = tour?.talentAgencyCompanyId ?? null;
+    const effectiveMgmtName = tour?.talentAgencyCompany?.companyName ?? null;
 
     const dbVenues = await this.projectVenueRepo.find({
       where: { engagementProjectId: project.engagementProjectId },
@@ -365,6 +570,24 @@ export class ProjectService {
       where: { engagementProjectId: project.engagementProjectId },
       order: { proposedDate: 'ASC' },
     });
+
+    const projectDmas = await this.projectDmaRepo.find({
+      where: { engagementProjectId: project.engagementProjectId },
+      order: { dmaid: 'ASC' },
+    });
+
+    const firstVenueId = dbVenues[0]?.engagementProjectVenueId;
+    const optionsForVenue = (venueRowId: number) => {
+      const linked = options.filter(
+        (o) => o.engagementProjectVenueId === venueRowId,
+      );
+      if (linked.length > 0) return linked;
+      /** Legacy rows (no venue FK): surface once on the first venue only. */
+      if (venueRowId === firstVenueId) {
+        return options.filter((o) => o.engagementProjectVenueId == null);
+      }
+      return [];
+    };
 
     const venuesWithDetails = await Promise.all(
       dbVenues.map(async (v) => {
@@ -389,13 +612,16 @@ export class ProjectService {
           breakeven: null,
           marketingCoOp: null,
           engagementId: null,
-          performanceOptions: options.map((o) => ({
-            performanceOptionId: o.performanceOptionId,
-            engagementProjectId: o.engagementProjectId,
-            proposedDate: o.proposedDate,
-            proposedTime: this.formatTime(o.proposedTime),
-            optionStatus: o.optionStatus,
-          })),
+          performanceOptions: optionsForVenue(v.engagementProjectVenueId).map(
+            (o) => ({
+              performanceOptionId: o.performanceOptionId,
+              engagementProjectId: o.engagementProjectId,
+              engagementProjectVenueId: o.engagementProjectVenueId ?? null,
+              proposedDate: o.proposedDate,
+              proposedTime: this.formatTime(o.proposedTime),
+              optionStatus: o.optionStatus,
+            }),
+          ),
         };
       }),
     );
@@ -406,17 +632,15 @@ export class ProjectService {
       attractionId: tour?.attractionId ?? null,
       tourName: tour?.tourName ?? null,
       attractionName: attraction?.attractionName ?? null,
-      tourManagementCompanyId: tour?.tourManagementCompanyId ?? null,
-      tourManagementCompanyName:
-        tour?.tourManagementCompany?.companyName ?? null,
+      talentAgencyCompanyId: effectiveMgmtId,
+      talentAgencyCompanyName: effectiveMgmtName,
       projectStage: project.projectStage,
       createdDate: project.createdDate,
       createdBy: project.createdBy,
-      // Optional markets from create payload are not persisted until a project–DMA table exists
       name: null,
       bookerId: null,
       agentContactId: null,
-      dmaIds: [] as number[],
+      dmaIds: projectDmas.map((d) => d.dmaid),
       targetOnSale: null,
       notes: null,
       venues: venuesWithDetails,
@@ -428,13 +652,31 @@ export class ProjectService {
   async create(
     dto: CreateProjectDto,
   ): Promise<{ engagementProjectId: number }> {
-    await this.assertTourExists(dto.tourId);
+    const tourRow = await this.assertTourExists(dto.tourId);
+    await this.assertCompanyIsTalentAgency(dto.talentAgencyCompanyId);
+    if (
+      tourRow.talentAgencyCompanyId != null &&
+      tourRow.talentAgencyCompanyId !== dto.talentAgencyCompanyId
+    ) {
+      throw new BadRequestException({
+        message:
+          'The selected tour already has a different talent agency on file. Use that agency or update the tour first.',
+      });
+    }
     this.assertValidProjectStage(dto.projectStage);
 
-    // Validate all venues before writing anything
-    for (const v of dto.venues ?? []) {
+    if (!dto.venues?.length) {
+      throw new BadRequestException({
+        message: 'Select at least one venue.',
+      });
+    }
+    for (const v of dto.venues) {
       await this.assertVenueCompany(v.venueCompanyId);
       await this.assertValidVenueStatus(v.venueStatus);
+      for (const o of v.performanceOptions ?? []) {
+        if ((o.proposedDate ?? '').trim().length === 0) continue;
+        await this.assertValidOptionStatus(o.optionStatus);
+      }
     }
 
     try {
@@ -447,17 +689,24 @@ export class ProjectService {
         });
         const savedProject = await manager.save(EngagementProject, project);
 
+        await this.insertProjectDmasInTransaction(
+          manager,
+          savedProject.engagementProjectId,
+          dto.dmaIds,
+        );
+
         for (const v of dto.venues ?? []) {
           const pv = manager.create(EngagementProjectVenue, {
             engagementProjectId: savedProject.engagementProjectId,
             venueCompanyId: v.venueCompanyId,
             venueStatus: v.venueStatus,
           });
-          await manager.save(pv);
+          const savedPv = await manager.save(EngagementProjectVenue, pv);
 
           for (const opt of v.performanceOptions ?? []) {
             const o = manager.create(EngagementProjectPerformanceOption, {
               engagementProjectId: savedProject.engagementProjectId,
+              engagementProjectVenueId: savedPv.engagementProjectVenueId,
               proposedDate: opt.proposedDate,
               proposedTime: this.normalizeTime(opt.proposedTime),
               optionStatus: opt.optionStatus,
@@ -465,6 +714,12 @@ export class ProjectService {
             await manager.save(o);
           }
         }
+
+        await manager.update(
+          Tour,
+          { tourId: dto.tourId },
+          { talentAgencyCompanyId: dto.talentAgencyCompanyId },
+        );
 
         return { engagementProjectId: savedProject.engagementProjectId };
       });
@@ -474,10 +729,14 @@ export class ProjectService {
         this.logger.warn(`Create project failed: ${d}`);
         const isStageCheck =
           /CHECK constraint/i.test(d) && /ProjectStage/i.test(d);
+        const isOptionStatusCheck =
+          /CHECK constraint/i.test(d) && /OptionStatus/i.test(d);
         throw new BadRequestException({
           message: isStageCheck
             ? `This project stage isn’t accepted by the database. Use one of: ${PROJECT_STAGE_VALUES.join(', ')}.`
-            : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
+            : isOptionStatusCheck
+              ? 'A proposed date option used a status the database does not allow. Refresh the page and try again, or ask an administrator which option statuses are valid.'
+              : 'Could not create the project. Check that the tour exists and that the information you entered matches your organization’s rules.',
           detail: d,
         });
       }
@@ -497,9 +756,41 @@ export class ProjectService {
       await this.assertTourExists(dto.tourId);
       project.tourId = dto.tourId;
     }
+    if (dto.talentAgencyCompanyId !== undefined) {
+      await this.assertCompanyIsTalentAgency(dto.talentAgencyCompanyId);
+    }
     try {
-      await this.projectRepo.save(project);
+      await this.dataSource.transaction(async (manager) => {
+        if (dto.dmaIds !== undefined) {
+          await manager.delete(EngagementProjectDma, {
+            engagementProjectId: id,
+          });
+          const normalized = this.normalizeDmaIds(dto.dmaIds);
+          if (normalized.length > 0) {
+            await this.assertDmasExist(manager, normalized);
+            for (const dmaid of normalized) {
+              await manager.save(
+                EngagementProjectDma,
+                manager.create(EngagementProjectDma, {
+                  engagementProjectId: id,
+                  dmaid,
+                }),
+              );
+            }
+          }
+        }
+        if (dto.talentAgencyCompanyId !== undefined) {
+          const effectiveTourId = dto.tourId ?? project.tourId;
+          await manager.update(
+            Tour,
+            { tourId: effectiveTourId },
+            { talentAgencyCompanyId: dto.talentAgencyCompanyId },
+          );
+        }
+        await manager.save(EngagementProject, project);
+      });
     } catch (e: unknown) {
+      if (e instanceof BadRequestException) throw e;
       if (e instanceof QueryFailedError) {
         const d = String((e as QueryFailedError).driverError ?? e.message);
         this.logger.warn(`Update project failed (id=${id}): ${d}`);
@@ -521,6 +812,9 @@ export class ProjectService {
           engagementProjectId: id,
         });
         await manager.delete(EngagementProjectVenue, {
+          engagementProjectId: id,
+        });
+        await manager.delete(EngagementProjectDma, {
           engagementProjectId: id,
         });
         await manager.delete(EngagementProject, { engagementProjectId: id });
@@ -552,6 +846,8 @@ export class ProjectService {
       tourId: number;
       tourName: string | null;
       attractionName: string | null;
+      talentAgencyCompanyId: number | null;
+      talentAgencyCompanyName: string | null;
       projectStage: string;
       createdDate: Date;
       createdBy: string | null;
@@ -568,7 +864,7 @@ export class ProjectService {
       .createQueryBuilder('ep')
       .innerJoinAndSelect('ep.tour', 't')
       .leftJoinAndSelect('t.attraction', 'a')
-      .leftJoinAndSelect('t.tourManagementCompany', 'tm');
+      .leftJoinAndSelect('t.talentAgencyCompany', 'tmg');
 
     const stage = (projectStageFilter ?? '').trim();
     if (stage && stage !== 'All') {
@@ -589,13 +885,13 @@ export class ProjectService {
             .orWhere("LOWER(ISNULL(a.attractionName, '')) LIKE LOWER(:like)", {
               like,
             })
+            .orWhere("LOWER(ISNULL(tmg.companyName, '')) LIKE LOWER(:like)", {
+              like,
+            })
             .orWhere("LOWER(ISNULL(ep.projectStage, '')) LIKE LOWER(:like)", {
               like,
             })
             .orWhere("LOWER(ISNULL(ep.createdBy, '')) LIKE LOWER(:like)", {
-              like,
-            })
-            .orWhere("LOWER(ISNULL(tm.companyName, '')) LIKE LOWER(:like)", {
               like,
             })
             .orWhere('CONVERT(VARCHAR(30), ep.createdDate, 126) LIKE :like', {
@@ -611,7 +907,7 @@ export class ProjectService {
     const sortWhitelist: Record<string, string> = {
       attraction: 'a.attractionName',
       tour: 't.tourName',
-      tourmgmt: 'tm.companyName',
+      tourmgmt: 'tmg.companyName',
       createdby: 'ep.createdBy',
       created: 'ep.createdDate',
     };
@@ -625,6 +921,20 @@ export class ProjectService {
     const total = await qb.getCount();
     const rows = await qb.skip(offset).take(limit).getMany();
 
+    const projectIds = rows.map((p) => p.engagementProjectId);
+    const dmaByProject = new Map<number, number[]>();
+    if (projectIds.length > 0) {
+      const links = await this.projectDmaRepo.find({
+        where: { engagementProjectId: In(projectIds) },
+        order: { engagementProjectId: 'ASC', dmaid: 'ASC' },
+      });
+      for (const link of links) {
+        const arr = dmaByProject.get(link.engagementProjectId) ?? [];
+        arr.push(link.dmaid);
+        dmaByProject.set(link.engagementProjectId, arr);
+      }
+    }
+
     return {
       data: rows.map((p) => ({
         engagementProjectId: p.engagementProjectId,
@@ -632,16 +942,15 @@ export class ProjectService {
         attractionId: p.tour?.attractionId ?? null,
         tourName: p.tour?.tourName ?? null,
         attractionName: p.tour?.attraction?.attractionName ?? null,
-        tourManagementCompanyId: p.tour?.tourManagementCompanyId ?? null,
-        tourManagementCompanyName:
-          p.tour?.tourManagementCompany?.companyName ?? null,
+        talentAgencyCompanyId: p.tour?.talentAgencyCompanyId ?? null,
+        talentAgencyCompanyName: p.tour?.talentAgencyCompany?.companyName ?? null,
         projectStage: p.projectStage,
         createdDate: p.createdDate,
         createdBy: p.createdBy,
         name: null,
         bookerId: null,
         agentContactId: null,
-        dmaIds: [] as number[],
+        dmaIds: dmaByProject.get(p.engagementProjectId) ?? [],
         targetOnSale: null,
         notes: null,
       })),
@@ -650,7 +959,17 @@ export class ProjectService {
   }
 
   async getOne(id: number) {
-    const project = await this.assertProjectExists(id);
+    const project = await this.projectRepo.findOne({
+      where: { engagementProjectId: id },
+      relations: {
+        tour: { attraction: true, talentAgencyCompany: true },
+      },
+    });
+    if (!project) {
+      throw new NotFoundException({
+        message: `Project with ID ${id} not found.`,
+      });
+    }
     return this.buildProjectResponse(project);
   }
 
@@ -676,6 +995,10 @@ export class ProjectService {
       });
     }
 
+    for (const opt of dto.performanceOptions ?? []) {
+      await this.assertValidOptionStatus(opt.optionStatus);
+    }
+
     try {
       return await this.dataSource.transaction(async (manager) => {
         const pv = manager.create(EngagementProjectVenue, {
@@ -688,6 +1011,7 @@ export class ProjectService {
         for (const opt of dto.performanceOptions ?? []) {
           const o = manager.create(EngagementProjectPerformanceOption, {
             engagementProjectId: projectId,
+            engagementProjectVenueId: saved.engagementProjectVenueId,
             proposedDate: opt.proposedDate,
             proposedTime: this.normalizeTime(opt.proposedTime),
             optionStatus: opt.optionStatus,
@@ -732,6 +1056,9 @@ export class ProjectService {
 
   async removeVenue(projectId: number, venueId: number): Promise<void> {
     await this.assertVenueInProject(projectId, venueId);
+    await this.optionRepo.delete({
+      engagementProjectVenueId: venueId,
+    });
     await this.projectVenueRepo.delete({
       engagementProjectId: projectId,
       engagementProjectVenueId: venueId,
@@ -745,8 +1072,10 @@ export class ProjectService {
     dto: AddPerformanceOptionDto,
   ): Promise<{ performanceOptionId: number }> {
     await this.assertProjectExists(projectId);
+    await this.assertValidOptionStatus(dto.optionStatus);
     const opt = this.optionRepo.create({
       engagementProjectId: projectId,
+      engagementProjectVenueId: null,
       proposedDate: dto.proposedDate,
       proposedTime: this.normalizeTime(dto.proposedTime),
       optionStatus: dto.optionStatus,
@@ -764,7 +1093,10 @@ export class ProjectService {
     if (dto.proposedDate !== undefined) opt.proposedDate = dto.proposedDate;
     if (dto.proposedTime !== undefined)
       opt.proposedTime = this.normalizeTime(dto.proposedTime);
-    if (dto.optionStatus !== undefined) opt.optionStatus = dto.optionStatus;
+    if (dto.optionStatus !== undefined) {
+      await this.assertValidOptionStatus(dto.optionStatus);
+      opt.optionStatus = dto.optionStatus;
+    }
     await this.optionRepo.save(opt);
   }
 

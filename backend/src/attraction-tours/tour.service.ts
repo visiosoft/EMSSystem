@@ -33,8 +33,8 @@ export interface TourListRow {
   sesac: boolean;
   gmr: boolean;
   tourInsuranceLanguage: string | null;
-  tourManagementCompanyId: number | null;
-  tourManagementCompanyName: string | null;
+  talentAgencyCompanyId: number | null;
+  talentAgencyCompanyName: string | null;
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
@@ -54,8 +54,6 @@ export class TourService {
     private readonly attractionRepo: Repository<Attraction>,
     @InjectRepository(Class)
     private readonly classRepo: Repository<Class>,
-    @InjectRepository(Company)
-    private readonly companyRepo: Repository<Company>,
     @InjectRepository(VenueType)
     private readonly venueTypeRepo: Repository<VenueType>,
     @InjectRepository(Engagement)
@@ -64,8 +62,27 @@ export class TourService {
     private readonly engagementProjectRepo: Repository<EngagementProject>,
     @InjectRepository(Link)
     private readonly linkRepo: Repository<Link>,
+    @InjectRepository(Company)
+    private readonly companyRepo: Repository<Company>,
     private readonly emsCreated: EmsAppCreatedStore,
   ) {}
+
+  private async assertTalentAgencyCompany(companyId: number): Promise<void> {
+    const co = await this.companyRepo.findOne({
+      where: { companyId },
+      relations: { companyType: true },
+    });
+    if (!co) {
+      throw new NotFoundException({ message: 'Company not found.' });
+    }
+    const typeName = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
+    if (typeName !== 'talent agency') {
+      throw new BadRequestException({
+        message:
+          'Tour management company must be a company of type Talent Agency.',
+      });
+    }
+  }
 
   private async attachBannerFromUpload(
     tour: Tour,
@@ -137,8 +154,9 @@ export class TourService {
       sesac: t.sesac,
       gmr: t.gmr,
       tourInsuranceLanguage: t.tourInsuranceLanguage,
-      tourManagementCompanyId: t.tourManagementCompanyId,
-      tourManagementCompanyName: t.tourManagementCompany?.companyName ?? null,
+      talentAgencyCompanyId:
+        t.talentAgencyCompanyId ?? t.talentAgencyCompany?.companyId ?? null,
+      talentAgencyCompanyName: t.talentAgencyCompany?.companyName ?? null,
       techRiderLinkId: t.techRiderLinkId,
       venueTypePreferenceId: t.venueTypePreferenceId,
       venueTypePreferenceName: t.venueTypePreference?.venueTypeName ?? null,
@@ -173,8 +191,8 @@ export class TourService {
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.attraction', 'a')
       .innerJoinAndSelect('t.class', 'c')
-      .leftJoinAndSelect('t.tourManagementCompany', 'm')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
       .orderBy('t.tourName', 'ASC')
       .getMany();
 
@@ -197,8 +215,8 @@ export class TourService {
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.attraction', 'a')
       .innerJoinAndSelect('t.class', 'c')
-      .leftJoinAndSelect('t.tourManagementCompany', 'm')
-      .leftJoinAndSelect('t.venueTypePreference', 'v');
+      .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .leftJoinAndSelect('t.talentAgencyCompany', 'ta');
 
     const sortBy = (sortByRaw ?? '').trim().toLowerCase();
     const sortDir =
@@ -208,7 +226,7 @@ export class TourService {
     } else if (sortBy === 'class') {
       qb.orderBy('c.className', sortDir).addOrderBy('t.tourName', 'ASC');
     } else if (sortBy === 'management' || sortBy === 'tourmgmt') {
-      qb.orderBy('m.companyName', sortDir).addOrderBy('t.tourName', 'ASC');
+      qb.orderBy('ta.companyName', sortDir).addOrderBy('t.tourName', 'ASC');
     } else {
       qb.orderBy('t.tourName', sortDir).addOrderBy('t.tourId', 'ASC');
     }
@@ -216,7 +234,7 @@ export class TourService {
     const trimmed = (q ?? '').trim();
     if (trimmed) {
       qb.andWhere(
-        `(LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(a.attractionName) LIKE LOWER(:like) OR LOWER(c.className) LIKE LOWER(:like) OR LOWER(ISNULL(m.companyName, '')) LIKE LOWER(:like))`,
+        `(LOWER(t.tourName) LIKE LOWER(:like) OR LOWER(a.attractionName) LIKE LOWER(:like) OR LOWER(c.className) LIKE LOWER(:like) OR LOWER(ISNULL(ta.companyName, '')) LIKE LOWER(:like))`,
         { like: `%${trimmed}%` },
       );
     }
@@ -251,22 +269,17 @@ export class TourService {
     if (!cls) {
       throw new NotFoundException({ message: 'Genre (class) not found.' });
     }
-    if (dto.tourManagementCompanyId != null) {
-      const co = await this.companyRepo.findOne({
-        where: { companyId: dto.tourManagementCompanyId },
-      });
-      if (!co) {
-        throw new NotFoundException({
-          message: 'Company not found for talent agent.',
-        });
-      }
-    }
-
     const tourName = dto.tourName.trim();
     if (!tourName) {
       throw new BadRequestException('Tour name is required.');
     }
     await this.assertUniqueTourName(tourName);
+
+    let talentAgencyCompanyId: number | null = null;
+    if (dto.talentAgencyCompanyId != null && dto.talentAgencyCompanyId >= 1) {
+      await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
+      talentAgencyCompanyId = dto.talentAgencyCompanyId;
+    }
 
     const row = this.tourRepo.create({
       tourName,
@@ -279,10 +292,10 @@ export class TourService {
       sesac: dto.sesac ?? false,
       gmr: dto.gmr ?? false,
       tourInsuranceLanguage: null,
-      tourManagementCompanyId: dto.tourManagementCompanyId ?? null,
       techRiderLinkId: null,
       venueTypePreferenceId: null,
       bannerLinkId: null,
+      talentAgencyCompanyId,
     });
     const saved = await this.tourRepo.save(row);
     this.emsCreated.recordTour(saved.tourId);
@@ -323,18 +336,6 @@ export class TourService {
     if (dto.bmi !== undefined) existing.bmi = dto.bmi;
     if (dto.sesac !== undefined) existing.sesac = dto.sesac;
     if (dto.gmr !== undefined) existing.gmr = dto.gmr;
-    if (dto.tourManagementCompanyId !== undefined) {
-      if (dto.tourManagementCompanyId != null) {
-        const co = await this.companyRepo.findOne({
-          where: { companyId: dto.tourManagementCompanyId },
-        });
-        if (!co)
-          throw new NotFoundException({
-            message: 'Company not found for talent agent.',
-          });
-      }
-      existing.tourManagementCompanyId = dto.tourManagementCompanyId;
-    }
     if (dto.audienceGender !== undefined) {
       existing.audienceGender = dto.audienceGender?.trim() || null;
     }
@@ -356,6 +357,12 @@ export class TourService {
           });
       }
       existing.venueTypePreferenceId = dto.venueTypePreferenceId;
+    }
+    if (dto.talentAgencyCompanyId !== undefined) {
+      if (dto.talentAgencyCompanyId != null) {
+        await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
+      }
+      existing.talentAgencyCompanyId = dto.talentAgencyCompanyId;
     }
     const finalName = existing.tourName.trim();
     if (!finalName) {
@@ -398,8 +405,8 @@ export class TourService {
       .createQueryBuilder('t')
       .innerJoinAndSelect('t.attraction', 'a')
       .innerJoinAndSelect('t.class', 'c')
-      .leftJoinAndSelect('t.tourManagementCompany', 'm')
       .leftJoinAndSelect('t.venueTypePreference', 'v')
+      .leftJoinAndSelect('t.talentAgencyCompany', 'ta')
       .where('t.tourId = :tourId', { tourId })
       .getOne();
     if (!t) {

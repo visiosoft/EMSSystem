@@ -21,21 +21,35 @@ export class VenueDirectoryController {
     @Query('complexCompanyId') complexCompanyIdRaw?: string,
     @Query('venueTypeId') venueTypeIdRaw?: string,
     @Query('dmaId') dmaIdRaw?: string,
+    /** Comma-separated DMAIDs (markets); venues in any of those markets are returned. */
+    @Query('dmaIds') dmaIdsRaw?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortDir') sortDir?: string,
   ) {
     const complexCompanyId = this.parseOptPosInt(complexCompanyIdRaw);
     const venueTypeId = this.parseOptPosInt(venueTypeIdRaw);
     const dmaId = this.parseOptPosInt(dmaIdRaw);
+    const dmaIds = this.parseCommaSeparatedPositiveInts(dmaIdsRaw);
     return this.venueDirectoryService.listAllVenues(offset, limit, {
       q,
       complexName,
       complexCompanyId: complexCompanyId ?? undefined,
       venueTypeId: venueTypeId ?? undefined,
       dmaId: dmaId ?? undefined,
+      dmaIds: dmaIds.length > 0 ? dmaIds : undefined,
       sortBy,
       sortDir,
     });
+  }
+
+  private parseCommaSeparatedPositiveInts(raw: string | undefined): number[] {
+    if (raw == null || !String(raw).trim()) return [];
+    const out: number[] = [];
+    for (const part of String(raw).split(',')) {
+      const n = parseInt(part.trim(), 10);
+      if (Number.isFinite(n) && n >= 1) out.push(n);
+    }
+    return [...new Set(out)];
   }
 
   private parseOptPosInt(

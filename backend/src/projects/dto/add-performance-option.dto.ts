@@ -1,11 +1,4 @@
-import {
-  IsIn,
-  IsISO8601,
-  IsOptional,
-  IsString,
-  Matches,
-} from 'class-validator';
-import { OPTION_STATUS_VALUES } from './create-project.dto';
+import { IsISO8601, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class AddPerformanceOptionDto {
   @IsISO8601()
@@ -17,6 +10,6 @@ export class AddPerformanceOptionDto {
   proposedTime?: string | null;
 
   @IsString()
-  @IsIn(OPTION_STATUS_VALUES as unknown as string[])
+  @MaxLength(50)
   optionStatus: string;
 }

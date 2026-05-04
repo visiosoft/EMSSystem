@@ -1056,7 +1056,7 @@ export function EngagementDetailPage({ engagementId, onNavigate, addToast }: Pro
     const tours = lookupsQuery.data?.tours;
     if (tours === undefined) return undefined as unknown as number | null;
     const t = tours.find((x) => x.tourId === r.tourId);
-    return t?.tourManagementCompanyId ?? null;
+    return t?.talentAgencyCompanyId ?? null;
   }, [detailQuery.data?.tourId, lookupsQuery.data?.tours]);
 
   const venueContactsQuery = useQuery({

@@ -153,6 +153,12 @@ export interface CompanyContactRow {
   departmentName: string;
 }
 
+export interface CompanyVenueLinkedContactsSection {
+  venueCompanyId: number;
+  venueCompanyName: string;
+  contacts: CompanyContactRow[];
+}
+
 export interface CompanyEngagementRow {
   engagementId: number;
   engagementStatus: string;
@@ -212,8 +218,6 @@ export class CompanyService {
     private readonly engagementVenueRepo: Repository<EngagementVenue>,
     @InjectRepository(EngagementProjectVenue)
     private readonly engagementProjectVenueRepo: Repository<EngagementProjectVenue>,
-    @InjectRepository(Tour)
-    private readonly tourRepo: Repository<Tour>,
     @InjectRepository(CompanyType)
     private readonly companyTypeRepo: Repository<CompanyType>,
     @InjectRepository(Role)
@@ -240,7 +244,7 @@ export class CompanyService {
       .getOne();
     if (!row) {
       throw new BadRequestException({
-        message: `Role '${t}' is missing in dbo.Role. Add it before saving venue contacts.`,
+        message: `The job role “${t}” is not set up in this system yet. Ask an administrator to add it (or contact support) before saving these venue contacts.`,
       });
     }
     return row.roleId;
@@ -258,7 +262,7 @@ export class CompanyService {
       .getOne();
     if (!row) {
       throw new BadRequestException({
-        message: `Department '${t}' is missing in dbo.Department. Add it before saving venue contacts.`,
+        message: `The department “${t}” is not set up in this system yet. Ask an administrator to add it (or contact support) before saving these venue contacts.`,
       });
     }
     return row.departmentId;
@@ -319,8 +323,8 @@ export class CompanyService {
       (await em.save(
         ContactInfo,
         em.create(ContactInfo, {
-          firstName: firstName || '—',
-          lastName: lastName || '—',
+          firstName: firstName || '',
+          lastName: lastName || '',
           email,
           workPhone: phone || null,
           cellPhone: cellPhone || null,
@@ -356,14 +360,22 @@ export class CompanyService {
         contactInfoId: info.contactInfoId,
       });
       if (ci) {
-        if (firstName) ci.firstName = firstName;
-        if (lastName) ci.lastName = lastName;
+        ci.firstName = firstName || '';
+        ci.lastName = lastName || '';
         if (phone) ci.workPhone = phone;
         if (cellPhone) ci.cellPhone = cellPhone;
         else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
         await em.save(ContactInfo, ci);
       }
     }
+  }
+
+  /** Legacy rows used em dash as SQL NOT NULL placeholder for an empty name part — hide it in API/UI. */
+  private contactNamePartForDisplay(value: string | null | undefined): string {
+    const t = String(value ?? '').trim();
+    if (!t) return '';
+    if (/^[—–\u2013\u2014\-−\s]+$/u.test(t)) return '';
+    return t;
   }
 
   private mapContactInfoToVenueRoleRow(ci: ContactInfo): {
@@ -373,8 +385,8 @@ export class CompanyService {
     phone: string | null;
     cellPhone: string | null;
   } {
-    const firstName = String(ci.firstName ?? '').trim();
-    const lastName = String(ci.lastName ?? '').trim();
+    const firstName = this.contactNamePartForDisplay(ci.firstName);
+    const lastName = this.contactNamePartForDisplay(ci.lastName);
     const email = String(ci.email ?? '').trim();
     const phone = ci.workPhone != null ? String(ci.workPhone).trim() : null;
     const cellPhone = ci.cellPhone != null ? String(ci.cellPhone).trim() : null;
@@ -529,8 +541,8 @@ export class CompanyService {
       (await em.save(
         ContactInfo,
         em.create(ContactInfo, {
-          firstName: firstName || '—',
-          lastName: lastName || '—',
+          firstName: firstName || '',
+          lastName: lastName || '',
           email,
           workPhone: phone || null,
           cellPhone: cellPhone || null,
@@ -560,8 +572,8 @@ export class CompanyService {
         contactInfoId: info.contactInfoId,
       });
       if (ci) {
-        if (firstName) ci.firstName = firstName;
-        if (lastName) ci.lastName = lastName;
+        ci.firstName = firstName || '';
+        ci.lastName = lastName || '';
         if (phone) ci.workPhone = phone;
         if (cellPhone) ci.cellPhone = cellPhone;
         else if (draft.cellPhone !== undefined && !cellPhone) ci.cellPhone = null;
@@ -670,7 +682,7 @@ export class CompanyService {
     });
     if (!venue) return { missing: true as const };
 
-    const venueProfile = await this.getVenueProfile(companyId);
+    const venueProfile = await this.buildVenueProfileReadModel(companyId, venue);
 
     const brands = await this.venueBrandRepo.find({
       where: { venueCompanyId: companyId },
@@ -775,7 +787,7 @@ export class CompanyService {
 
     return {
       missing: false as const,
-      venueProfile: venueProfile.missing ? null : venueProfile,
+      venueProfile,
       brandIds: brands.map((b) => b.brandId),
       taxIds: taxes.map((t) => t.taxId),
       stagehandProviderCompanyId: stagehandsProvider?.providerCompanyId ?? null,
@@ -906,7 +918,7 @@ export class CompanyService {
             if (!providerOffers) {
               throw new BadRequestException({
                 message:
-                  'Selected stagehand provider is not registered as offering Stagehands (dbo.CompanyService).',
+                  'That company is not registered as offering stagehands services. Pick a different stagehand provider or update their services first.',
               });
             }
             await em.insert(VenueServiceProvider, {
@@ -1607,15 +1619,12 @@ export class CompanyService {
     return c;
   }
 
-  async getVenueProfile(companyId: number) {
-    await this.assertVenueCompanyForProfile(companyId);
-    const venue = await this.venueRepo.findOne({
-      where: { companyId },
-      relations: { venueType: true, seatingType: true, loadDockAddress: true },
-    });
-    if (!venue) {
-      return { missing: true as const };
-    }
+  /**
+   * Builds the venue profile read model from an already-loaded `Venue` row (with the same
+   * relations as `getVenueProfile`). Used by `getVenueProfile` and `getVenueDetails` so the
+   * latter does not re-query the same venue profile work twice in one request.
+   */
+  private async buildVenueProfileReadModel(companyId: number, venue: Venue) {
     /** DB may contain legacy multiple rows; product rule is one complex per venue. */
     const entertainmentComplexCompanyIds = (
       await this.getVenueComplexCompanyIds(companyId)
@@ -1671,6 +1680,18 @@ export class CompanyService {
           }
         : null,
     };
+  }
+
+  async getVenueProfile(companyId: number) {
+    await this.assertVenueCompanyForProfile(companyId);
+    const venue = await this.venueRepo.findOne({
+      where: { companyId },
+      relations: { venueType: true, seatingType: true, loadDockAddress: true },
+    });
+    if (!venue) {
+      return { missing: true as const };
+    }
+    return this.buildVenueProfileReadModel(companyId, venue);
   }
 
   /** MSSQL limits ~2100 parameters per request; `In([...])` uses one param per id. */
@@ -1943,9 +1964,6 @@ export class CompanyService {
     }
     const newKind = this.normalizeCompanyTypeName(newType.companyTypeName);
 
-    const tourMgmtCount = await this.tourRepo.count({
-      where: { tourManagementCompanyId: companyId },
-    });
     const venueRowCount = await this.venueRepo.count({ where: { companyId } });
     const engagementVenueCount = await this.engagementVenueRepo.count({
       where: { venueCompanyId: companyId },
@@ -1956,14 +1974,6 @@ export class CompanyService {
 
     const needsVenueType =
       venueRowCount > 0 || engagementVenueCount > 0 || projectVenueCount > 0;
-    const needsTalentAgencyType = tourMgmtCount > 0;
-
-    if (needsVenueType && needsTalentAgencyType) {
-      throw new ConflictException({
-        message:
-          'This company can’t be retyped while it is both used as a venue (or has a venue profile) and set as the tour management company on one or more tours. Reassign one of those links first so the company only needs one role.',
-      });
-    }
 
     if (needsVenueType && newKind !== 'venue') {
       const reasons: string[] = [];
@@ -1982,12 +1992,6 @@ export class CompanyService {
       }
       throw new ConflictException({
         message: `This company can’t be retyped because ${reasons.join(' and ')}. It must stay a Venue, or remove those links first.`,
-      });
-    }
-
-    if (needsTalentAgencyType && newKind !== 'talent agency') {
-      throw new ConflictException({
-        message: `This company can’t be retyped because it is the tour management company on ${tourMgmtCount} tour${tourMgmtCount === 1 ? '' : 's'}. It must stay a Talent Agency, or pick a different management company on those tours first.`,
       });
     }
   }
@@ -2126,19 +2130,6 @@ export class CompanyService {
         detail: `engagement_project_venue_venueCompanyId=${companyId} count=${projectVenueCount}`,
       });
     }
-    const tourAsManagementCount = await this.tourRepo.count({
-      where: { tourManagementCompanyId: companyId },
-    });
-    if (tourAsManagementCount > 0) {
-      throw new ConflictException({
-        statusCode: HttpStatus.CONFLICT,
-        error: 'Conflict',
-        message:
-          'This company can’t be removed because it is set as the tour management (talent) company on one or more tours. Reassign or clear that on each tour first, then try again.',
-        detail: `tour_tourManagementCompanyId=${companyId} count=${tourAsManagementCount}`,
-      });
-    }
-
     // Remove company-contact assignments first, and clean up orphaned contacts.
     const assignments = await this.assignmentRepo.find({
       where: { companyId },
@@ -2190,6 +2181,10 @@ export class CompanyService {
     // This protects pre-existing shared data from accidental removal.
   }
 
+  /**
+   * Contacts assigned to this company (role + department via dbo.ContactAssignment).
+   * Venue / complex pickers use this list — typically staff employed or linked to that company in SQL.
+   */
   async listContacts(companyId: number): Promise<CompanyContactRow[]> {
     await this.ensureCompany(companyId);
     const raw = await this.assignmentRepo
@@ -2217,31 +2212,106 @@ export class CompanyService {
       .addOrderBy('ci.firstName', 'ASC')
       .getRawMany();
 
-    return raw.map((row) => {
-      const r = row as Record<string, unknown>;
-      return {
-        contactAssignmentId: Number(pickRawRowValue(r, 'contactAssignmentId')),
-        contactId: Number(pickRawRowValue(r, 'contactId')),
-        contactInfoId: Number(pickRawRowValue(r, 'contactInfoId')),
-        firstName: String(pickRawRowValue(r, 'firstName') ?? ''),
-        lastName: String(pickRawRowValue(r, 'lastName') ?? ''),
-        email: String(pickRawRowValue(r, 'email') ?? ''),
-        cellPhone: (() => {
-          const v = pickRawRowValue(r, 'cellPhone');
-          if (v == null) return null;
-          return String(v);
-        })(),
-        workPhone: (() => {
-          const v = pickRawRowValue(r, 'workPhone');
-          if (v == null) return null;
-          return String(v);
-        })(),
-        roleId: Number(pickRawRowValue(r, 'roleId')),
-        roleName: String(pickRawRowValue(r, 'roleName') ?? ''),
-        departmentId: Number(pickRawRowValue(r, 'departmentId')),
-        departmentName: String(pickRawRowValue(r, 'departmentName') ?? ''),
-      };
+    return raw.map((row) => this.mapRawContactRow(row as Record<string, unknown>));
+  }
+
+  async listLinkedVenueContactsForComplex(
+    companyId: number,
+  ): Promise<CompanyVenueLinkedContactsSection[]> {
+    const company = await this.companyRepo.findOne({
+      where: { companyId },
+      relations: { companyType: true },
     });
+    if (!company) {
+      throw new NotFoundException({
+        statusCode: HttpStatus.NOT_FOUND,
+        error: 'Not Found',
+        message: 'This company was not found.',
+        detail: 'The company record does not exist.',
+      });
+    }
+    const typeName = (company.companyType?.companyTypeName ?? '').trim().toLowerCase();
+    if (typeName !== ENTERTAINMENT_COMPLEX_COMPANY_TYPE) {
+      return [];
+    }
+
+    const raw = await this.assignmentRepo
+      .createQueryBuilder('ca')
+      .innerJoin('ca.contact', 'ct')
+      .innerJoin('ct.contactInfo', 'ci')
+      .innerJoin('ca.role', 'r')
+      .innerJoin('ca.department', 'd')
+      .innerJoin(Company, 'vc', 'vc.companyId = ca.companyId')
+      .innerJoin(
+        VenueComplexMember,
+        'vcm',
+        'vcm.venueCompanyId = vc.companyId AND vcm.complexCompanyId = :cid',
+        { cid: companyId },
+      )
+      .select([
+        'ca.contactAssignmentId AS contactAssignmentId',
+        'ca.contactId AS contactId',
+        'ci.contactInfoId AS contactInfoId',
+        'ci.firstName AS firstName',
+        'ci.lastName AS lastName',
+        'ci.email AS email',
+        'ci.cellPhone AS cellPhone',
+        'ci.workPhone AS workPhone',
+        'r.roleId AS roleId',
+        'r.roleName AS roleName',
+        'd.departmentId AS departmentId',
+        'd.departmentName AS departmentName',
+        'vc.companyId AS venueCompanyId',
+        'vc.companyName AS venueCompanyName',
+      ])
+      .orderBy('vc.companyName', 'ASC')
+      .addOrderBy('ci.lastName', 'ASC')
+      .addOrderBy('ci.firstName', 'ASC')
+      .getRawMany();
+
+    const byVenue = new Map<number, CompanyVenueLinkedContactsSection>();
+    for (const row of raw as Record<string, unknown>[]) {
+      const venueCompanyId = Number(pickRawRowValue(row, 'venueCompanyId') ?? 0);
+      if (!Number.isFinite(venueCompanyId) || venueCompanyId < 1) continue;
+      const venueCompanyName = String(
+        pickRawRowValue(row, 'venueCompanyName') ?? `Venue #${venueCompanyId}`,
+      ).trim();
+      const contact = this.mapRawContactRow(row);
+      if (!byVenue.has(venueCompanyId)) {
+        byVenue.set(venueCompanyId, {
+          venueCompanyId,
+          venueCompanyName,
+          contacts: [],
+        });
+      }
+      byVenue.get(venueCompanyId)!.contacts.push(contact);
+    }
+    return [...byVenue.values()];
+  }
+
+  private mapRawContactRow(row: Record<string, unknown>): CompanyContactRow {
+    return {
+      contactAssignmentId: Number(pickRawRowValue(row, 'contactAssignmentId')),
+      contactId: Number(pickRawRowValue(row, 'contactId')),
+      contactInfoId: Number(pickRawRowValue(row, 'contactInfoId')),
+      firstName: String(pickRawRowValue(row, 'firstName') ?? ''),
+      lastName: String(pickRawRowValue(row, 'lastName') ?? ''),
+      email: String(pickRawRowValue(row, 'email') ?? ''),
+      cellPhone: (() => {
+        const v = pickRawRowValue(row, 'cellPhone');
+        if (v == null) return null;
+        return String(v);
+      })(),
+      workPhone: (() => {
+        const v = pickRawRowValue(row, 'workPhone');
+        if (v == null) return null;
+        return String(v);
+      })(),
+      roleId: Number(pickRawRowValue(row, 'roleId')),
+      roleName: String(pickRawRowValue(row, 'roleName') ?? ''),
+      departmentId: Number(pickRawRowValue(row, 'departmentId')),
+      departmentName: String(pickRawRowValue(row, 'departmentName') ?? ''),
+    };
   }
 
   async addContact(

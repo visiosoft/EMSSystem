@@ -55,6 +55,11 @@ export class CompanyController {
     return this.companyService.listContacts(id);
   }
 
+  @Get(':id/contacts/linked-venues')
+  listLinkedVenueContacts(@Param('id', ParseIntPipe) id: number) {
+    return this.companyService.listLinkedVenueContactsForComplex(id);
+  }
+
   @Post(':id/contacts')
   addContact(
     @Param('id', ParseIntPipe) id: number,

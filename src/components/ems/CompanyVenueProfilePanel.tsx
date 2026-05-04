@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Plus, X } from 'lucide-react';
 import { ContactPhoneRow } from './ContactPhoneRow';
@@ -14,7 +14,6 @@ import {
 import type { Company } from '@/data/constants';
 import type {
   ApiBrand,
-  ApiCompanyContact,
   ApiSeatingType,
   ApiNonResidentWithholdingOption,
   ApiServiceProvided,
@@ -24,11 +23,8 @@ import type {
   ApiVenueType,
 } from '@/api/companyApi';
 import {
-  companiesPickerQueryKey,
   entertainmentComplexCompaniesQueryKey,
-  fetchCompaniesPickerRows,
   fetchEntertainmentComplexCompanyRows,
-  fetchCompanyContacts,
   fetchVenueDetails,
   fetchVenueProfile,
   provisionVenueProfile,
@@ -37,7 +33,6 @@ import {
 } from '@/api/companyApi';
 import { allVenuesQueryKey } from '@/api/venueDirectoryApi';
 import { friendlyApiError } from '@/lib/friendlyApiError';
-import { TICKETING_SYSTEM_OPTIONS } from '@/lib/ticketingSystemOptions';
 
 interface Props {
   company: Company;
@@ -77,7 +72,6 @@ function newClientId() {
 
 type VenueLocalContactBlock = {
   id: string;
-  contactInfoPick: string;
   fullName: string;
   email: string;
   workPhoneCountry: PhoneCountrySelection;
@@ -89,12 +83,11 @@ type VenueLocalContactBlock = {
 function emptyContactBlock(): VenueLocalContactBlock {
   return {
     id: newClientId(),
-    contactInfoPick: '',
     fullName: '',
     email: '',
-    workPhoneCountry: '',
+    workPhoneCountry: DEFAULT_PHONE_COUNTRY,
     workPhoneDisplay: '',
-    cellPhoneCountry: '',
+    cellPhoneCountry: DEFAULT_PHONE_COUNTRY,
     cellPhoneDisplay: '',
   };
 }
@@ -132,7 +125,6 @@ function apiRowToBlock(row: ApiVenueRoleContact): VenueLocalContactBlock {
   });
   return {
     id: newClientId(),
-    contactInfoPick: String(row.contactInfoId),
     fullName: row.fullName ?? '',
     email: row.email ?? '',
     workPhoneCountry: w.country,
@@ -149,6 +141,9 @@ function blockPhonesToE164(b: VenueLocalContactBlock): { phone: string; cellPhon
   };
 }
 
+/** Matches server rule: a row with any contact data must include a usable email. */
+const VENUE_CONTACT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function validateContactBlocks(blocks: VenueLocalContactBlock[]): string | null {
   for (const b of blocks) {
     if (b.workPhoneDisplay.trim() && !b.workPhoneCountry) {
@@ -163,6 +158,20 @@ function validateContactBlocks(blocks: VenueLocalContactBlock[]): string | null 
     }
     if (b.cellPhoneDisplay.trim() && !p.cellPhone) {
       return PHONE_INVALID_MESSAGE;
+    }
+    const hasAny =
+      b.fullName.trim().length > 0 ||
+      b.email.trim().length > 0 ||
+      p.phone.length > 0 ||
+      p.cellPhone.length > 0;
+    if (hasAny) {
+      const em = b.email.trim();
+      if (!em) {
+        return 'Email is required when you enter a name or phone for a contact.';
+      }
+      if (!VENUE_CONTACT_EMAIL_RE.test(em)) {
+        return 'Enter a valid email address for each contact row that has a name or phone.';
+      }
     }
   }
   return null;
@@ -299,26 +308,12 @@ function contactSigFromApiRows(rows: ApiVenueRoleContact[] | undefined) {
   return contactBlocksSignature(rows.map(apiRowToBlock));
 }
 
-function dedupeContactsByInfoId(rows: ApiCompanyContact[]): ApiCompanyContact[] {
-  const m = new Map<number, ApiCompanyContact>();
-  for (const r of rows) {
-    if (!m.has(r.contactInfoId)) m.set(r.contactInfoId, r);
-  }
-  return [...m.values()].sort((a, b) => {
-    const ln = a.lastName.localeCompare(b.lastName);
-    if (ln !== 0) return ln;
-    return a.firstName.localeCompare(b.firstName);
-  });
-}
-
 function VenueRoleContactBlockGroup({
   roleTitle,
   blocks,
   onUpdate,
   onAdd,
   onRemove,
-  getOptions,
-  onPick,
   inputCls,
 }: {
   roleTitle: string;
@@ -326,8 +321,6 @@ function VenueRoleContactBlockGroup({
   onUpdate: (id: string, patch: Partial<VenueLocalContactBlock>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
-  getOptions: (block: VenueLocalContactBlock) => { value: string; label: string }[];
-  onPick: (id: string, value: string) => void;
   inputCls: string;
 }) {
   const list = Array.isArray(blocks) ? blocks : [];
@@ -346,12 +339,14 @@ function VenueRoleContactBlockGroup({
             <div className="min-w-0 space-y-3">
               <div className="flex items-start gap-1.5">
                 <div className="min-w-0 flex-1">
-                  <Select2
-                    className="w-full"
-                    value={block.contactInfoPick}
-                    onChange={(v) => onPick(block.id, v)}
-                    options={getOptions(block)}
+                  <input
+                    className={inputCls}
+                    type="text"
+                    value={block.fullName}
+                    onChange={(e) => onUpdate(block.id, { fullName: e.target.value })}
                     placeholder="Name"
+                    autoComplete="off"
+                    maxLength={200}
                   />
                 </div>
                 {idx === 0 && (
@@ -420,6 +415,9 @@ export function CompanyVenueProfilePanel({
 }: Props) {
   const qc = useQueryClient();
   const companyId = Number(company.id);
+  /** Finance / marketing / etc. are deferred until scroll or explicit action (heavy GET). */
+  const [extendedVenueDataEnabled, setExtendedVenueDataEnabled] = useState(false);
+  const extendedSectionSentinelRef = useRef<HTMLDivElement | null>(null);
 
   const vq = useQuery({
     queryKey: ['companies', company.id, 'venue-profile'],
@@ -427,19 +425,34 @@ export function CompanyVenueProfilePanel({
     enabled: Number.isFinite(companyId),
   });
 
+  const venueProfileExists =
+    vq.isSuccess && vq.data && !vq.data.missing && Number.isFinite(companyId);
+
   const detailsQ = useQuery({
     queryKey: ['companies', company.id, 'venue-details'],
     queryFn: () => fetchVenueDetails(companyId),
-    enabled: Number.isFinite(companyId),
+    enabled: extendedVenueDataEnabled && venueProfileExists,
   });
 
-  const companiesPickerQ = useQuery({
-    queryKey: companiesPickerQueryKey(),
-    queryFn: fetchCompaniesPickerRows,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
+  useEffect(() => {
+    setExtendedVenueDataEnabled(false);
+  }, [company.id]);
+
+  useEffect(() => {
+    if (extendedVenueDataEnabled) return;
+    const el = extendedSectionSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setExtendedVenueDataEnabled(true);
+        }
+      },
+      { root: null, rootMargin: '280px 0px', threshold: 0.01 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [extendedVenueDataEnabled, company.id]);
 
   const entertainmentComplexPickerQ = useQuery({
     queryKey: entertainmentComplexCompaniesQueryKey(),
@@ -447,13 +460,6 @@ export function CompanyVenueProfilePanel({
     staleTime: 30 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
     refetchOnWindowFocus: false,
-  });
-
-  const companyContactsQ = useQuery({
-    queryKey: ['companies', String(company.id), 'contacts'],
-    queryFn: () => fetchCompanyContacts(companyId),
-    enabled: Number.isFinite(companyId),
-    staleTime: 2 * 60 * 1000,
   });
 
   const [venueName, setVenueName] = useState('');
@@ -523,82 +529,9 @@ export function CompanyVenueProfilePanel({
   const [withholdingLinkId, setWithholdingLinkId] = useState<number | null>(null);
   const [iaeWaiverLinkId, setIaeWaiverLinkId] = useState<number | null>(null);
   const [artistWaiverLinkId, setArtistWaiverLinkId] = useState<number | null>(null);
-  const [draftOnly, setDraftOnly] = useState<Record<string, string>>({});
   const [draftOnlyFlags, setDraftOnlyFlags] = useState<Record<string, boolean>>({});
   const [savingKey, setSavingKey] = useState<SectionSaveKey>(null);
-  const [sectionBaseline, setSectionBaseline] = useState<VenueSectionBaselines | null>(null);
   const [provisioning, setProvisioning] = useState(false);
-
-  const baseNameContactOptions = useMemo(() => {
-    const rows = dedupeContactsByInfoId(companyContactsQ.data ?? []);
-    return [
-      { value: '', label: 'Name' },
-      ...rows.map((r) => ({
-        value: String(r.contactInfoId),
-        label: [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || r.email,
-      })),
-    ];
-  }, [companyContactsQ.data]);
-
-  const contactByInfoId = useMemo(() => {
-    const rows = dedupeContactsByInfoId(companyContactsQ.data ?? []);
-    const m = new Map<number, ApiCompanyContact>();
-    for (const r of rows) m.set(r.contactInfoId, r);
-    return m;
-  }, [companyContactsQ.data]);
-
-  const contactOptionsForBlock = useCallback(
-    (pick: string, fullName: string) => {
-      if (!pick) return baseNameContactOptions;
-      if (baseNameContactOptions.some((o) => o.value === pick)) {
-        return baseNameContactOptions;
-      }
-      const label = fullName.trim() || 'Contact';
-      return [...baseNameContactOptions, { value: pick, label }];
-    },
-    [baseNameContactOptions],
-  );
-
-  const applyBlockContactPick = useCallback(
-    (
-      set: React.Dispatch<React.SetStateAction<VenueLocalContactBlock[]>>,
-      blockId: string,
-      idStr: string,
-    ) => {
-      set((prev) =>
-        prev.map((b) => {
-          if (b.id !== blockId) {
-            return b;
-          }
-          if (!idStr) {
-            return { ...b, ...emptyContactBlock(), id: b.id, contactInfoPick: '' };
-          }
-          const c = contactByInfoId.get(Number(idStr));
-          if (!c) {
-            return { ...b, contactInfoPick: idStr };
-          }
-          const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
-          const w = parsePhoneFieldValue(c.workPhone, DEFAULT_PHONE_COUNTRY, {
-            noCountryWhenEmpty: true,
-          });
-          const c2 = parsePhoneFieldValue(c.cellPhone, DEFAULT_PHONE_COUNTRY, {
-            noCountryWhenEmpty: true,
-          });
-          return {
-            ...b,
-            contactInfoPick: idStr,
-            fullName: name,
-            email: c.email,
-            workPhoneCountry: w.country,
-            workPhoneDisplay: w.display,
-            cellPhoneCountry: c2.country,
-            cellPhoneDisplay: c2.display,
-          };
-        }),
-      );
-    },
-    [contactByInfoId],
-  );
 
   const brandAddOptions = useMemo(
     () =>
@@ -607,17 +540,6 @@ export function CompanyVenueProfilePanel({
         .map((b) => ({ value: String(b.brandId), label: b.brandName })),
     [brands, brandIds],
   );
-
-  const venueMgmtCompanyOptions = useMemo(() => {
-    const rows = companiesPickerQ.data ?? [];
-    const filtered = rows.filter(
-      (r) => String(r.companyTypeName ?? '').trim().toLowerCase() === 'venue management company',
-    );
-    return filtered.map((r) => ({
-      value: String(r.companyId),
-      label: r.companyName,
-    }));
-  }, [companiesPickerQ.data]);
 
   const entertainmentComplexNameById = useMemo(() => {
     const m = new Map<number, string>();
@@ -677,12 +599,9 @@ export function CompanyVenueProfilePanel({
     [seatingTypes],
   );
 
-  const ticketingSystemOptions = useMemo(
-    () => [
-      { value: '', label: 'Clear…' },
-      ...TICKETING_SYSTEM_OPTIONS.map((name) => ({ value: name, label: name })),
-    ],
-    [],
+  const nonResidentWithholdingIdDatalistId = useMemo(
+    () => `nrw-withholding-catalog-${company.id}`,
+    [company.id],
   );
 
   useEffect(() => {
@@ -695,7 +614,11 @@ export function CompanyVenueProfilePanel({
     setTaxInCart(full.taxInCart);
     setInsuranceLanguage(full.insuranceLanguage ?? '');
     setInsurancePolicyCopyRequirements(full.insurancePolicyCopyRequirements ?? '');
-    setVenueRelationshipIae(full.venueRelationshipIae);
+    setVenueRelationshipIae(
+      String(full.venueRelationshipIae ?? '')
+        .trim()
+        .slice(0, 100) || 'Standard',
+    );
     setVenueTypeId(full.venueTypeId != null ? String(full.venueTypeId) : '');
     const ids = Array.isArray(full.entertainmentComplexCompanyIds)
       ? full.entertainmentComplexCompanyIds.filter((id) => Number.isInteger(id) && id > 0)
@@ -717,16 +640,13 @@ export function CompanyVenueProfilePanel({
   }, [entertainmentComplexCompanyId]);
 
   useEffect(() => {
+    if (!extendedVenueDataEnabled) return;
     const d = detailsQ.data;
     if (!d || d.missing) return;
     setBrandIds(d.brandIds ?? []);
     setTaxIds(d.taxIds ?? []);
     setNonResidentWithholdingId(
-      d.nonResidentWithholdingId != null
-        ? String(d.nonResidentWithholdingId)
-        : (nonResidentWithholdings?.length === 1
-            ? String(nonResidentWithholdings[0].withholdingId)
-            : ''),
+      d.nonResidentWithholdingId != null ? String(d.nonResidentWithholdingId) : '',
     );
     setDraftOnlyFlags((prev) => ({
       ...prev,
@@ -822,23 +742,12 @@ export function CompanyVenueProfilePanel({
       setArtistWaiverLinkId(null);
       setArtistWaiverUrl('');
     }
-  }, [detailsQ.data, taxes, nonResidentWithholdings]);
+  }, [extendedVenueDataEnabled, detailsQ.data, taxes]);
 
-  useEffect(() => {
+  const profileSectionBaseline = useMemo(() => {
     const vp = vq.data;
-    const d = detailsQ.data;
-    if (!vp || vp.missing || !d || d.missing) {
-      setSectionBaseline(null);
-      return;
-    }
+    if (!vp || vp.missing) return null;
     const full = vp;
-    const effNrwId =
-      d.nonResidentWithholdingId != null
-        ? String(d.nonResidentWithholdingId)
-        : (nonResidentWithholdings?.length === 1
-            ? String(nonResidentWithholdings[0].withholdingId)
-            : '');
-
     const loadDock = loadDockFromFormFields(
       full.loadDockAddress?.addressLine1 ?? '',
       full.loadDockAddress?.addressLine2 ?? '',
@@ -847,9 +756,7 @@ export function CompanyVenueProfilePanel({
       full.loadDockAddress?.postalCode ?? '',
       full.loadDockAddress?.country ?? '',
     );
-
-    const w = d.nonResidentWithholding;
-    setSectionBaseline({
+    return {
       core: JSON.stringify({
         venueName: full.venueName,
         seatingCapacity: String(full.seatingCapacity),
@@ -862,6 +769,31 @@ export function CompanyVenueProfilePanel({
           ) ?? null,
       }),
       loadDock: JSON.stringify(loadDock),
+    };
+  }, [vq.data]);
+
+  const extensionsSectionBaseline = useMemo((): VenueSectionBaselines | null => {
+    if (!extendedVenueDataEnabled) return null;
+    const vp = vq.data;
+    const d = detailsQ.data;
+    if (!vp || vp.missing || !d || d.missing) return null;
+    const full = vp;
+    const effNrwId =
+      d.nonResidentWithholdingId != null ? String(d.nonResidentWithholdingId) : '';
+
+    const loadDock = loadDockFromFormFields(
+      full.loadDockAddress?.addressLine1 ?? '',
+      full.loadDockAddress?.addressLine2 ?? '',
+      full.loadDockAddress?.city ?? '',
+      full.loadDockAddress?.stateProvince ?? '',
+      full.loadDockAddress?.postalCode ?? '',
+      full.loadDockAddress?.country ?? '',
+    );
+
+    const w = d.nonResidentWithholding;
+    return {
+      core: '',
+      loadDock: '',
       finance: JSON.stringify([
         contactSigFromApiRows(d.financeDirectors),
         contactSigFromApiRows(d.settlementManagers),
@@ -881,7 +813,10 @@ export function CompanyVenueProfilePanel({
       }),
       booking: JSON.stringify({
         ins: full.insurancePolicyCopyRequirements ?? '',
-        iae: String(full.venueRelationshipIae ?? ''),
+        iae:
+          String(full.venueRelationshipIae ?? '')
+            .trim()
+            .slice(0, 100) || 'Standard',
         b: contactSigFromApiRows(d.bookingDirectors),
         r: contactSigFromApiRows(d.rentalManagers),
         c: contactSigFromApiRows(d.calendarManagers),
@@ -921,18 +856,14 @@ export function CompanyVenueProfilePanel({
               artist: '',
             },
       ),
-    });
-  }, [vq.data, detailsQ.data, taxes, nonResidentWithholdings, companyId]);
+    };
+  }, [extendedVenueDataEnabled, vq.data, detailsQ.data, taxes]);
 
   const inputCls =
     'w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text-primary placeholder:text-text-muted/90 focus:outline-none focus:border-ems-accent focus:ring-1 focus:ring-ems-accent/20';
   const sectionCls = 'rounded-xl border border-border bg-card/40 p-5 space-y-4';
   const sectionSaveBtnCls =
     'inline-flex items-center justify-center gap-2 min-w-[8.5rem] bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-semibold disabled:opacity-60';
-
-  const setDraftOnlyField = (key: string, value: string) => {
-    setDraftOnly((prev) => ({ ...prev, [key]: value }));
-  };
 
   const setDraftOnlyFlag = (key: string, value: boolean) => {
     setDraftOnlyFlags((prev) => ({ ...prev, [key]: value }));
@@ -954,7 +885,7 @@ export function CompanyVenueProfilePanel({
   const isSaving = savingKey !== null;
 
   const isCoreDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!profileSectionBaseline) return false;
     return (
       JSON.stringify({
         venueName: venueName.trim(),
@@ -963,10 +894,10 @@ export function CompanyVenueProfilePanel({
         insuranceLanguage: insuranceLanguage ?? '',
         venueTypeId: venueTypeId || '',
         entertainmentComplexCompanyId,
-      }) !== sectionBaseline.core
+      }) !== profileSectionBaseline.core
     );
   }, [
-    sectionBaseline,
+    profileSectionBaseline,
     venueName,
     seatingCapacity,
     salesTaxRate,
@@ -976,7 +907,7 @@ export function CompanyVenueProfilePanel({
   ]);
 
   const isLoadDockDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!profileSectionBaseline) return false;
     return (
       JSON.stringify(
         loadDockFromFormFields(
@@ -987,10 +918,10 @@ export function CompanyVenueProfilePanel({
           loadDockPostalCode,
           loadDockCountry,
         ),
-      ) !== sectionBaseline.loadDock
+      ) !== profileSectionBaseline.loadDock
     );
   }, [
-    sectionBaseline,
+    profileSectionBaseline,
     loadDockAddressLine1,
     loadDockAddressLine2,
     loadDockCity,
@@ -1001,26 +932,26 @@ export function CompanyVenueProfilePanel({
 
   const isFinanceDirty = useMemo(
     () =>
-      !!sectionBaseline &&
+      !!extensionsSectionBaseline &&
       JSON.stringify([
         contactBlocksSignature(financeBlocks),
         contactBlocksSignature(settlementBlocks),
-      ]) !== sectionBaseline.finance,
-    [sectionBaseline, financeBlocks, settlementBlocks],
+      ]) !== extensionsSectionBaseline.finance,
+    [extensionsSectionBaseline, financeBlocks, settlementBlocks],
   );
 
   const isMarketingDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!extensionsSectionBaseline) return false;
     return (
       JSON.stringify({
         brands: [...brandIds].sort((a, b) => a - b),
         c: contactBlocksSignature(marketingBlocks),
-      }) !== sectionBaseline.marketing
+      }) !== extensionsSectionBaseline.marketing
     );
-  }, [sectionBaseline, brandIds, marketingBlocks]);
+  }, [extensionsSectionBaseline, brandIds, marketingBlocks]);
 
   const isTechnicalDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!extensionsSectionBaseline) return false;
     return (
       JSON.stringify({
         t: contactBlocksSignature(technicalBlocks),
@@ -1033,10 +964,10 @@ export function CompanyVenueProfilePanel({
           loadDockPostalCode,
           loadDockCountry,
         ),
-      }) !== sectionBaseline.technical
+      }) !== extensionsSectionBaseline.technical
     );
   }, [
-    sectionBaseline,
+    extensionsSectionBaseline,
     technicalBlocks,
     stagehandContactBlocks,
     loadDockAddressLine1,
@@ -1048,28 +979,31 @@ export function CompanyVenueProfilePanel({
   ]);
 
   const isTicketingDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!extensionsSectionBaseline) return false;
     return (
       JSON.stringify({
         seat: seatingTypeId || '',
         m: contactBlocksSignature(ticketingManagerBlocks),
-      }) !== sectionBaseline.ticketing
+      }) !== extensionsSectionBaseline.ticketing
     );
-  }, [sectionBaseline, seatingTypeId, ticketingManagerBlocks]);
+  }, [extensionsSectionBaseline, seatingTypeId, ticketingManagerBlocks]);
 
   const isBookingDirty = useMemo(
     () =>
-      !!sectionBaseline &&
+      !!extensionsSectionBaseline &&
       JSON.stringify({
         ins: insurancePolicyCopyRequirements,
-        iae: String(venueRelationshipIae ?? ''),
+        iae:
+          String(venueRelationshipIae ?? '')
+            .trim()
+            .slice(0, 100) || 'Standard',
         b: contactBlocksSignature(bookingDirectorBlocks),
         r: contactBlocksSignature(rentalManagerBlocks),
         c: contactBlocksSignature(calendarManagerBlocks),
         x: contactBlocksSignature(contractManagerBlocks),
-      }) !== sectionBaseline.booking,
+      }) !== extensionsSectionBaseline.booking,
     [
-      sectionBaseline,
+      extensionsSectionBaseline,
       insurancePolicyCopyRequirements,
       venueRelationshipIae,
       bookingDirectorBlocks,
@@ -1080,7 +1014,7 @@ export function CompanyVenueProfilePanel({
   );
 
   const isAmusementDirty = useMemo(() => {
-    if (!sectionBaseline) return false;
+    if (!extensionsSectionBaseline) return false;
     return (
       JSON.stringify({
         cart: taxInCart,
@@ -1094,10 +1028,10 @@ export function CompanyVenueProfilePanel({
           !!draftOnlyFlags.cityTaxOnTickets,
           taxes,
         ),
-      }) !== sectionBaseline.amusement
+      }) !== extensionsSectionBaseline.amusement
     );
   }, [
-    sectionBaseline,
+    extensionsSectionBaseline,
     taxInCart,
     draftOnlyFlags.stateTaxOnTickets,
     draftOnlyFlags.cityTaxOnTickets,
@@ -1109,7 +1043,7 @@ export function CompanyVenueProfilePanel({
 
   const isNrwDirty = useMemo(
     () =>
-      !!sectionBaseline &&
+      !!extensionsSectionBaseline &&
       nonResidentWireSignature({
         id: nonResidentWithholdingId,
         taxRate: withholdingTaxRate,
@@ -1120,9 +1054,9 @@ export function CompanyVenueProfilePanel({
         mail: withholdingMailingAddress,
         iae: iaeWaiverUrl,
         artist: artistWaiverUrl,
-      }) !== sectionBaseline.nrw,
+      }) !== extensionsSectionBaseline.nrw,
     [
-      sectionBaseline,
+      extensionsSectionBaseline,
       nonResidentWithholdingId,
       withholdingTaxRate,
       withholdingDmaId,
@@ -1202,25 +1136,33 @@ export function CompanyVenueProfilePanel({
   const refetchAfterSectionSave = (section: NonNullable<SectionSaveKey>) => {
     const inv = (kind: 'venue-profile' | 'venue-details') =>
       qc.invalidateQueries({ queryKey: ['companies', company.id, kind] });
+    /** Venue role saves upsert dbo.Contact + ContactAssignment — same rows as the Contacts tab. */
+    const invCompanyContactsList = () =>
+      qc.invalidateQueries({ queryKey: ['companies', String(company.id), 'contacts'] });
     switch (section) {
       case 'core':
         return Promise.all([
           inv('venue-profile'),
-          inv('venue-details'),
           qc.invalidateQueries({ queryKey: allVenuesQueryKey }),
         ]);
       case 'loadDock':
         return inv('venue-profile');
       case 'finance':
       case 'marketing':
-        return inv('venue-details');
+        return Promise.all([inv('venue-details'), invCompanyContactsList()]);
       case 'technical':
       case 'ticketing':
       case 'booking':
+        return Promise.all([
+          inv('venue-profile'),
+          inv('venue-details'),
+          invCompanyContactsList(),
+        ]);
       case 'amusement':
         return Promise.all([inv('venue-profile'), inv('venue-details')]);
       case 'nrw':
-        return inv('venue-details');
+        /** Venue.NonResidentWithholdingID lives on dbo.Venue; profile cache should refresh too. */
+        return Promise.all([inv('venue-details'), inv('venue-profile')]);
     }
   };
 
@@ -1299,7 +1241,7 @@ export function CompanyVenueProfilePanel({
     }
     setSavingKey('loadDock');
     try {
-      await updateVenueDetails(companyId, { venueProfile: { loadDockAddress: value } });
+      await updateVenueProfile(companyId, { loadDockAddress: value });
       await refetchAfterSectionSave('loadDock');
       addToast('Load-in dock address saved.', 'success');
     } catch (e) {
@@ -1397,6 +1339,17 @@ export function CompanyVenueProfilePanel({
       addToast(ticketingMgrErr, 'warning');
       return;
     }
+    const ticketingPayloadDirty =
+      !!extensionsSectionBaseline &&
+      JSON.stringify({
+        seat: seatingTypeId || '',
+        m: contactBlocksSignature(ticketingManagerBlocks),
+      }) !== extensionsSectionBaseline.ticketing;
+
+    if (!ticketingPayloadDirty) {
+      return;
+    }
+
     setSavingKey('ticketing');
     try {
       await updateVenueDetails(companyId, {
@@ -1467,9 +1420,8 @@ export function CompanyVenueProfilePanel({
     try {
       await updateVenueDetails(companyId, {
         venueProfile: { taxInCart },
+        /** Replaces dbo.VenueTax; state/city “on tickets” flags on GET are derived from linked tax rows. */
         taxIds: buildTaxIdsPayload(),
-        hasStateTaxOnTickets: draftOnlyFlags.stateTaxOnTickets ? 1 : 0,
-        hasCityTaxOnTickets: draftOnlyFlags.cityTaxOnTickets ? 1 : 0,
       });
       await refetchAfterSectionSave('amusement');
       addToast('Amusement and sales tax settings saved.', 'success');
@@ -1534,7 +1486,7 @@ export function CompanyVenueProfilePanel({
     }
   };
 
-  if (vq.isLoading || detailsQ.isLoading) {
+  if (vq.isLoading) {
     return (
       <div
         className="flex items-center gap-2 text-sm text-text-muted py-4"
@@ -1542,15 +1494,15 @@ export function CompanyVenueProfilePanel({
         aria-live="polite"
       >
         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
-        <span>Loading venue details…</span>
+        <span>Loading venue profile…</span>
       </div>
     );
   }
 
-  if (vq.isError || detailsQ.isError) {
+  if (vq.isError) {
     return (
       <p className="text-sm text-ems-coral">
-        {((vq.error ?? detailsQ.error) as Error).message}
+        {(vq.error as Error).message}
       </p>
     );
   }
@@ -1590,9 +1542,6 @@ export function CompanyVenueProfilePanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField label="Entertainment Complex">
             <div className="space-y-2">
-              <p className="text-[11px] text-text-muted leading-snug">
-                One entertainment complex per venue. Clear the selection for a standalone venue.
-              </p>
               <Select2
                 className="w-full"
                 allowClear
@@ -1687,23 +1636,6 @@ export function CompanyVenueProfilePanel({
               placeholder="Select type…"
               allowClear
             />
-          </FormField>
-          <FormField label="Management company">
-            <Select2
-              options={[
-                { value: '', label: 'Clear…' },
-                ...(companiesPickerQ.isLoading
-                  ? [{ value: '', label: 'Loading…' }]
-                  : venueMgmtCompanyOptions),
-              ]}
-              value={draftOnly.managementCompany ?? ''}
-              onChange={(v) => setDraftOnlyField('managementCompany', v)}
-              placeholder="Select management company…"
-              allowClear
-            />
-            <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-              Not Stored in Database 
-            </p>
           </FormField>
           <div className="md:col-span-2">
             <FormField label="Insurance language">
@@ -1802,6 +1734,43 @@ export function CompanyVenueProfilePanel({
             Additional Venue Sections
           </h4>
         </div>
+        {!extendedVenueDataEnabled && (
+          <div
+            ref={extendedSectionSentinelRef}
+            className="rounded-lg border border-dashed border-border bg-card/20 p-4 flex flex-wrap items-center justify-between gap-3"
+          >
+            <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+              Finance, marketing, ticketing, taxes, and related fields load on demand so this tab
+              opens faster. Scroll here or use the button to fetch them.
+            </p>
+            <button
+              type="button"
+              onClick={() => setExtendedVenueDataEnabled(true)}
+              className="inline-flex items-center justify-center gap-2 shrink-0 bg-ems-accent text-background text-sm px-4 py-2 rounded-md font-semibold"
+            >
+              Load additional sections
+            </button>
+          </div>
+        )}
+        {extendedVenueDataEnabled && detailsQ.isLoading && (
+          <div
+            className="flex items-center gap-2 text-sm text-text-muted py-6"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+            <span>Loading additional venue data…</span>
+          </div>
+        )}
+        {extendedVenueDataEnabled && detailsQ.isError && (
+          <p className="text-sm text-ems-coral py-2">
+            {(detailsQ.error as Error).message}
+          </p>
+        )}
+        {extendedVenueDataEnabled &&
+          detailsQ.isSuccess &&
+          detailsQ.data &&
+          !detailsQ.data.missing && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <div className="rounded-lg border border-border p-4 space-y-4 xl:col-span-2">
             <h5 className="text-sm font-semibold text-text-primary">Finance Details</h5>
@@ -1817,8 +1786,6 @@ export function CompanyVenueProfilePanel({
               onRemove={(id) =>
                 setFinanceBlocks((p) => (p.length < 2 ? p : p.filter((b) => b.id !== id)))
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setFinanceBlocks, id, v)}
               inputCls={inputCls}
             />
             <VenueRoleContactBlockGroup
@@ -1835,8 +1802,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setSettlementBlocks, id, v)}
               inputCls={inputCls}
             />
             <div className="flex flex-wrap justify-end pt-1">
@@ -1867,8 +1832,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setMarketingBlocks, id, v)}
               inputCls={inputCls}
             />
             <div className="space-y-1.5 pt-1">
@@ -1923,13 +1886,6 @@ export function CompanyVenueProfilePanel({
 
           <div className="rounded-lg border border-border p-4 space-y-4 xl:col-span-2">
             <h5 className="text-sm font-semibold text-text-primary">Technical Details</h5>
-            <FormField label="Venue Technical Rider">
-              <input
-                type="file"
-                className={inputCls}
-                onChange={() => {}}
-              />
-            </FormField>
             <VenueRoleContactBlockGroup
               roleTitle="Technical Director"
               blocks={technicalBlocks}
@@ -1942,8 +1898,6 @@ export function CompanyVenueProfilePanel({
               onRemove={(id) =>
                 setTechnicalBlocks((p) => (p.length < 2 ? p : p.filter((b) => b.id !== id)))
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setTechnicalBlocks, id, v)}
               inputCls={inputCls}
             />
             <VenueRoleContactBlockGroup
@@ -1960,8 +1914,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setStagehandContactBlocks, id, v)}
               inputCls={inputCls}
             />
             <FormField label="Load-in Dock Physical Address">
@@ -1988,40 +1940,6 @@ export function CompanyVenueProfilePanel({
 
           <div className="rounded-lg border border-border p-4 space-y-4 xl:col-span-2">
             <h5 className="text-sm font-semibold text-text-primary">Ticketing</h5>
-            <FormField label="Seating Chart">
-              <input
-                type="file"
-                className={inputCls}
-                onChange={() => {}}
-              />
-            </FormField>
-            <FormField label="Ticketing System">
-              <Select2
-                className="w-full"
-                options={ticketingSystemOptions}
-                value={draftOnly.ticketingSystem ?? ''}
-                onChange={(v) => setDraftOnlyField('ticketingSystem', v)}
-                placeholder="Ticketing System"
-                allowClear
-              />
-              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                Not Stored in Database
-              </p>
-            </FormField>
-            <FormField label="Venue Website">
-              <input
-                className={inputCls}
-                type="url"
-                value={draftOnly.venueWebsite ?? ''}
-                onChange={(e) => setDraftOnlyField('venueWebsite', e.target.value)}
-                placeholder="https://"
-                maxLength={2048}
-                autoComplete="url"
-              />
-              <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                Not Stored in Database
-              </p>
-            </FormField>
             <FormField label="Seating type">
               <Select2
                 options={seatingOptions}
@@ -2045,8 +1963,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setTicketingManagerBlocks, id, v)}
               inputCls={inputCls}
             />
             <div className="flex flex-wrap justify-end pt-1">
@@ -2061,8 +1977,12 @@ export function CompanyVenueProfilePanel({
             </div>
           </div>
 
-          <div className="rounded-lg border border-border p-4 space-y-6 xl:col-span-2">
+          <div className="rounded-lg border border-border p-4 space-y-6 xl:col-span-2 mt-2 sm:mt-4">
             <h5 className="text-sm font-semibold text-text-primary">Booking & Programming</h5>
+            <p className="text-xs text-text-muted -mt-2">
+              Use the save button at the bottom of this card; the control above applies only to
+              Ticketing.
+            </p>
             <VenueRoleContactBlockGroup
               roleTitle="Booking Director"
               blocks={bookingDirectorBlocks}
@@ -2077,8 +1997,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setBookingDirectorBlocks, id, v)}
               inputCls={inputCls}
             />
             <VenueRoleContactBlockGroup
@@ -2095,8 +2013,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setRentalManagerBlocks, id, v)}
               inputCls={inputCls}
             />
             <VenueRoleContactBlockGroup
@@ -2113,8 +2029,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setCalendarManagerBlocks, id, v)}
               inputCls={inputCls}
             />
             <VenueRoleContactBlockGroup
@@ -2131,8 +2045,6 @@ export function CompanyVenueProfilePanel({
                   p.length < 2 ? p : p.filter((b) => b.id !== id),
                 )
               }
-              getOptions={(b) => contactOptionsForBlock(b.contactInfoPick, b.fullName)}
-              onPick={(id, v) => applyBlockContactPick(setContractManagerBlocks, id, v)}
               inputCls={inputCls}
             />
             <div className="max-w-3xl space-y-3 pt-1">
@@ -2173,6 +2085,10 @@ export function CompanyVenueProfilePanel({
 
           <div className="rounded-lg border border-border p-4 space-y-5">
             <h5 className="text-sm font-semibold text-text-primary">Amusement or Sales Taxes</h5>
+            <p className="text-xs text-text-muted -mt-2 max-w-2xl">
+              Shopping-cart tax is stored on the venue; ticket taxes are stored as venue–tax links.
+              Use the state/city toggles and pickers so the correct rows are saved.
+            </p>
             <div className="space-y-4 max-w-2xl">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <p className="text-sm text-text-primary">
@@ -2320,6 +2236,17 @@ export function CompanyVenueProfilePanel({
             <h5 className="text-sm font-semibold text-text-primary">
               Non-Resident Withholding Taxes
             </h5>
+            <p className="text-xs text-text-muted -mt-2 max-w-3xl">
+              Updates the linked withholding record and this venue's link to it. Suggestions list
+              catalog IDs; you can still type another ID.
+            </p>
+            {(nonResidentWithholdings ?? []).length > 0 ? (
+              <datalist id={nonResidentWithholdingIdDatalistId}>
+                {(nonResidentWithholdings ?? []).map((o) => (
+                  <option key={o.withholdingId} value={String(o.withholdingId)} />
+                ))}
+              </datalist>
+            ) : null}
             <div className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] sm:items-center gap-2 sm:gap-4 max-w-3xl">
               <div className="text-sm text-text-primary sm:text-right sm:pr-1">Withholding</div>
               <div className="min-w-0">
@@ -2327,7 +2254,12 @@ export function CompanyVenueProfilePanel({
                   className={inputCls}
                   value={nonResidentWithholdingId}
                   onChange={(e) => setNonResidentWithholdingId(e.target.value.replace(/\D/g, ''))}
-                  placeholder="—"
+                  placeholder="Withholding record ID"
+                  list={
+                    (nonResidentWithholdings ?? []).length > 0
+                      ? nonResidentWithholdingIdDatalistId
+                      : undefined
+                  }
                   inputMode="numeric"
                   maxLength={12}
                   aria-label="Withholding"
@@ -2341,7 +2273,7 @@ export function CompanyVenueProfilePanel({
                   className={inputCls}
                   value={withholdingDmaId}
                   onChange={(e) => setWithholdingDmaId(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="—"
+                  placeholder="DMA / market ID"
                   inputMode="numeric"
                   maxLength={12}
                   aria-label="Market"
@@ -2385,7 +2317,7 @@ export function CompanyVenueProfilePanel({
                   className={inputCls}
                   value={withholdingTaxAgencyCompanyId}
                   onChange={(e) => setWithholdingTaxAgencyCompanyId(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="—"
+                  placeholder="Tax agency company ID"
                   inputMode="numeric"
                   maxLength={12}
                   aria-label="Payable entity"
@@ -2434,7 +2366,9 @@ export function CompanyVenueProfilePanel({
             </div>
           </div>
         </div>
+          )}
       </div>
+
     </div>
   );
 }

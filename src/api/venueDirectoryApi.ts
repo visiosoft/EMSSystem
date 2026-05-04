@@ -24,6 +24,8 @@ export function fetchAllVenues(
     complexCompanyId?: number;
     venueTypeId?: number;
     dmaId?: number;
+    /** Filter to venues in any of these DMA markets (same MarketName family in dbo.DMA). */
+    dmaIds?: number[];
     /** venue | type | dma | capacity | complex */
     sortBy?: string;
     sortDir?: 'asc' | 'desc';
@@ -43,7 +45,9 @@ export function fetchAllVenues(
   if (opts.venueTypeId != null && opts.venueTypeId > 0) {
     params.set('venueTypeId', String(opts.venueTypeId));
   }
-  if (opts.dmaId != null && opts.dmaId > 0) {
+  if (opts.dmaIds != null && opts.dmaIds.length > 0) {
+    params.set('dmaIds', opts.dmaIds.join(','));
+  } else if (opts.dmaId != null && opts.dmaId > 0) {
     params.set('dmaId', String(opts.dmaId));
   }
   if (opts.sortBy?.trim()) {

@@ -34,7 +34,7 @@ export function AddTourForm({
     () => (lockAttractionId != null ? String(lockAttractionId) : ''),
   );
   const [classId, setClassId] = useState('');
-  const [tourManagementCompanyId, setTourManagementCompanyId] = useState('');
+  const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState('');
   const [ascap, setAscap] = useState(false);
   const [bmi, setBmi] = useState(false);
   const [sesac, setSesac] = useState(false);
@@ -125,11 +125,11 @@ export function AddTourForm({
         <FormField label="Tour management company" optional>
           <Select2
             options={talentAgencyOptions}
-            value={tourManagementCompanyId}
+            value={talentAgencyCompanyId}
             placeholder="Select talent agency…"
             allowClear
             onChange={(v) => {
-              setTourManagementCompanyId(v);
+              setTalentAgencyCompanyId(v);
             }}
           />
           {talentAgencyOptions.length === 0 && (
@@ -291,11 +291,11 @@ export function AddTourForm({
                 bmi,
                 sesac,
                 gmr,
-                tourManagementCompanyId:
+                talentAgencyCompanyId:
                   showTourManagement &&
-                  tourManagementCompanyId &&
-                  Number.isFinite(Number(tourManagementCompanyId))
-                    ? Number(tourManagementCompanyId)
+                  talentAgencyCompanyId &&
+                  Number.isFinite(Number(talentAgencyCompanyId))
+                    ? Number(talentAgencyCompanyId)
                     : null,
                 audienceGender: null,
                 audienceAgeRange: null,

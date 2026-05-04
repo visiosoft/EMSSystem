@@ -116,6 +116,12 @@ export interface ApiCompanyContact {
   departmentName: string;
 }
 
+export interface ApiCompanyVenueLinkedContactsSection {
+  venueCompanyId: number;
+  venueCompanyName: string;
+  contacts: ApiCompanyContact[];
+}
+
 export interface ApiEngagementRow {
   engagementId: number;
   engagementStatus: string;
@@ -280,6 +286,9 @@ export const COMPANIES_PICKER_LIMIT = 5000;
 /** Must match dbo.CompanyType.CompanyName for entertainment-complex companies (Companies screen filter). */
 export const ENTERTAINMENT_COMPLEX_COMPANY_TYPE = 'Entertainment Complex';
 
+/** Must match dbo.CompanyType.CompanyName for talent-agency pickers (tours, projects). */
+export const TALENT_AGENCY_COMPANY_TYPE = 'Talent Agency';
+
 export function companiesPickerQueryKey() {
   return ['companies', 'picker', 0, COMPANIES_PICKER_LIMIT] as const;
 }
@@ -305,6 +314,18 @@ export async function fetchEntertainmentComplexCompanyRows(): Promise<
 > {
   const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
     companyType: ENTERTAINMENT_COMPLEX_COMPANY_TYPE,
+  });
+  return res.data ?? [];
+}
+
+export function talentAgencyCompaniesQueryKey() {
+  return ['companies', 'picker', 'talent-agency', 0, COMPANIES_PICKER_LIMIT] as const;
+}
+
+/** Server-filtered list: only companies of type Talent Agency (tour / project management pickers). */
+export async function fetchTalentAgencyCompanyRows(): Promise<ApiCompanyListRow[]> {
+  const res = await fetchCompanies(0, COMPANIES_PICKER_LIMIT, {
+    companyType: TALENT_AGENCY_COMPANY_TYPE,
   });
   return res.data ?? [];
 }
@@ -335,6 +356,12 @@ export function fetchCompanyContacts(companyId: number) {
   return apiFetch<ApiCompanyContact[]>(`/companies/${companyId}/contacts`).then(
     (data) => (Array.isArray(data) ? data : []),
   );
+}
+
+export function fetchCompanyLinkedVenueContacts(companyId: number) {
+  return apiFetch<ApiCompanyVenueLinkedContactsSection[]>(
+    `/companies/${companyId}/contacts/linked-venues`,
+  ).then((data) => (Array.isArray(data) ? data : []));
 }
 
 export function createCompanyContact(

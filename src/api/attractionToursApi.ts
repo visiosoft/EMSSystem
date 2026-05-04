@@ -33,8 +33,8 @@ export interface ApiTourListRow {
   sesac: boolean;
   gmr: boolean;
   tourInsuranceLanguage: string | null;
-  tourManagementCompanyId: number | null;
-  tourManagementCompanyName: string | null;
+  talentAgencyCompanyId: number | null;
+  talentAgencyCompanyName: string | null;
   techRiderLinkId: number | null;
   venueTypePreferenceId: number | null;
   venueTypePreferenceName: string | null;
@@ -59,7 +59,7 @@ export interface CreateTourPayload {
   bmi?: boolean;
   sesac?: boolean;
   gmr?: boolean;
-  tourManagementCompanyId?: number | null;
+  talentAgencyCompanyId?: number | null;
   audienceGender?: string | null;
   audienceAgeRange?: string | null;
   tourInsuranceLanguage?: string | null;
@@ -137,8 +137,8 @@ function buildCreateTourFormData(body: CreateTourPayload): FormData {
   fd.append('bmi', String(Boolean(body.bmi)));
   fd.append('sesac', String(Boolean(body.sesac)));
   fd.append('gmr', String(Boolean(body.gmr)));
-  if (body.tourManagementCompanyId != null && body.tourManagementCompanyId >= 1) {
-    fd.append('tourManagementCompanyId', String(body.tourManagementCompanyId));
+  if (body.talentAgencyCompanyId != null && body.talentAgencyCompanyId >= 1) {
+    fd.append('talentAgencyCompanyId', String(body.talentAgencyCompanyId));
   }
   if (body.audienceGender != null && body.audienceGender !== '') {
     fd.append('audienceGender', body.audienceGender);
@@ -168,7 +168,7 @@ function buildUpdateTourFormData(body: UpdateTourPayload): FormData {
     'bmi',
     'sesac',
     'gmr',
-    'tourManagementCompanyId',
+    'talentAgencyCompanyId',
     'audienceGender',
     'audienceAgeRange',
     'tourInsuranceLanguage',

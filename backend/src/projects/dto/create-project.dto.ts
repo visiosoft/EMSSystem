@@ -1,4 +1,5 @@
 import {
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsInt,
@@ -38,7 +39,7 @@ export class CreatePerformanceOptionDto {
   proposedTime?: string | null;
 
   @IsString()
-  @IsIn(OPTION_STATUS_VALUES as unknown as string[])
+  @MaxLength(50)
   optionStatus: string;
 }
 
@@ -76,6 +77,15 @@ export class CreateProjectDto {
   @IsIn([...PROJECT_STAGE_VALUES])
   projectStage: string;
 
+  /**
+   * Talent agency for this project — must match the tour when the tour already has
+   * `TalentAgencyCompanyID` set. On create, persisted to `dbo.Tour.TalentAgencyCompanyID`.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  talentAgencyCompanyId: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -87,12 +97,13 @@ export class CreateProjectDto {
   @Type(() => CreateProjectVenueDto)
   venues?: CreateProjectVenueDto[];
 
-  /** Optional list of dbo.DMA.DMAID values — accepted for API parity; not persisted until a DB column exists. */
-  @IsOptional()
+  /** Selected markets — persisted in dbo.EngagementProjectDMA (at least one required). */
   @IsArray()
+  @ArrayMinSize(1)
   @Type(() => Number)
   @IsInt({ each: true })
-  dmaIds?: number[];
+  @Min(1, { each: true })
+  dmaIds: number[];
 
   // Frontend-only fields — accepted and silently ignored (Option A per §5.8)
   @IsOptional() name?: string | null;

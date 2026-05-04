@@ -131,17 +131,16 @@ export class LookupsService {
   }
 
   /**
-   * One row per (MarketName, PostalCode): duplicate DMA rows are collapsed using MIN(DMAID).
-   * Raw table can repeat the same label with different DMAIDs; pickers must not list repeats.
+   * One row per MarketName: all postal variants for a market collapse to MIN(DMAID) and a sample postal.
+   * Pickers show a single entry per market (e.g. one "ABILENE-SWEETWATER" row).
    */
   private buildDmaMarketsGroupedSubquery(query: string) {
     const qb = this.dmaRepo
       .createQueryBuilder('d')
       .select('MIN(d.dmaid)', 'dmaid')
       .addSelect('d.marketName', 'marketName')
-      .addSelect('d.postalCode', 'postalCode')
-      .groupBy('d.marketName')
-      .addGroupBy('d.postalCode');
+      .addSelect('MIN(d.postalCode)', 'postalCode')
+      .groupBy('d.marketName');
 
     const trimmed = query.trim();
     if (!trimmed) return qb;
@@ -191,7 +190,7 @@ export class LookupsService {
   }
 
   /**
-   * All logical DMA markets (one per name + postal), MIN(DMAID) per group.
+   * All logical DMA markets (one per market name), MIN(DMAID) per group.
    */
   async findDmaMarkets(): Promise<
     { dmaid: number; marketName: string; postalCode: string }[]

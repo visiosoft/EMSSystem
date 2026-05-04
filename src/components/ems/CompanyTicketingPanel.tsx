@@ -103,7 +103,7 @@ export function CompanyTicketingPanel({
           <div>
             <span className={labelCls}>Ticketing system</span>
             <p className="text-[11px] text-amber-700 dark:text-amber-400 block mb-2">
-              Not Stored in Database
+              Not Stored In Database
             </p>
             <Select2
               options={toOptions([...TICKETING_SYSTEM_OPTIONS])}
@@ -147,7 +147,7 @@ export function CompanyTicketingPanel({
           <div className="md:col-span-2">
             <span className={labelCls}>Venue website</span>
             <p className="text-[11px] text-amber-700 dark:text-amber-400 block mb-2">
-              Not Stored in Database
+              Not Stored In Database
             </p>
             <input
               className={inputCls}

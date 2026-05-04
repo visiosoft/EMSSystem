@@ -35,6 +35,7 @@ import {
   fetchCompanies,
   fetchCompany,
   fetchCompanyContacts,
+  fetchCompanyLinkedVenueContacts,
   fetchCompanyEngagements,
   fetchDmaByPostal,
   fetchLookups,
@@ -44,6 +45,7 @@ import {
   type ApiDepartment,
   type ApiRole,
   type ApiSeatingType,
+  type ApiCompanyVenueLinkedContactsSection,
   type ApiBrand,
   type ApiTax,
   type ApiServiceProvided,
@@ -971,6 +973,14 @@ function EngagementsTab({ companyId }: { companyId: string }) {
   );
 }
 
+/** Legacy ContactInfo rows used an em dash as a NOT NULL placeholder for an empty name part. */
+function cleanContactNamePart(s: string | null | undefined): string {
+  const t = String(s ?? '').trim();
+  if (!t) return '';
+  if (/^[—–\u2013\u2014\-−\s]+$/u.test(t)) return '';
+  return t;
+}
+
 function mapContactRow(
   row: {
     contactAssignmentId: number;
@@ -987,13 +997,15 @@ function mapContactRow(
   },
   companyId: string,
 ): Contact {
+  const firstName = cleanContactNamePart(row.firstName);
+  const lastName = cleanContactNamePart(row.lastName);
   return {
     id: `ca-${row.contactAssignmentId}`,
     contactAssignmentId: row.contactAssignmentId,
     contactId: row.contactId,
     companyId,
-    firstName: row.firstName,
-    lastName: row.lastName,
+    firstName,
+    lastName,
     roles: (() => {
       const t = String(row.roleName ?? '').trim();
       return t.length > 0 ? [t] : [];
@@ -1035,12 +1047,32 @@ function ContactFormDb({
   const [firstName, setFirstName] = useState(initial?.firstName || '');
   const [lastName, setLastName] = useState(initial?.lastName || '');
   const [email, setEmail] = useState(initial?.email || '');
-  const [workPhoneCountry, setWorkPhoneCountry] =
-    useState<PhoneCountrySelection>('');
-  const [workPhoneDisplay, setWorkPhoneDisplay] = useState('');
-  const [cellPhoneCountry, setCellPhoneCountry] =
-    useState<PhoneCountrySelection>('');
-  const [cellPhoneDisplay, setCellPhoneDisplay] = useState('');
+  const [workPhoneCountry, setWorkPhoneCountry] = useState<PhoneCountrySelection>(() => {
+    const workRaw = initial?.workPhone ?? initial?.phone;
+    const w = parsePhoneFieldValue(workRaw || undefined, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
+    return (w.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
+  });
+  const [workPhoneDisplay, setWorkPhoneDisplay] = useState(() => {
+    const workRaw = initial?.workPhone ?? initial?.phone;
+    const w = parsePhoneFieldValue(workRaw || undefined, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
+    return w.display;
+  });
+  const [cellPhoneCountry, setCellPhoneCountry] = useState<PhoneCountrySelection>(() => {
+    const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
+    return (c.country || DEFAULT_PHONE_COUNTRY) as PhoneCountrySelection;
+  });
+  const [cellPhoneDisplay, setCellPhoneDisplay] = useState(() => {
+    const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
+      noCountryWhenEmpty: true,
+    });
+    return c.display;
+  });
   const [workPhoneError, setWorkPhoneError] = useState<string | undefined>();
   const [cellPhoneError, setCellPhoneError] = useState<string | undefined>();
   const [roleId, setRoleId] = useState(
@@ -1072,12 +1104,12 @@ function ContactFormDb({
         noCountryWhenEmpty: true,
       },
     );
-    setWorkPhoneCountry(w.country);
+    setWorkPhoneCountry(w.country || DEFAULT_PHONE_COUNTRY);
     setWorkPhoneDisplay(w.display);
     const c = parsePhoneFieldValue(initial?.cellPhone, DEFAULT_PHONE_COUNTRY, {
       noCountryWhenEmpty: true,
     });
-    setCellPhoneCountry(c.country);
+    setCellPhoneCountry(c.country || DEFAULT_PHONE_COUNTRY);
     setCellPhoneDisplay(c.display);
     setRoleId(initial?.roleId != null ? String(initial.roleId) : '');
     setDepartmentId(
@@ -2220,6 +2252,13 @@ export function CompaniesPage({ addToast }: Props) {
       .slice(0, 8);
   }, [searchInput, searchSuggestionsQuery.data]);
 
+  const searchSuggestPanelOpen =
+    showSuggestions &&
+    searchInput.trim().length >= 1 &&
+    (searchSuggestionsQuery.isFetching ||
+      searchSuggestions.length > 0 ||
+      searchSuggestionsQuery.isFetched);
+
   const commitSearch = useCallback(() => {
     setActiveSearch(searchInput.trim());
     setShowSuggestions(false);
@@ -2292,6 +2331,8 @@ export function CompaniesPage({ addToast }: Props) {
 
   const isVenueCompany =
     selectedCompany?.type?.trim().toLowerCase() === 'venue';
+  const isEntertainmentComplexCompany =
+    selectedCompany?.type?.trim().toLowerCase() === 'entertainment complex';
 
   const drawerTabs = useMemo(() => {
     const base: string[] = ['Overview', 'Contacts', 'Engagements', 'Documents'];
@@ -2316,6 +2357,27 @@ export function CompaniesPage({ addToast }: Props) {
   });
 
   const companyContacts: Contact[] = Array.isArray(contactsQuery.data) ? contactsQuery.data : [];
+  const linkedVenueContactsQuery = useQuery({
+    queryKey: ['companies', selectedCompanyId, 'contacts', 'linked-venues'],
+    queryFn: async () => {
+      const id = Number(selectedCompanyId);
+      const sections = await fetchCompanyLinkedVenueContacts(id);
+      const safe: ApiCompanyVenueLinkedContactsSection[] = Array.isArray(sections) ? sections : [];
+      return safe.map((section) => ({
+        ...section,
+        contacts: (section.contacts ?? []).map((r) =>
+          mapContactRow(r, String(section.venueCompanyId)),
+        ),
+      }));
+    },
+    enabled:
+      !!selectedCompanyId &&
+      drawerTab === 'Contacts' &&
+      isEntertainmentComplexCompany,
+  });
+  const linkedVenueContactSections = Array.isArray(linkedVenueContactsQuery.data)
+    ? linkedVenueContactsQuery.data
+    : [];
 
   useEffect(() => {
     setPage(1);
@@ -2330,6 +2392,10 @@ export function CompaniesPage({ addToast }: Props) {
   const isLoadingCompanies =
     companiesListQuery.isPending ||
     (companiesListQuery.isFetching && !companiesListQuery.data);
+
+  /** `placeholderData` keeps prior rows visible during key change — overlay while new page loads. */
+  const showCompaniesTableRefetchLoader =
+    companiesListQuery.isFetching && companiesListQuery.isPlaceholderData;
 
   const deleteMut = useMutation({
     mutationFn: async (id: number) => deleteCompany(id),
@@ -2574,28 +2640,57 @@ export function CompaniesPage({ addToast }: Props) {
               </svg>
             </button>
           </div>
-              {showSuggestions && searchSuggestions.length > 0 && (
+          {searchSuggestPanelOpen ? (
             <div
               className="absolute z-50 top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg overflow-hidden"
               onMouseDown={(e) => e.preventDefault()}
+              aria-busy={searchSuggestionsQuery.isFetching}
             >
-              {searchSuggestions.map((suggestion, i) => (
-                <button
-                  key={`${i}-${suggestion}`}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setSearchInput(suggestion);
-                    setActiveSearch(suggestion);
-                    setShowSuggestions(false);
-                  }}
+              {searchSuggestionsQuery.isError ? (
+                <div className="px-3 py-2 text-sm text-ems-coral" role="alert">
+                  Could not load suggestions. Try again in a moment.
+                </div>
+              ) : null}
+              {!searchSuggestionsQuery.isError && searchSuggestionsQuery.isFetching ? (
+                <div
+                  className="flex items-center gap-2 px-3 py-2.5 text-sm text-text-muted"
+                  role="status"
+                  aria-live="polite"
                 >
-                  {suggestion}
-                </button>
-              ))}
+                  <Loader2
+                    className="h-4 w-4 shrink-0 animate-spin text-ems-accent"
+                    aria-hidden
+                  />
+                  <span>Searching…</span>
+                </div>
+              ) : null}
+              {!searchSuggestionsQuery.isError &&
+              !searchSuggestionsQuery.isFetching &&
+              searchSuggestions.length > 0
+                ? searchSuggestions.map((suggestion, i) => (
+                    <button
+                      key={`${i}-${suggestion}`}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setSearchInput(suggestion);
+                        setActiveSearch(suggestion);
+                        setShowSuggestions(false);
+                      }}
+                    >
+                      {suggestion}
+                    </button>
+                  ))
+                : null}
+              {!searchSuggestionsQuery.isError &&
+              !searchSuggestionsQuery.isFetching &&
+              searchSuggestionsQuery.isFetched &&
+              searchSuggestions.length === 0 ? (
+                <div className="px-3 py-2.5 text-sm text-text-muted">No matching companies</div>
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
         <div className="w-full sm:w-80 lg:w-96">
           <Select2
@@ -2612,7 +2707,7 @@ export function CompaniesPage({ addToast }: Props) {
         <CompaniesTableSkeleton rows={isAllPageSize(pageSize) ? PAGE_SIZE : pageSize} />
       ) : (
         <>
-          <div className="bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
+          <div className="relative bg-card border border-border rounded-lg overflow-x-auto overflow-y-clip">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="text-text-muted text-xs border-b border-border bg-surface">
@@ -2685,6 +2780,21 @@ export function CompaniesPage({ addToast }: Props) {
                 ))}
               </tbody>
             </table>
+            {showCompaniesTableRefetchLoader ? (
+              <div
+                className="absolute inset-0 z-10 flex items-start justify-center bg-background/60 pt-14 sm:pt-20 backdrop-blur-[0.5px]"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <div className="inline-flex items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-2.5 shadow-lg text-sm text-text-secondary">
+                  <Loader2
+                    className="h-5 w-5 shrink-0 animate-spin text-ems-accent"
+                    aria-hidden
+                  />
+                  <span>Loading companies…</span>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {serverTotal > 0 && (
@@ -2909,6 +3019,81 @@ export function CompaniesPage({ addToast }: Props) {
                     ))}
                   </tbody>
                 </table>
+                {isEntertainmentComplexCompany && (
+                  <div className="pt-3 border-t border-border/60 space-y-3">
+                    <h4 className="text-sm font-medium text-text-primary">
+                      Venue Contacts (Linked to this Entertainment Complex)
+                    </h4>
+                    {linkedVenueContactsQuery.isLoading && (
+                      <div
+                        className="flex items-center gap-2 text-sm text-text-muted py-1"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-ems-accent" aria-hidden />
+                        <span>Loading linked venue contacts…</span>
+                      </div>
+                    )}
+                    {linkedVenueContactsQuery.isError && (
+                      <p className="text-sm text-ems-coral">
+                        {(linkedVenueContactsQuery.error as Error).message}
+                      </p>
+                    )}
+                    {!linkedVenueContactsQuery.isLoading && !linkedVenueContactsQuery.isError && linkedVenueContactSections.length === 0 && (
+                      <p className="text-sm text-text-muted">
+                        No linked venue contacts found.
+                      </p>
+                    )}
+                    {linkedVenueContactSections.map((section) => (
+                      <div key={section.venueCompanyId} className="rounded-md border border-border bg-surface overflow-hidden">
+                        <div className="px-3 py-2 border-b border-border bg-elevated/40 text-xs font-medium text-text-secondary">
+                          {section.venueCompanyName}
+                        </div>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-text-muted text-xs border-b border-border/60">
+                              <th className="text-left py-2 px-3">Name</th>
+                              <th className="text-left py-2 px-3">Roles</th>
+                              <th className="text-left py-2 px-3">Email</th>
+                              <th className="text-left py-2 px-3">Phone</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {section.contacts.map((ct) => (
+                              <tr key={ct.id} className="border-b border-border/50 last:border-b-0">
+                                <td className="py-2 px-3 text-text-primary">
+                                  {ct.firstName} {ct.lastName}
+                                </td>
+                                <td className="py-2 px-3">
+                                  {(() => {
+                                    const fromRoles = (ct.roles ?? []).map((s) => String(s).trim()).filter(Boolean);
+                                    const labels =
+                                      fromRoles.length > 0
+                                        ? fromRoles
+                                        : (ct.departmentName?.trim() ? [ct.departmentName.trim()] : []);
+                                    if (labels.length === 0) return <span className="text-text-muted">—</span>;
+                                    return labels.map((r, i) => (
+                                      <span
+                                        key={`${r}-${i}`}
+                                        className="text-xs bg-elevated px-1 py-0.5 rounded text-text-secondary mr-1"
+                                      >
+                                        {r}
+                                      </span>
+                                    ));
+                                  })()}
+                                </td>
+                                <td className="py-2 px-3 text-ems-blue text-xs">{ct.workEmail || ct.email}</td>
+                                <td className="py-2 px-3 text-text-secondary text-xs">
+                                  {formatE164ForDisplay(ct.workPhone || ct.phone) || '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

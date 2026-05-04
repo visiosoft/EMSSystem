@@ -1,6 +1,6 @@
-/** Client-confirmed allowed values for `dbo.EngagementProject.ProjectStage`. */
+/** Allowed values for `dbo.EngagementProject.ProjectStage` (aligned with DB CHECK). */
 export const PROJECT_STAGE_VALUES = [
-  'Confirmed',
+  'Under Construction',
   'Pending',
   'Inactive',
 ] as const;

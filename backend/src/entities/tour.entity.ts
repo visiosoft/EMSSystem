@@ -61,12 +61,13 @@ export class Tour {
   @JoinColumn({ name: 'AttractionID' })
   attraction: Attraction;
 
-  @Column({ name: 'TourManagementCompanyID', type: 'int', nullable: true })
-  tourManagementCompanyId: number | null;
+  /** Same pattern as AttractionID: scalar column + relation so INSERT/UPDATE persist the FK. */
+  @Column({ name: 'TalentAgencyCompanyID', type: 'int', nullable: true })
+  talentAgencyCompanyId: number | null;
 
   @ManyToOne(() => Company, { nullable: true })
-  @JoinColumn({ name: 'TourManagementCompanyID' })
-  tourManagementCompany: Company | null;
+  @JoinColumn({ name: 'TalentAgencyCompanyID' })
+  talentAgencyCompany: Company | null;
 
   @Column({ name: 'ClassID', type: 'int' })
   classId: number;
