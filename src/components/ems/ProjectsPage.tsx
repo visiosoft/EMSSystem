@@ -376,7 +376,7 @@ function ProjectInlineOverview({
     );
     setDirty(true);
   };
-
+// change
   const selectedTour = tourBelongsToAttraction
     ? tours.find((t) => t.tourId === tourId)
     : undefined;
