@@ -80,8 +80,7 @@ export class TourService {
     const typeName = co.companyType?.companyTypeName?.trim().toLowerCase() ?? '';
     if (typeName !== 'talent agency') {
       throw new BadRequestException({
-        message:
-          'Tour management company must be a company of type Talent Agency.',
+        message: 'Talent agency must be a company of type Talent Agency.',
       });
     }
   }
@@ -304,11 +303,10 @@ export class TourService {
     }
     await this.assertUniqueTourName(tourName);
 
-    let talentAgencyCompanyId: number | null = null;
-    if (dto.talentAgencyCompanyId != null && dto.talentAgencyCompanyId >= 1) {
-      await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
-      talentAgencyCompanyId = dto.talentAgencyCompanyId;
+    if (dto.talentAgencyCompanyId == null || dto.talentAgencyCompanyId < 1) {
+      throw new BadRequestException('Talent agency is required when creating a tour.');
     }
+    await this.assertTalentAgencyCompany(dto.talentAgencyCompanyId);
     const tourStartDate = this.normalizeTourDateInput(dto.tourStartDate);
     const tourEndDate = this.normalizeTourDateInput(dto.tourEndDate);
     this.assertTourDateRange(tourStartDate, tourEndDate);
@@ -327,7 +325,7 @@ export class TourService {
       techRiderLinkId: null,
       venueTypePreferenceId: null,
       bannerLinkId: null,
-      talentAgencyCompanyId,
+      talentAgencyCompanyId: dto.talentAgencyCompanyId,
       tourStartDate,
       tourEndDate,
     });

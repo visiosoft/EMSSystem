@@ -8,7 +8,6 @@ import {
   IsString,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 
 export class CreateTourDto {
@@ -67,17 +66,15 @@ export class CreateTourDto {
   @IsBoolean()
   gmr?: boolean;
 
-  /** Multipart sends numbers as strings — coerce like UpdateTourDto. */
-  @IsOptional()
+  /** Required on create; multipart sends numbers as strings. */
   @Transform(({ value }) => {
-    if (value === undefined || value === '' || value === null) return undefined;
+    if (value === undefined || value === '' || value === null) return value;
     const n = Number(value);
-    return Number.isFinite(n) && n >= 1 ? n : undefined;
+    return Number.isFinite(n) ? n : value;
   })
-  @ValidateIf((_, v) => v != null)
   @IsInt()
   @Min(1)
-  talentAgencyCompanyId?: number;
+  talentAgencyCompanyId: number;
 
   @IsOptional()
   @IsISO8601()

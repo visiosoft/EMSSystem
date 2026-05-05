@@ -21,7 +21,7 @@ export function AddTourForm({
   variant: AddTourFormVariant;
   attractions: ApiAttractionListRow[];
   classes: ApiClass[];
-  /** Talent agencies only — required data when `variant` is `project-wizard`. */
+  /** Talent agencies only — required for creating a tour. */
   managementCompanyOptions?: { value: string; label: string }[];
   submitting: boolean;
   onSave: (body: CreateTourPayload, bannerFile?: File | null) => void;
@@ -46,6 +46,7 @@ export function AddTourForm({
     name?: string;
     attractionId?: string;
     classId?: string;
+    talentAgencyCompanyId?: string;
   }>({});
 
   useEffect(() => {
@@ -73,9 +74,11 @@ export function AddTourForm({
   const lockedAttraction =
     lockAttractionId != null ? attractions.find((a) => a.attractionId === lockAttractionId) : null;
 
-  const showTourManagement = variant === 'project-wizard';
   const showBannerUpload = variant === 'attraction-tours';
   const talentAgencyOptions = managementCompanyOptions ?? [];
+  const talentAgencyFieldLabel = variant === 'project-wizard' ? 'Talent Agent' : 'Talent Agency';
+  const talentAgencyPlaceholder =
+    variant === 'project-wizard' ? 'Select talent agent…' : 'Select talent agency…';
 
   return (
     <div className="space-y-4">
@@ -121,25 +124,27 @@ export function AddTourForm({
           }}
         />
       </FormField>
-      {showTourManagement && (
-        <FormField label="Tour management company" optional>
-          <Select2
-            options={talentAgencyOptions}
-            value={talentAgencyCompanyId}
-            placeholder="Select talent agency…"
-            allowClear
-            onChange={(v) => {
-              setTalentAgencyCompanyId(v);
-            }}
-          />
-          {talentAgencyOptions.length === 0 && (
-            <p className="text-[11px] text-text-muted mt-1">
-              No companies with type{' '}
-              <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
-            </p>
-          )}
-        </FormField>
-      )}
+      <FormField label={talentAgencyFieldLabel} required error={fieldErrors.talentAgencyCompanyId}>
+        <Select2
+          options={talentAgencyOptions}
+          value={talentAgencyCompanyId}
+          placeholder={talentAgencyPlaceholder}
+          onChange={(v) => {
+            setTalentAgencyCompanyId(v);
+            setFieldErrors((e) => {
+              const n = { ...e };
+              delete n.talentAgencyCompanyId;
+              return n;
+            });
+          }}
+        />
+        {talentAgencyOptions.length === 0 && (
+          <p className="text-[11px] text-text-muted mt-1">
+            No companies with type{' '}
+            <span className="font-medium text-text-secondary">Talent Agency</span> are loaded yet.
+          </p>
+        )}
+      </FormField>
       <FormField label="Tour Name" required error={fieldErrors.name}>
         <input
           className={inputCls}
@@ -277,6 +282,14 @@ export function AddTourForm({
             if (!classId || !Number.isFinite(c) || c < 1) {
               next.classId = 'Class (genre) is required.';
             }
+            const talentAgency = Number(talentAgencyCompanyId);
+            if (
+              !talentAgencyCompanyId ||
+              !Number.isFinite(talentAgency) ||
+              talentAgency < 1
+            ) {
+              next.talentAgencyCompanyId = `${talentAgencyFieldLabel} is required.`;
+            }
             if (Object.keys(next).length) {
               setFieldErrors(next);
               return;
@@ -291,12 +304,7 @@ export function AddTourForm({
                 bmi,
                 sesac,
                 gmr,
-                talentAgencyCompanyId:
-                  showTourManagement &&
-                  talentAgencyCompanyId &&
-                  Number.isFinite(Number(talentAgencyCompanyId))
-                    ? Number(talentAgencyCompanyId)
-                    : null,
+                talentAgencyCompanyId: Number(talentAgencyCompanyId),
                 audienceGender: null,
                 audienceAgeRange: null,
                 tourInsuranceLanguage: null,

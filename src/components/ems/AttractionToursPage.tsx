@@ -2356,6 +2356,7 @@ export function AttractionToursPage({ addToast }: Props) {
             variant="attraction-tours"
             attractions={attractionsForPicker}
             classes={classes}
+            managementCompanyOptions={managementCompanyOptions}
             submitting={createTourMut.isPending}
             onCancel={() => setShowAddTour(false)}
             onSave={(body, bannerFile) =>

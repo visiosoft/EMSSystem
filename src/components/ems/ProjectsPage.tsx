@@ -1575,10 +1575,9 @@ const WIZARD_STEPS = [
   { num: 2, label: 'Tour' },
   { num: 3, label: 'Date Range' },
   { num: 4, label: 'Preferred Type' },
-  { num: 5, label: 'Talent' },
-  { num: 6, label: 'Markets' },
-  { num: 7, label: 'Venues' },
-  { num: 8, label: 'Summary' },
+  { num: 5, label: 'Markets' },
+  { num: 6, label: 'Venues' },
+  { num: 7, label: 'Summary' },
 ] as const;
 
 const WIZARD_LAST = WIZARD_STEPS.length;
@@ -1677,7 +1676,7 @@ function CreateProjectForm({
     queryKey: ['dma-markets', 'project-wizard', 'all'],
     queryFn: () => fetchDmaMarketsPaged(0, projectWizardLookupLimit),
     staleTime: 60_000,
-    enabled: step >= 6,
+    enabled: step >= 5,
   });
 
   const [attractionSearch, setAttractionSearch] = useState('');
@@ -1710,7 +1709,7 @@ function CreateProjectForm({
     queryKey: ['projects', 'meta', 'venue-statuses'],
     queryFn: fetchVenueStatusMeta,
     staleTime: 60_000,
-    enabled: step >= 7,
+    enabled: step >= 6,
   });
   const venuesWizardQuery = useQuery({
     queryKey: ['venue-directory', 'project-wizard-venues', selectedDmaIdsKey],
@@ -1721,7 +1720,7 @@ function CreateProjectForm({
           sortDir: 'asc',
         })
       ).data,
-    enabled: selectedDmaIds.length > 0 && step >= 7 && step <= 8,
+    enabled: selectedDmaIds.length > 0 && step >= 6 && step <= 7,
     staleTime: 60_000,
   });
 
@@ -1734,7 +1733,7 @@ function CreateProjectForm({
     queryKey: ['company', projectTourMgmtCompanyId ?? 0, 'contacts', 'talent-agent-role'],
     queryFn: () =>
       fetchCompanyContacts(projectTourMgmtCompanyId as number, { roleName: 'Talent Agent' }),
-    enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 5,
+    enabled: projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1 && step >= 2,
     staleTime: 60_000,
   });
 
@@ -1955,30 +1954,11 @@ function CreateProjectForm({
       ? attractions.find((a) => a.attractionId === selectedAttractionId)
       : null;
 
-  const tourTalentAgencyLocked = Boolean(
-    selectedTour != null &&
-      selectedTour.talentAgencyCompanyId != null &&
-      selectedTour.talentAgencyCompanyId >= 1,
-  );
-
-  const tourMgmtStepOptions = useMemo(() => {
-    if (tourTalentAgencyLocked && selectedTour) {
-      const id = String(selectedTour.talentAgencyCompanyId);
-      const label =
-        selectedTour.talentAgencyCompanyName?.trim() ||
-        managementCompanyOptions.find((o) => o.value === id)?.label ||
-        `Company #${id}`;
-      return [{ value: id, label }];
-    }
-    return managementCompanyOptions;
-  }, [tourTalentAgencyLocked, selectedTour, managementCompanyOptions]);
-
-  const tourMgmtSelectDisabled =
-    tourTalentAgencyLocked ||
-    (!tourTalentAgencyLocked && managementCompanyOptions.length === 0);
-
   const canProceedStep1 = selectedAttractionId != null;
-  const canProceedStep2 = selectedTourId != null;
+  const canProceedStep2 =
+    selectedTourId != null &&
+    projectTourMgmtCompanyId != null &&
+    projectTourMgmtCompanyId >= 1;
   const canProceedDateRange =
     dateRangeStart.trim().length > 0 &&
     dateRangeEnd.trim().length > 0 &&
@@ -2000,23 +1980,23 @@ function CreateProjectForm({
 
   const handleBack = () => setStep((s) => Math.max(1, s - 1));
   const handleNext = () => {
+    if (step === 2 && !canProceedStep2) {
+      addToast('Choose a tour with a Talent Agency to continue.', 'warning');
+      return;
+    }
     if (step === 3 && !canProceedDateRange) {
       addToast('Choose a valid start and end date range.', 'warning');
       return;
     }
-    if (step === 5 && !canProceedTourMgmt) {
-      addToast('Select a Talent Agency for this project.', 'warning');
-      return;
-    }
-    if (step === 6 && !canProceedMarkets) {
+    if (step === 5 && !canProceedMarkets) {
       addToast('Select at least one market (DMA). Your choices are saved on the project.', 'warning');
       return;
     }
-    if (step === 7 && !canProceedVenues) {
+    if (step === 6 && !canProceedVenues) {
       addToast('Select at least one venue in the selected markets.', 'warning');
       return;
     }
-    if (step === 7 && !canProceedVenueStatusStep) {
+    if (step === 6 && !canProceedVenueStatusStep) {
       addToast('Select a venue proposal status for all selected venues.', 'warning');
       return;
     }
@@ -2066,7 +2046,7 @@ function CreateProjectForm({
   const handleSubmit = async () => {
     if (!selectedTourId) return;
     if (projectTourMgmtCompanyId == null || projectTourMgmtCompanyId < 1) {
-      addToast('Select a Talent Agency on the Talent step.', 'error');
+      addToast('Select a tour that has a Talent Agency.', 'error');
       return;
     }
     if (selectedDmaIds.length === 0) {
@@ -2247,6 +2227,44 @@ function CreateProjectForm({
               </button>
             ))}
           </div>
+          <div className="rounded-lg border border-border bg-surface p-3 space-y-3">
+            <p className="text-xs font-medium text-text-secondary">Talent info for selected tour</p>
+            {selectedTourId == null ? (
+              <p className="text-xs text-text-muted">Select a tour to see Talent Agency and Talent Agents.</p>
+            ) : projectTourMgmtCompanyId == null ? (
+              <div className="rounded-md border border-ems-coral/40 bg-ems-coral/10 px-3 py-2 text-xs text-text-primary">
+                This tour has no Talent Agency. Add one on the tour and then continue.
+              </div>
+            ) : (
+              <>
+                <FormField label="Talent Agency">
+                  <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
+                    {selectedTour?.talentAgencyCompanyName?.trim() || `Company #${projectTourMgmtCompanyId}`}
+                  </div>
+                </FormField>
+                <FormField label="Talent Agents (info only)">
+                  <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
+                    {talentAgentContactsQuery.isPending
+                      ? 'Loading contacts…'
+                      : talentAgentOptions.length > 0
+                        ? (
+                          <div className="flex flex-wrap gap-2">
+                            {talentAgentOptions.map((o) => (
+                              <span
+                                key={o.value}
+                                className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                              >
+                                {o.label}
+                              </span>
+                            ))}
+                          </div>
+                        )
+                        : 'No talent agents found for this agency'}
+                  </div>
+                </FormField>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -2392,66 +2410,8 @@ function CreateProjectForm({
         </div>
       )}
 
+      {/* Step 5: Select Markets — dbo.DMA */}
       {step === 5 && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-text-primary">Talent Agency & Talent Agents</h3>
-          <p className="text-xs text-text-muted">
-            {tourTalentAgencyLocked
-              ? 'This tour already has a talent agency on file. It is shown below and cannot be changed from this wizard.'
-              : 'Select the talent agency for this tour. It is saved on the tour when you create the project.'}
-          </p>
-          <FormField label="Talent Agency">
-            <Select2
-              options={tourMgmtStepOptions}
-              value={projectTourMgmtCompanyId != null ? String(projectTourMgmtCompanyId) : ''}
-              onChange={(v) => setProjectTourMgmtCompanyId(v ? Number(v) : null)}
-              placeholder={
-                tourMgmtStepOptions.length === 0
-                  ? 'No talent agencies in directory'
-                  : 'Select a company…'
-              }
-              disabled={tourMgmtSelectDisabled}
-            />
-          </FormField>
-          <FormField label="Talent Agents (info only)">
-            <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
-              {projectTourMgmtCompanyId == null
-                ? 'Select a Talent Agency first…'
-                : talentAgentContactsQuery.isPending
-                  ? 'Loading contacts…'
-                  : talentAgentOptions.length > 0
-                    ? (
-                      <div className="flex flex-wrap gap-2">
-                        {talentAgentOptions.map((o) => (
-                          <span
-                            key={o.value}
-                            className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
-                          >
-                            {o.label}
-                          </span>
-                        ))}
-                      </div>
-                    )
-                    : 'No talent agents found for this agency'}
-            </div>
-          </FormField>
-          {projectTourMgmtCompanyId != null &&
-            !talentAgentContactsQuery.isPending &&
-            talentAgentOptions.length === 0 && (
-              <p className="text-xs text-ems-coral">
-                No contacts found for this Talent Agency. Add a contact under Companies before creating this project.
-              </p>
-            )}
-          {!tourTalentAgencyLocked && managementCompanyOptions.length === 0 && (
-            <p className="text-xs text-ems-coral">
-              No companies with type &quot;Talent Agency&quot; were returned. Add one under Companies, then reopen this wizard.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Step 4: Select Markets — dbo.DMA */}
-      {step === 6 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Select Markets (DMAs)</h3>
           <p className="text-xs text-text-muted">
@@ -2516,8 +2476,8 @@ function CreateProjectForm({
         </div>
       )}
 
-      {/* Step 5: Venues in selected markets */}
-      {step === 7 && (
+      {/* Step 6: Venues in selected markets */}
+      {step === 6 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Venue Choice</h3>
           <p className="text-xs text-text-muted">
@@ -2669,8 +2629,8 @@ function CreateProjectForm({
         </div>
       )}
 
-      {/* Step 8: Project Summary */}
-      {step === 8 && (
+      {/* Step 7: Project Summary */}
+      {step === 7 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-text-primary">Project Summary</h3>
           <div className="bg-elevated border border-border rounded-lg p-3 space-y-3">
@@ -2712,8 +2672,7 @@ function CreateProjectForm({
             <FormField label="Talent Agency">
               <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
                 {projectTourMgmtCompanyId != null
-                  ? (tourMgmtStepOptions.find((o) => o.value === String(projectTourMgmtCompanyId))?.label ??
-                    `Company #${projectTourMgmtCompanyId}`)
+                  ? (selectedTour?.talentAgencyCompanyName?.trim() || `Company #${projectTourMgmtCompanyId}`)
                   : '—'}
               </div>
             </FormField>
@@ -2829,9 +2788,8 @@ function CreateProjectForm({
                 (step === 1 && !canProceedStep1) ||
                 (step === 2 && !canProceedStep2) ||
                 (step === 3 && !canProceedDateRange) ||
-                (step === 5 && !canProceedTourMgmt) ||
-                (step === 6 && !canProceedMarkets) ||
-                (step === 7 && (!canProceedVenues || !canProceedVenueStatusStep || venuesWizardQuery.isPending)) ||
+                (step === 5 && !canProceedMarkets) ||
+                (step === 6 && (!canProceedVenues || !canProceedVenueStatusStep || venuesWizardQuery.isPending)) ||
                 saving
               }
               className="inline-flex items-center justify-center gap-2 min-w-[8rem] bg-ems-accent hover:bg-ems-accent/80 text-background px-5 py-1.5 rounded-md text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
