@@ -260,12 +260,12 @@ function TourCardReadOnly({
   onOpenTour,
 }: {
   t: ApiTourListRow;
-  onOpenTour: (tourId: number) => void;
+  onOpenTour: (tour: ApiTourListRow) => void;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onOpenTour(t.tourId)}
+      onClick={() => onOpenTour(t)}
       className="w-full text-left bg-elevated border border-border rounded-lg p-3 space-y-2.5 hover:bg-hover/60 transition-colors"
       title="Open this tour in Tours tab"
     >
@@ -477,7 +477,7 @@ function AttractionSidePanel({
   attraction: ApiAttractionListRow;
   tours: ApiTourListRow[];
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  onOpenTour: (tourId: number) => void;
+  onOpenTour: (tour: ApiTourListRow) => void;
   onClose: () => void;
   onDelete: (a: ApiAttractionListRow) => void;
   /** Receives the fresh list row returned by PATCH /attractions/:id so the parent can patch its cache. */
@@ -2321,11 +2321,15 @@ export function AttractionToursPage({ addToast }: Props) {
           attraction={selectedAttraction}
           tours={attractionTours}
           addToast={addToast}
-          onOpenTour={(tourId) => {
+          onOpenTour={(tour) => {
             setSelectedAttractionId(null);
             setPageTab('Tours');
-            setSelectedTourId(tourId);
+            setSelectedTourId(tour.tourId);
+            setTourInput(tour.tourName);
+            setTourSearch(tour.tourName);
+            setShowTourSuggestions(false);
             setTourDrawerTab('Details');
+            setPage(1);
           }}
           onClose={() => setSelectedAttractionId(null)}
           onDelete={(a) => setPendingDeleteAttraction(a)}
