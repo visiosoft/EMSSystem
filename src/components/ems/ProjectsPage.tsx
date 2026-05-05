@@ -271,10 +271,6 @@ function ProjectInlineOverview({
   onGoToVenues: () => void;
   addToast: Props['addToast'];
 }) {
-  const parseAgentContactId = (raw: unknown): number | null => {
-    const n = Number(raw);
-    return Number.isInteger(n) && n > 0 ? n : null;
-  };
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [tourId, setTourId] = useState(project.tourId);
@@ -284,9 +280,6 @@ function ProjectInlineOverview({
   const [tourEndDate, setTourEndDate] = useState(project.tourEndDate ?? '');
   const [talentAgencyCompanyId, setTalentAgencyCompanyId] = useState<number | null>(
     project.talentAgencyCompanyId ?? null,
-  );
-  const [selectedTalentAgentContactId, setSelectedTalentAgentContactId] = useState<number | null>(
-    parseAgentContactId(project.agentContactId),
   );
   const [scopeTransitioning, setScopeTransitioning] = useState(false);
   const [selectedDmaIds, setSelectedDmaIds] = useState<number[]>(project.dmaIds ?? []);
@@ -306,7 +299,6 @@ function ProjectInlineOverview({
     setTourStartDate(project.tourStartDate ?? '');
     setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
-    setSelectedTalentAgentContactId(parseAgentContactId(project.agentContactId));
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
@@ -319,7 +311,6 @@ function ProjectInlineOverview({
     project.tourEndDate,
     project.projectStage,
     project.createdBy,
-    project.agentContactId,
     project.talentAgencyCompanyId,
     project.dmaIds,
   ]);
@@ -371,20 +362,6 @@ function ProjectInlineOverview({
       })),
     [talentAgentContactsQuery.data],
   );
-  const effectiveSelectedTalentAgentContactId = useMemo(() => {
-    if (selectedTalentAgentContactId == null || selectedTalentAgentContactId < 1) {
-      return null;
-    }
-    const rows = talentAgentContactsQuery.data ?? [];
-    if (rows.some((r) => r.contactId === selectedTalentAgentContactId)) {
-      return selectedTalentAgentContactId;
-    }
-    const byAssignment = rows.find(
-      (r) => r.contactAssignmentId === selectedTalentAgentContactId,
-    );
-    if (byAssignment) return byAssignment.contactId;
-    return selectedTalentAgentContactId;
-  }, [selectedTalentAgentContactId, talentAgentContactsQuery.data]);
 
   const onTourChange = (v: string) => {
     const nextTourId = v ? Number(v) : 0;
@@ -397,7 +374,6 @@ function ProjectInlineOverview({
         ? nextTour.talentAgencyCompanyId
         : null,
     );
-    setSelectedTalentAgentContactId(null);
     setDirty(true);
   };
 
@@ -427,7 +403,6 @@ function ProjectInlineOverview({
     setTourStartDate(project.tourStartDate ?? '');
     setTourEndDate(project.tourEndDate ?? '');
     setTalentAgencyCompanyId(project.talentAgencyCompanyId ?? null);
-    setSelectedTalentAgentContactId(parseAgentContactId(project.agentContactId));
     setSelectedDmaIds(project.dmaIds ?? []);
     setDmaDraftIds(project.dmaIds ?? []);
     setDmaModalSearch('');
@@ -479,13 +454,6 @@ function ProjectInlineOverview({
       addToast('Tour start date cannot be after end date.', 'warning');
       return;
     }
-    if (
-      effectiveSelectedTalentAgentContactId == null ||
-      effectiveSelectedTalentAgentContactId < 1
-    ) {
-      addToast('Talent Agent is required.', 'warning');
-      return;
-    }
     const previousDmaKey = [...(project.dmaIds ?? [])].sort((a, b) => a - b).join(',');
     const nextDmaKey = [...selectedDmaIds].sort((a, b) => a - b).join(',');
     const dmaChanged = previousDmaKey !== nextDmaKey;
@@ -501,11 +469,6 @@ function ProjectInlineOverview({
         tourEndDate: tourEndDate.trim(),
         projectStage: projectStage as ProjectStage,
         createdBy: createdBy.trim() || null,
-        agentContactId:
-          effectiveSelectedTalentAgentContactId != null &&
-          effectiveSelectedTalentAgentContactId >= 1
-            ? String(effectiveSelectedTalentAgentContactId)
-            : null,
         dmaIds: selectedDmaIds,
       });
       setDirty(false);
@@ -559,7 +522,6 @@ function ProjectInlineOverview({
                 value={effectiveTalentAgencyId != null ? String(effectiveTalentAgencyId) : ''}
                 onChange={(v) => {
                   setTalentAgencyCompanyId(v ? Number(v) : null);
-                  setSelectedTalentAgentContactId(null);
                   setDirty(true);
                 }}
                 options={talentAgencyOptions}
@@ -568,25 +530,27 @@ function ProjectInlineOverview({
               />
             )}
           </FormField>
-          <FormField label="Talent Agent" required>
-            <Select2
-              value={effectiveSelectedTalentAgentContactId != null ? String(effectiveSelectedTalentAgentContactId) : ''}
-              onChange={(v) => {
-                setSelectedTalentAgentContactId(v ? Number(v) : null);
-                setDirty(true);
-              }}
-              options={talentAgentOptions}
-              placeholder={
-                effectiveTalentAgencyId == null
-                  ? 'Choose talent agency first'
-                  : talentAgentContactsQuery.isPending
-                    ? 'Loading contacts…'
-                    : talentAgentOptions.length > 0
-                      ? 'Select talent agent…'
-                      : 'No contacts found for this agency'
-              }
-              disabled={effectiveTalentAgencyId == null || talentAgentContactsQuery.isPending}
-            />
+          <FormField label="Talent Agents (info only)">
+            <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
+              {effectiveTalentAgencyId == null
+                ? 'Choose talent agency first'
+                : talentAgentContactsQuery.isPending
+                  ? 'Loading contacts…'
+                  : talentAgentOptions.length > 0
+                    ? (
+                      <div className="flex flex-wrap gap-2">
+                        {talentAgentOptions.map((o) => (
+                          <span
+                            key={o.value}
+                            className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                          >
+                            {o.label}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                    : 'No talent agents found for this agency'}
+            </div>
           </FormField>
           <FormField label="Tour Start Date" required>
             <input
@@ -1733,7 +1697,6 @@ function CreateProjectForm({
   );
   /** Wizard step 3 — talent agency; persisted on dbo.Tour.TalentAgencyCompanyID when the project is created. */
   const [projectTourMgmtCompanyId, setProjectTourMgmtCompanyId] = useState<number | null>(null);
-  const [selectedTalentAgentContactId, setSelectedTalentAgentContactId] = useState<number | null>(null);
   /** Labels for any DMA row we have shown or toggled (survives search/scroll changes). */
   const [dmaSeenLabels, setDmaSeenLabels] = useState(() => new Map<number, string>());
 
@@ -1955,10 +1918,6 @@ function CreateProjectForm({
     }
   }, [selectedTourId, tours]);
 
-  useEffect(() => {
-    setSelectedTalentAgentContactId(null);
-  }, [projectTourMgmtCompanyId]);
-
   /** One section per selected market (even if no venues pass type/search filters). */
   const venuesGroupedBySelectedDma = useMemo(() => {
     const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
@@ -2026,8 +1985,6 @@ function CreateProjectForm({
     dateRangeStart <= dateRangeEnd;
   const canProceedTourMgmt =
     projectTourMgmtCompanyId != null && projectTourMgmtCompanyId >= 1;
-  const canProceedTalentAgent =
-    selectedTalentAgentContactId != null && selectedTalentAgentContactId >= 1;
   const canProceedMarkets = selectedDmaIds.length > 0;
   const canProceedVenues = selectedVenueCompanyIds.length > 0;
   const canProceedVenueStatusStep = wizardVenueStatus.trim().length > 0;
@@ -2036,7 +1993,6 @@ function CreateProjectForm({
     selectedTourId != null &&
     canProceedDateRange &&
     canProceedTourMgmt &&
-    canProceedTalentAgent &&
     canProceedMarkets &&
     canProceedVenues &&
     canProceedVenueStatusStep &&
@@ -2050,10 +2006,6 @@ function CreateProjectForm({
     }
     if (step === 5 && !canProceedTourMgmt) {
       addToast('Select a Talent Agency for this project.', 'warning');
-      return;
-    }
-    if (step === 5 && !canProceedTalentAgent) {
-      addToast('Select a Talent Agent for this project.', 'warning');
       return;
     }
     if (step === 6 && !canProceedMarkets) {
@@ -2117,10 +2069,6 @@ function CreateProjectForm({
       addToast('Select a Talent Agency on the Talent step.', 'error');
       return;
     }
-    if (selectedTalentAgentContactId == null || selectedTalentAgentContactId < 1) {
-      addToast('Select a Talent Agent on the Talent step.', 'error');
-      return;
-    }
     if (selectedDmaIds.length === 0) {
       addToast('Select at least one market (DMA) on the Markets step.', 'error');
       return;
@@ -2153,10 +2101,6 @@ function CreateProjectForm({
         createdBy: createdBy.trim() ? createdBy.trim() : undefined,
         tourStartDate: dateRangeStart.trim(),
         tourEndDate: dateRangeEnd.trim(),
-        agentContactId:
-          selectedTalentAgentContactId != null
-            ? String(selectedTalentAgentContactId)
-            : undefined,
         dmaIds: selectedDmaIds,
         venues: venuesPayload,
       });
@@ -2450,7 +2394,7 @@ function CreateProjectForm({
 
       {step === 5 && (
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-text-primary">Talent Agency & Talent Agent</h3>
+          <h3 className="text-sm font-medium text-text-primary">Talent Agency & Talent Agents</h3>
           <p className="text-xs text-text-muted">
             {tourTalentAgencyLocked
               ? 'This tour already has a talent agency on file. It is shown below and cannot be changed from this wizard.'
@@ -2469,20 +2413,27 @@ function CreateProjectForm({
               disabled={tourMgmtSelectDisabled}
             />
           </FormField>
-          <FormField label="Talent Agent">
-            <Select2
-              options={talentAgentOptions}
-              value={selectedTalentAgentContactId != null ? String(selectedTalentAgentContactId) : ''}
-              onChange={(v) => setSelectedTalentAgentContactId(v ? Number(v) : null)}
-              placeholder={
-                projectTourMgmtCompanyId == null
-                  ? 'Select a Talent Agency first…'
-                  : talentAgentContactsQuery.isPending
-                    ? 'Loading contacts…'
-                    : 'Select a talent agent…'
-              }
-              disabled={projectTourMgmtCompanyId == null || talentAgentContactsQuery.isPending}
-            />
+          <FormField label="Talent Agents (info only)">
+            <div className="w-full min-w-0 bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary">
+              {projectTourMgmtCompanyId == null
+                ? 'Select a Talent Agency first…'
+                : talentAgentContactsQuery.isPending
+                  ? 'Loading contacts…'
+                  : talentAgentOptions.length > 0
+                    ? (
+                      <div className="flex flex-wrap gap-2">
+                        {talentAgentOptions.map((o) => (
+                          <span
+                            key={o.value}
+                            className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                          >
+                            {o.label}
+                          </span>
+                        ))}
+                      </div>
+                    )
+                    : 'No talent agents found for this agency'}
+            </div>
           </FormField>
           {projectTourMgmtCompanyId != null &&
             !talentAgentContactsQuery.isPending &&
@@ -2757,12 +2708,26 @@ function CreateProjectForm({
                   : '—'}
               </div>
             </FormField>
-            <FormField label="Talent Agent">
-              <div className="text-sm text-text-primary bg-surface px-3 py-1.5 rounded border border-border">
-                {selectedTalentAgentContactId != null
-                  ? (talentAgentOptions.find((o) => o.value === String(selectedTalentAgentContactId))?.label ??
-                    `Contact #${selectedTalentAgentContactId}`)
-                  : '—'}
+            <FormField label="Talent Agents (info only)">
+              <div className="text-sm text-text-primary bg-surface px-3 py-2 rounded border border-border">
+                {projectTourMgmtCompanyId == null
+                  ? '—'
+                  : talentAgentContactsQuery.isPending
+                    ? 'Loading contacts…'
+                    : talentAgentOptions.length > 0
+                      ? (
+                        <div className="flex flex-wrap gap-2">
+                          {talentAgentOptions.map((o) => (
+                            <span
+                              key={o.value}
+                              className="inline-flex items-center rounded-md border border-border bg-background px-2 py-1 text-xs text-text-primary"
+                            >
+                              {o.label}
+                            </span>
+                          ))}
+                        </div>
+                      )
+                      : 'No talent agents found for this agency'}
               </div>
             </FormField>
             <FormField label="Markets (DMAs)">
@@ -2837,7 +2802,7 @@ function CreateProjectForm({
                 (step === 1 && !canProceedStep1) ||
                 (step === 2 && !canProceedStep2) ||
                 (step === 3 && !canProceedDateRange) ||
-                (step === 5 && (!canProceedTourMgmt || !canProceedTalentAgent)) ||
+                (step === 5 && !canProceedTourMgmt) ||
                 (step === 6 && !canProceedMarkets) ||
                 (step === 7 && (!canProceedVenues || !canProceedVenueStatusStep || venuesWizardQuery.isPending)) ||
                 saving
