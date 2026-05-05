@@ -145,7 +145,7 @@ function AttractionToursTableSkeleton({
                   <th className="text-left py-2.5 px-3">Tour Name</th>
                   <th className="text-left py-2.5 px-3">Attraction</th>
                   <th className="text-left py-2.5 px-3">Class</th>
-                  <th className="text-left py-2.5 px-3">Tour Management Company</th>
+                  <th className="text-left py-2.5 px-3">TalentAgent</th>
                   <th className="w-10" />
                 </>
               )}
@@ -254,10 +254,21 @@ function getThumbnailUrl(entity: Record<string, unknown>): string | null {
   return null;
 }
 
-/** Read-only tour summary when viewing an attraction (editing is on the Tours tab / tour drawer). */
-function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
+/** Read-only tour summary when viewing an attraction, with quick-open to Tours tab. */
+function TourCardReadOnly({
+  t,
+  onOpenTour,
+}: {
+  t: ApiTourListRow;
+  onOpenTour: (tourId: number) => void;
+}) {
   return (
-    <div className="bg-elevated border border-border rounded-lg p-3 space-y-2.5">
+    <button
+      type="button"
+      onClick={() => onOpenTour(t.tourId)}
+      className="w-full text-left bg-elevated border border-border rounded-lg p-3 space-y-2.5 hover:bg-hover/60 transition-colors"
+      title="Open this tour in Tours tab"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="text-text-primary font-medium leading-snug">{t.tourName}</div>
@@ -273,10 +284,10 @@ function TourCardReadOnly({ t }: { t: ApiTourListRow }) {
         </span>
       </div>
       <div className="text-[11px] text-text-secondary">
-        <span className="text-text-muted">Tour Management Company </span>
+        <span className="text-text-muted">TalentAgent </span>
         {t.talentAgencyCompanyName ?? '—'}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -458,6 +469,7 @@ function AttractionSidePanel({
   attraction,
   tours,
   addToast,
+  onOpenTour,
   onClose,
   onDelete,
   onSaved,
@@ -465,6 +477,7 @@ function AttractionSidePanel({
   attraction: ApiAttractionListRow;
   tours: ApiTourListRow[];
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  onOpenTour: (tourId: number) => void;
   onClose: () => void;
   onDelete: (a: ApiAttractionListRow) => void;
   /** Receives the fresh list row returned by PATCH /attractions/:id so the parent can patch its cache. */
@@ -559,13 +572,13 @@ function AttractionSidePanel({
 
         <div>
           <h3 className="text-sm font-medium text-text-primary mb-1">Tours</h3>
-          <p className="text-[11px] text-text-muted mb-3">Reference only — not editable in this panel.</p>
+          <p className="text-[11px] text-text-muted mb-3">Click any tour card to open it in the Tours tab.</p>
           <div className="space-y-3">
             {tours.length === 0 && (
               <div className="text-text-muted text-sm">No tours attached yet.</div>
             )}
             {tours.map((t) => (
-              <TourCardReadOnly key={t.tourId} t={t} />
+              <TourCardReadOnly key={t.tourId} t={t} onOpenTour={onOpenTour} />
             ))}
           </div>
         </div>
@@ -905,7 +918,7 @@ function TourDrawer({
                 error={tourFieldErrors.classId}
               />
               <InlineSelectField
-                label="Tour Management Company"
+                label="TalentAgent"
                 value={talentAgencyCompanyId}
                 onChange={mark(setTalentAgencyCompanyId)}
                 options={mgmtOptions}
@@ -1078,11 +1091,11 @@ function TourDrawer({
         {activeTab === 'Contacts' && (
           <div>
             {!tour.talentAgencyCompanyId ? (
-              <p className="text-text-secondary">No Tour Management Company assigned to this tour.</p>
+              <p className="text-text-secondary">No TalentAgent assigned to this tour.</p>
             ) : contactsQuery.isLoading ? (
               <div className="flex items-center gap-2 text-text-muted"><Loader2 className="h-4 w-4 animate-spin" />Loading contacts…</div>
             ) : contacts.length === 0 ? (
-              <p className="text-text-secondary">No contacts listed for this Tour Management Company.</p>
+              <p className="text-text-secondary">No contacts listed for this TalentAgent.</p>
             ) : (
               <div className="space-y-3">
                 {contacts.map(c => (
@@ -2217,7 +2230,7 @@ export function AttractionToursPage({ addToast }: Props) {
                           className="inline-flex items-center gap-1 font-medium hover:text-text-primary"
                           onClick={() => toggleTourSort('management')}
                         >
-                          Tour Management Company
+                          TalentAgent
                           {tourSort.col === 'management' &&
                             (tourSort.dir === 'asc' ? (
                               <ArrowUp className="h-3.5 w-3.5 text-ems-accent" aria-hidden />
@@ -2308,6 +2321,12 @@ export function AttractionToursPage({ addToast }: Props) {
           attraction={selectedAttraction}
           tours={attractionTours}
           addToast={addToast}
+          onOpenTour={(tourId) => {
+            setSelectedAttractionId(null);
+            setPageTab('Tours');
+            setSelectedTourId(tourId);
+            setTourDrawerTab('Details');
+          }}
           onClose={() => setSelectedAttractionId(null)}
           onDelete={(a) => setPendingDeleteAttraction(a)}
           onSaved={(row) => upsertAttractionInCache(row)}
@@ -2700,7 +2719,7 @@ function TourFormDb({
           />
         </FormField>
       </div>
-      <FormField label="Tour Management Company">
+      <FormField label="TalentAgent">
         <Select2
           options={mgmtOptions}
           value={talentAgentCompanyId}
