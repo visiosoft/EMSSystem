@@ -1,6 +1,5 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsInt,
   IsNotEmpty,
@@ -26,10 +25,9 @@ export class UpdateCompanyDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @IsInt({ each: true })
   @Min(1, { each: true })
-  companyTypeIds?: number[];
+  serviceProvidedIds?: number[];
 
   @IsOptional()
   @IsInt()

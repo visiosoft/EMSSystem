@@ -17,6 +17,8 @@ export interface ApiCompanyListRow {
   companyTypeName: string;
   companyTypeIds: number[];
   companyTypeNames: string[];
+  serviceProvidedIds: number[];
+  serviceProvidedNames: string[];
   physicalCity: string;
   physicalStateProvince: string;
   dmaId: number | null;
@@ -201,8 +203,8 @@ export type ApiVenueDetailsResponse =
 
 export interface CreateCompanyPayload {
   companyName: string;
-  companyTypeId?: number;
-  companyTypeIds: number[];
+  companyTypeId: number;
+  serviceProvidedIds?: number[];
   dmaId?: number;
   physical: {
     addressLine1: string;
@@ -226,7 +228,7 @@ export interface CreateCompanyPayload {
 export interface UpdateCompanyPayload {
   companyName?: string;
   companyTypeId?: number;
-  companyTypeIds?: number[];
+  serviceProvidedIds?: number[];
   dmaId?: number;
   physical?: CreateCompanyPayload['physical'];
   mailing?: CreateCompanyPayload['mailing'];

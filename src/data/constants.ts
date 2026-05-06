@@ -81,6 +81,10 @@ export interface Company {
   companyTypeIds?: number[];
   /** All dbo.CompanyType names linked to this company. */
   companyTypeNames?: string[];
+  /** dbo.CompanyService.ServiceProvidedID values linked to this company. */
+  serviceProvidedIds?: number[];
+  /** dbo.ServiceProvided.ServiceName values linked to this company. */
+  serviceProvidedNames?: string[];
   /** dbo.Company.DMAID when loaded from API */
   dmaId?: number;
   /** dbo.DMA.MarketName for the company's DMAID (display). */

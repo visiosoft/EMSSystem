@@ -322,17 +322,21 @@ function InlineSelectField({
 // ─── Inline-editable Overview tab ────────────────────────────────────────────
 
 function InlineEditableOverview({
-  company, companyTypes, addToast, onSaved,
+  company, companyTypes, servicesProvided, addToast, onSaved,
 }: {
   company: Company;
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
+  servicesProvided: ApiServiceProvided[];
   addToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   /** Receives the fresh list row returned by PATCH /companies/:id so the parent can patch its cache. */
   onSaved: (row: ApiCompanyListRow) => void | Promise<void>;
 }) {
   const [name, setName]             = useState(company.name);
-  const [typeIds, setTypeIds]       = useState<string[]>(
-    (company.companyTypeIds ?? [])
+  const [typeId, setTypeId]         = useState<string>(
+    company.companyTypeId != null ? String(company.companyTypeId) : '',
+  );
+  const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(
+    (company.serviceProvidedIds ?? [])
       .map((id) => String(id))
       .filter((id) => id.trim().length > 0),
   );
@@ -475,6 +479,10 @@ function InlineEditableOverview({
   }, [physPostal, physCountry]);
 
   const typeOptions = companyTypes.map(t => ({ value: String(t.companyTypeId), label: t.companyTypeName }));
+  const serviceOptions = servicesProvided.map((service) => ({
+    value: String(service.serviceProvidedId),
+    label: service.serviceName,
+  }));
   const venueTypeIds = useMemo(
     () =>
       new Set(
@@ -493,20 +501,17 @@ function InlineEditableOverview({
       (name) => name.trim().toLowerCase() === 'venue',
     );
   }, [company.companyTypeIds, company.companyTypeNames, venueTypeIds]);
-  const hasVenueTypeAfter = useMemo(
-    () =>
-      typeIds
-        .map((id) => Number(id))
-        .filter((id) => Number.isInteger(id) && id > 0)
-        .some((id) => venueTypeIds.has(id)),
-    [typeIds, venueTypeIds],
-  );
+  const hasVenueTypeAfter = useMemo(() => {
+    const id = Number(typeId);
+    return Number.isInteger(id) && id > 0 && venueTypeIds.has(id);
+  }, [typeId, venueTypeIds]);
   const removingVenueType = hadVenueTypeBefore && !hasVenueTypeAfter;
 
   const discard = () => {
     setName(company.name);
-    setTypeIds(
-      (company.companyTypeIds ?? [])
+    setTypeId(company.companyTypeId != null ? String(company.companyTypeId) : '');
+    setServiceProvidedIds(
+      (company.serviceProvidedIds ?? [])
         .map((id) => String(id))
         .filter((id) => id.trim().length > 0),
     );
@@ -526,7 +531,7 @@ function InlineEditableOverview({
     const n = name.trim();
     if (!n) e.push('Company name is required.');
     else if (n.length > M.companyName) e.push(`Company name must be ${M.companyName} characters or fewer.`);
-    if (typeIds.length === 0) e.push('At least one company type is required.');
+    if (!typeId.trim()) e.push('Company type is required.');
     if (!physStreet.trim()) e.push('Physical street is required.');
     else if (physStreet.trim().length > M.addressLine1) e.push(`Physical street must be ${M.addressLine1} characters or fewer.`);
     if (!physCity.trim()) e.push('Physical city is required.');
@@ -587,7 +592,7 @@ function InlineEditableOverview({
     }
     return e;
   }, [
-    name, typeIds, physStreet, physCity, physState, physPostal, physCountry,
+    name, typeId, physStreet, physCity, physState, physPostal, physCountry,
     separateMailing, mailStreet, mailCity, mailState, mailPostal, mailCountry,
     company.dmaId, company.physicalPostalCode, resolvedDma, dmaLookupBusy,
   ]);
@@ -631,11 +636,13 @@ function InlineEditableOverview({
       );
       const updated = await updateCompany(Number(company.id), {
         companyName: name.trim().slice(0, M.companyName),
-        companyTypeIds: typeIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0),
         companyTypeId:
-          Number(typeIds[0]) > 0 && Number.isInteger(Number(typeIds[0]))
-            ? Number(typeIds[0])
+          Number(typeId) > 0 && Number.isInteger(Number(typeId))
+            ? Number(typeId)
             : undefined,
+        serviceProvidedIds: serviceProvidedIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
         dmaId: dmaIdToSend,
         physical: {
           addressLine1: physStreet.trim().slice(0, M.addressLine1),
@@ -857,17 +864,28 @@ function InlineEditableOverview({
               Company Type
               <span className="text-ems-coral ml-0.5">*</span>
             </label>
-            <Select2Multi
+            <Select2
               options={typeOptions}
-              values={typeIds}
-              onChange={mark(setTypeIds)}
-              placeholder="Select one or more company types…"
+              value={typeId}
+              onChange={mark(setTypeId)}
+              placeholder="Select company type…"
             />
             {removingVenueType && (
               <p className="text-[11px] text-amber-600 mt-1.5">
                 Warning: removing Venue type deletes this company&apos;s venue profile (and is blocked when linked to projects/engagements).
               </p>
             )}
+          </div>
+          <div>
+            <label className="text-xs text-text-muted block mb-0.5">
+              Company Services
+            </label>
+            <Select2Multi
+              options={serviceOptions}
+              values={serviceProvidedIds}
+              onChange={mark(setServiceProvidedIds)}
+              placeholder="Select one or more services…"
+            />
           </div>
           <div>
             <span className="text-xs text-text-muted">
@@ -1450,22 +1468,23 @@ const COMPANY_FORM_MAIL_ERR_KEYS = [
 
 function CompanyFormDb({
   companyTypes,
+  servicesProvided,
   initial,
   onSubmit,
   onCancel,
 }: {
   companyTypes: { companyTypeId: number; companyTypeName: string }[];
+  servicesProvided: ApiServiceProvided[];
   initial?: Company;
   onSubmit: (payload: CreateCompanyPayload | UpdateCompanyPayload) => Promise<void>;
   onCancel: () => void;
 }) {
   const [companyName, setCompanyName] = useState(initial?.name || '');
-  const [companyTypeIds, setCompanyTypeIds] = useState<string[]>(
-    initial?.companyTypeIds != null && initial.companyTypeIds.length > 0
-      ? initial.companyTypeIds.map((id) => String(id))
-      : initial?.companyTypeId != null
-        ? [String(initial.companyTypeId)]
-        : [],
+  const [companyTypeId, setCompanyTypeId] = useState<string>(
+    initial?.companyTypeId != null ? String(initial.companyTypeId) : '',
+  );
+  const [serviceProvidedIds, setServiceProvidedIds] = useState<string[]>(
+    (initial?.serviceProvidedIds ?? []).map((id) => String(id)),
   );
   const [resolvedDma, setResolvedDma] = useState<string | null>(
     initial?.dmaMarketName ?? null,
@@ -1514,13 +1533,10 @@ function CompanyFormDb({
   useEffect(() => {
     if (!initial) return;
     setCompanyName(initial.name);
-    setCompanyTypeIds(
-      initial.companyTypeIds != null && initial.companyTypeIds.length > 0
-        ? initial.companyTypeIds.map((id) => String(id))
-        : initial.companyTypeId != null
-          ? [String(initial.companyTypeId)]
-          : [],
+    setCompanyTypeId(
+      initial.companyTypeId != null ? String(initial.companyTypeId) : '',
     );
+    setServiceProvidedIds((initial.serviceProvidedIds ?? []).map((id) => String(id)));
     setPhysicalStreet(initial.physicalStreet || '');
     setPhysicalCity(initial.physicalCity || '');
     setPhysicalState(initial.physicalState || '');
@@ -1718,6 +1734,14 @@ function CompanyFormDb({
       })),
     [companyTypes],
   );
+  const serviceOpts = useMemo(
+    () =>
+      servicesProvided.map((service) => ({
+        value: String(service.serviceProvidedId),
+        label: service.serviceName,
+      })),
+    [servicesProvided],
+  );
 
   const handleSave = async () => {
     const M = COMPANY_FORM;
@@ -1727,7 +1751,7 @@ function CompanyFormDb({
     else if (n.length > M.companyName) {
       next.companyName = `Company name must be ${M.companyName} characters or fewer.`;
     }
-    if (companyTypeIds.length === 0) next.companyType = 'Select at least one company type.';
+    if (!companyTypeId.trim()) next.companyType = 'Select company type.';
 
     if (!physicalStreet.trim()) next.physicalStreet = 'Physical street is required.';
     else if (physicalStreet.trim().length > M.addressLine1) {
@@ -1835,13 +1859,10 @@ function CompanyFormDb({
 
     const base: CreateCompanyPayload = {
       companyName: companyName.trim().slice(0, M.companyName),
-      companyTypeIds: companyTypeIds
+      companyTypeId: Number(companyTypeId),
+      serviceProvidedIds: serviceProvidedIds
         .map((id) => Number(id))
         .filter((id) => Number.isInteger(id) && id > 0),
-      companyTypeId:
-        Number(companyTypeIds[0]) > 0 && Number.isInteger(Number(companyTypeIds[0]))
-          ? Number(companyTypeIds[0])
-          : undefined,
       physical,
       mailingSameAsPhysical,
       mailing,
@@ -1860,14 +1881,22 @@ function CompanyFormDb({
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FormField label="Company Type" required error={fieldErrors.companyType}>
-          <Select2Multi
+          <Select2
             options={typeOpts}
-            values={companyTypeIds}
-            onChange={(values) => {
-              setCompanyTypeIds(values);
+            value={companyTypeId}
+            onChange={(value) => {
+              setCompanyTypeId(value);
               clearError('companyType');
             }}
-            placeholder="Select one or more company types…"
+            placeholder="Select company type…"
+          />
+        </FormField>
+        <FormField label="Company Services">
+          <Select2Multi
+            options={serviceOpts}
+            values={serviceProvidedIds}
+            onChange={setServiceProvidedIds}
+            placeholder="Select one or more services…"
           />
         </FormField>
       </div>
@@ -3030,6 +3059,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
                 key={String(selectedCompany.id)}
                 company={selectedCompany}
                 companyTypes={lookupsQuery.data.companyTypes}
+                servicesProvided={servicesProvided}
                 addToast={addToast}
                 onSaved={(row) => {
                   upsertCompanyInCache();
@@ -3290,6 +3320,7 @@ export function CompaniesPage({ addToast, initialSelectedCompanyId }: Props) {
           <CompanyFormDb
             key="add-company"
             companyTypes={lookupsQuery.data.companyTypes}
+            servicesProvided={servicesProvided}
             onCancel={() => setShowAddModal(false)}
             onSubmit={async (payload) => {
               try {

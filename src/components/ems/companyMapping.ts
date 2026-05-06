@@ -15,6 +15,8 @@ export function mapApiCompanyToCompany(row: ApiCompanyListRow): Company {
     companyTypeId: row.companyTypeId,
     companyTypeIds: row.companyTypeIds ?? [row.companyTypeId].filter((v): v is number => Number.isFinite(v)),
     companyTypeNames: row.companyTypeNames ?? [row.companyTypeName].filter(Boolean),
+    serviceProvidedIds: row.serviceProvidedIds ?? [],
+    serviceProvidedNames: row.serviceProvidedNames ?? [],
     dmaId: row.dmaId,
     dmaMarketName: row.dmaMarketName,
     name: row.companyName,

@@ -129,6 +129,8 @@ export interface CompanyListRow {
   companyTypeName: string;
   companyTypeIds: number[];
   companyTypeNames: string[];
+  serviceProvidedIds: number[];
+  serviceProvidedNames: string[];
   physicalCity: string;
   physicalStateProvince: string;
   dmaId: number | null;
@@ -252,15 +254,12 @@ export class CompanyService {
     }
   }
 
-  private normalizeCompanyTypeIds(
-    primary?: number | null,
-    many?: number[] | null,
-  ): number[] {
-    const fromMany = Array.isArray(many) ? many : [];
-    const combined = [...fromMany, primary ?? undefined]
+  private normalizeServiceProvidedIds(ids?: number[] | null): number[] {
+    const list = Array.isArray(ids) ? ids : [];
+    const cleaned = list
       .map((id) => Number(id))
       .filter((id) => Number.isInteger(id) && id > 0);
-    return [...new Set(combined)];
+    return [...new Set(cleaned)];
   }
 
   private async resolveCompanyTypeLinkTableName(
@@ -405,22 +404,59 @@ export class CompanyService {
     return out;
   }
 
+  private async collectCompanyServicesByCompanyId(
+    companyIds: number[],
+    em?: EntityManager,
+  ): Promise<Map<number, ServiceProvided[]>> {
+    const ids = [...new Set(companyIds.filter((id) => Number.isInteger(id) && id > 0))];
+    const out = new Map<number, ServiceProvided[]>();
+    if (ids.length === 0) return out;
+
+    const rows = await (em?.getRepository(CompanyServiceEntity) ?? this.companyServiceRepo).find({
+      where: { companyId: In(ids) },
+      relations: { serviceProvided: true },
+    });
+
+    for (const row of rows) {
+      const service = row.serviceProvided;
+      if (!service) continue;
+      const list = out.get(row.companyId) ?? [];
+      if (!list.some((s) => s.serviceProvidedId === service.serviceProvidedId)) {
+        list.push(service);
+      }
+      out.set(row.companyId, list);
+    }
+    for (const [companyId, list] of out.entries()) {
+      list.sort((a, b) =>
+        a.serviceName.localeCompare(b.serviceName, undefined, { sensitivity: 'base' }),
+      );
+      out.set(companyId, list);
+    }
+    return out;
+  }
+
   private mapCompanyToDetail(
     company: Company,
     typeMap: Map<number, CompanyType[]>,
+    serviceMap: Map<number, ServiceProvided[]>,
   ): CompanyDetail {
     const allTypes = typeMap.get(company.companyId) ?? [];
+    const allServices = serviceMap.get(company.companyId) ?? [];
     const primary =
-      allTypes.find((type) => type.companyTypeId === company.companyTypeId) ??
       company.companyType ??
+      allTypes.find((type) => type.companyTypeId === company.companyTypeId) ??
       allTypes[0];
+    const primaryTypeId = primary?.companyTypeId ?? company.companyTypeId;
+    const primaryTypeName = primary?.companyTypeName ?? '';
     return {
       companyId: company.companyId,
       companyName: company.companyName,
-      companyTypeId: primary?.companyTypeId ?? company.companyTypeId,
-      companyTypeName: primary?.companyTypeName ?? '',
-      companyTypeIds: allTypes.map((type) => type.companyTypeId),
-      companyTypeNames: allTypes.map((type) => type.companyTypeName),
+      companyTypeId: primaryTypeId,
+      companyTypeName: primaryTypeName,
+      companyTypeIds: primaryTypeId > 0 ? [primaryTypeId] : [],
+      companyTypeNames: primaryTypeName ? [primaryTypeName] : [],
+      serviceProvidedIds: allServices.map((service) => service.serviceProvidedId),
+      serviceProvidedNames: allServices.map((service) => service.serviceName),
       physicalCity: company.physicalAddress?.city ?? '',
       physicalStateProvince: company.physicalAddress?.stateProvince ?? '',
       dmaId: company.dmaid,
@@ -428,6 +464,22 @@ export class CompanyService {
       physicalAddress: company.physicalAddress,
       mailingAddress: company.mailingAddress,
     };
+  }
+
+  private async syncCompanyServices(
+    em: EntityManager,
+    companyId: number,
+    serviceProvidedIds: number[],
+  ): Promise<void> {
+    await em.delete(CompanyServiceEntity, { companyId });
+    if (serviceProvidedIds.length === 0) return;
+    const rows = serviceProvidedIds.map((serviceProvidedId) =>
+      em.create(CompanyServiceEntity, {
+        companyId,
+        serviceProvidedId,
+      }),
+    );
+    await em.save(CompanyServiceEntity, rows);
   }
 
   private async syncCompanyTypes(
@@ -1536,7 +1588,10 @@ export class CompanyService {
     const typeMap = await this.collectCompanyTypesByCompanyId(
       rows.map((row) => row.companyId),
     );
-    return rows.map((c) => this.mapCompanyToDetail(c, typeMap));
+    const serviceMap = await this.collectCompanyServicesByCompanyId(
+      rows.map((row) => row.companyId),
+    );
+    return rows.map((c) => this.mapCompanyToDetail(c, typeMap, serviceMap));
   }
 
   async findAllPaginated(
@@ -1594,22 +1649,7 @@ export class CompanyService {
           )`,
         );
       } else {
-        const linkTable = await this.resolveCompanyTypeLinkTableName();
-        if (linkTable) {
-          const safeTable = this.safeDbIdentifier(linkTable);
-          qb.andWhere(
-            `(ct.companyTypeName = :typeName OR EXISTS (
-              SELECT 1
-              FROM [dbo].${safeTable} ctm
-              INNER JOIN [dbo].[CompanyType] ctf ON ctf.CompanyTypeID = ctm.CompanyTypeID
-              WHERE ctm.CompanyID = c.CompanyID
-                AND ctf.CompanyTypeName = :typeName
-            ))`,
-            { typeName },
-          );
-        } else {
-          qb.andWhere('ct.companyTypeName = :typeName', { typeName });
-        }
+        qb.andWhere('ct.companyTypeName = :typeName', { typeName });
       }
     }
 
@@ -1618,9 +1658,12 @@ export class CompanyService {
     const typeMap = await this.collectCompanyTypesByCompanyId(
       rows.map((row) => row.companyId),
     );
+    const serviceMap = await this.collectCompanyServicesByCompanyId(
+      rows.map((row) => row.companyId),
+    );
 
     return {
-      data: rows.map((c) => this.mapCompanyToDetail(c, typeMap)),
+      data: rows.map((c) => this.mapCompanyToDetail(c, typeMap, serviceMap)),
       total,
     };
   }
@@ -1637,27 +1680,36 @@ export class CompanyService {
     });
     if (!c) throw new NotFoundException(`Company ${companyId} not found`);
     const typeMap = await this.collectCompanyTypesByCompanyId([c.companyId]);
-    return this.mapCompanyToDetail(c, typeMap);
+    const serviceMap = await this.collectCompanyServicesByCompanyId([c.companyId]);
+    return this.mapCompanyToDetail(c, typeMap, serviceMap);
   }
 
   async create(dto: CreateCompanyDto): Promise<CompanyDetail> {
-    const companyTypeIds = this.normalizeCompanyTypeIds(
-      dto.companyTypeId,
-      dto.companyTypeIds,
-    );
-    if (companyTypeIds.length === 0) {
+    const companyTypeId = Number(dto.companyTypeId);
+    if (!Number.isInteger(companyTypeId) || companyTypeId < 1) {
       throw new BadRequestException({
-        message: 'Pick at least one company type.',
+        message: 'Pick a company type.',
       });
     }
-    const knownTypeCount = await this.companyTypeRepo.count({
-      where: { companyTypeId: In(companyTypeIds) },
+    const knownType = await this.companyTypeRepo.findOne({
+      where: { companyTypeId },
     });
-    if (knownTypeCount !== companyTypeIds.length) {
+    if (!knownType) {
       throw new BadRequestException({
-        message:
-          'One or more selected company types are not valid. Pick from the company type list.',
+        message: 'Selected company type is not valid. Pick from the company type list.',
       });
+    }
+    const serviceProvidedIds = this.normalizeServiceProvidedIds(dto.serviceProvidedIds);
+    if (serviceProvidedIds.length > 0) {
+      const knownServiceCount = await this.serviceProvidedRepo.count({
+        where: { serviceProvidedId: In(serviceProvidedIds) },
+      });
+      if (knownServiceCount !== serviceProvidedIds.length) {
+        throw new BadRequestException({
+          message:
+            'One or more selected company services are not valid. Pick from the company services list.',
+        });
+      }
     }
 
     const dmaId =
@@ -1689,18 +1741,18 @@ export class CompanyService {
 
       const company = em.create(Company, {
         companyName: dto.companyName.trim(),
-        companyTypeId: companyTypeIds[0],
+        companyTypeId,
         physicalAddressId: savedPhysical.addressId,
         mailingAddressId: mailingId,
         dmaid: dmaId,
       });
       const row = await em.save(Company, company);
-      await this.syncCompanyTypes(em, row.companyId, companyTypeIds);
+      await this.syncCompanyServices(em, row.companyId, serviceProvidedIds);
       await this.ensureVenueRowForCompanyTypes(
         em,
         row.companyId,
         row.companyName,
-        companyTypeIds,
+        [companyTypeId],
       );
       return row;
     });
@@ -2315,10 +2367,7 @@ export class CompanyService {
     });
     if (!existing)
       throw new NotFoundException(`Company ${companyId} not found`);
-    const existingCompanyTypeIds = await this.loadEffectiveCompanyTypeIds(
-      companyId,
-      existing.companyTypeId,
-    );
+    const existingCompanyTypeIds = [existing.companyTypeId];
 
     const oldPhysicalId = existing.physicalAddressId;
     const oldMailingId = existing.mailingAddressId;
@@ -2351,14 +2400,21 @@ export class CompanyService {
     if (dto.companyName !== undefined) {
       existing.companyName = dto.companyName.trim();
     }
-    const requestedCompanyTypeIds = this.normalizeCompanyTypeIds(
-      dto.companyTypeId,
-      dto.companyTypeIds,
-    );
-    const nextCompanyTypeIds =
-      requestedCompanyTypeIds.length > 0
-        ? requestedCompanyTypeIds
-        : existingCompanyTypeIds;
+    const nextCompanyTypeId =
+      dto.companyTypeId != null && Number.isInteger(dto.companyTypeId) && dto.companyTypeId > 0
+        ? Number(dto.companyTypeId)
+        : existing.companyTypeId;
+    if (dto.companyTypeId != null) {
+      const knownType = await this.companyTypeRepo.findOne({
+        where: { companyTypeId: nextCompanyTypeId },
+      });
+      if (!knownType) {
+        throw new BadRequestException({
+          message: 'Selected company type is not valid. Pick from the company type list.',
+        });
+      }
+    }
+    const nextCompanyTypeIds = [nextCompanyTypeId];
     const hadVenueTypeBefore = await this.typeIdsIncludeVenue(
       existingCompanyTypeIds,
     );
@@ -2368,7 +2424,24 @@ export class CompanyService {
       nextCompanyTypeIds.some((id) => !existingCompanyTypeIds.includes(id));
     if (companyTypesChanged) {
       await this.assertCompanyTypeChangeAllowed(companyId, nextCompanyTypeIds);
-      existing.companyTypeId = nextCompanyTypeIds[0];
+      existing.companyTypeId = nextCompanyTypeId;
+    }
+
+    const requestedServiceProvidedIds = dto.serviceProvidedIds;
+    const nextServiceProvidedIds =
+      requestedServiceProvidedIds != null
+        ? this.normalizeServiceProvidedIds(requestedServiceProvidedIds)
+        : null;
+    if (nextServiceProvidedIds != null && nextServiceProvidedIds.length > 0) {
+      const knownServiceCount = await this.serviceProvidedRepo.count({
+        where: { serviceProvidedId: In(nextServiceProvidedIds) },
+      });
+      if (knownServiceCount !== nextServiceProvidedIds.length) {
+        throw new BadRequestException({
+          message:
+            'One or more selected company services are not valid. Pick from the company services list.',
+        });
+      }
     }
 
     /** Do not clear DMA: ignore null/0 from client; keep existing when re-resolution fails. */
@@ -2413,9 +2486,8 @@ export class CompanyService {
     }
 
     await this.companyRepo.save(existing);
-    if (companyTypesChanged) {
+    if (companyTypesChanged || nextServiceProvidedIds != null) {
       await this.dataSource.transaction(async (em) => {
-        await this.syncCompanyTypes(em, companyId, nextCompanyTypeIds);
         await this.ensureVenueRowForCompanyTypes(
           em,
           companyId,
@@ -2424,6 +2496,9 @@ export class CompanyService {
         );
         if (hadVenueTypeBefore && !hasVenueTypeAfter) {
           await this.deleteVenueProfileForCompany(em, companyId);
+        }
+        if (nextServiceProvidedIds != null) {
+          await this.syncCompanyServices(em, companyId, nextServiceProvidedIds);
         }
       });
     }
@@ -2496,6 +2571,7 @@ export class CompanyService {
         await manager.query(
           `DELETE FROM [dbo].[CompanyXref] WHERE [CompanyID] = ${cid}`,
         );
+        await manager.delete(CompanyServiceEntity, { companyId });
         // Venue-type companies get a dbo.Venue row (1:1 on CompanyID). Remove it
         // before Company or SQL Server will block the delete with an FK error.
         await manager.delete(Venue, { companyId });
